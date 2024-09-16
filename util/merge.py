@@ -22,7 +22,7 @@ def format_filter_condition(snowpark_session, src_table, tgt_table,src_filter, t
   # -- Execute the Merge Statement
   s_final_result = ""
   #if s_merge_stament.upper() != 'ERROR':
-  if s_merge_stament != 'ERROR':
+  if s_merge_stament != 'Error':
     print("\n\n@@@ {}".format(s_merge_stament))
     src_table_col = snowpark_session.sql(s_merge_stament).collect()
     s_final_result = "Number of Rows Inserted: {0} Updated:{1}".format(str(src_table_col[0][0]), str(src_table_col[0][1]))
@@ -41,18 +41,17 @@ def format_insert_upsert(snowpark_session, src_table, tgt_table, s_filter_cond):
     update_col = list()
     insert_sel = list()
     insert_val = list()
-    
-    src_table_col = snowpark_session.sql("select COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '{0}' ORDER BY ORDINAL_POSITION".format(src_table)).collect()
-    tgt_table_col = snowpark_session.sql("select COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '{0}' ORDER BY ORDINAL_POSITION".format(tgt_table)).collect()
-        
+    schema_name = snowpark_session.get_current_schema().replace('"','')
+    src_table_col = snowpark_session.sql("select COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '{0}' AND TABLE_SCHEMA = \'{1}\' ORDER BY ORDINAL_POSITION".format(src_table,schema_name)).collect()
+    tgt_table_col = snowpark_session.sql("select COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '{0}' AND TABLE_SCHEMA = \'{1}\' ORDER BY ORDINAL_POSITION".format(tgt_table,schema_name)).collect()
+
     if len(src_table_col) != 0:
-        
         for idx_value in range(len(src_table_col)):
             sel_colum.append('"'+src_table_col[idx_value][0]+'"')
             insert_val.append("src." + '"' + str(src_table_col[idx_value][0]) + '"')
             insert_sel.append("tgt." + '"' + str(tgt_table_col[idx_value][0]) + '"')
             update_col.append("tgt." + '"' + str(tgt_table_col[idx_value][0]) + '"' + ' = ' + "src." + '"' + str(src_table_col[idx_value][0]) + '"')
-        
+
         s_merge_stmt = """
                     MERGE INTO
                        {0} tgt

@@ -20,6 +20,9 @@ def describe(session, access_info, sobject, lmd=None):
 	create_table_fields = ''
 	cfields = []
 	df_fields = {}
+	if results.status_code > 200:
+		print("you are not logged in")
+		exit(0)
 	for field in results.json()['fields']:
 		if field['compoundFieldName'] is not None and field['compoundFieldName'] not in cfields:
 			cfields.append(field['compoundFieldName'])

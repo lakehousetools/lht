@@ -1,17 +1,7 @@
+import os
 import requests		
 from snowflake.snowpark import Session
-
-connection_parameters = {
-    "account": "jwa11064",
-    "user": "dankauppi",
-    "password": "O^ICSPqkc33&",
-    "role": "DTSO_PROVIDER",  # optional
-    "warehouse": "DTSO_WH",  # optional
-    "database": "DTSO_PROVIDER_DATA",  # optional
-    "schema": "CORE",  # optional
-}  
-
-dtso_session = Session.builder.configs(connection_parameters).create() 
+import json
 
 def get_refresh_token(session, user_name):
 	query = """select 
@@ -57,3 +47,10 @@ def salesforce_oauth(session, token, prod):
 	r = requests.post(url, headers=headers, data=payload)
 	return r.json()
 	
+def get_access_token():
+	current_dir = os.path.dirname(os.path.abspath(__file__))
+	creds_path = os.path.join(current_dir, '..', '.snowflake', 'token.json')
+	with open(creds_path, 'r') as file:
+		file_str = file.read()
+	access_info = file_str.replace("'", '"')
+	return json.loads(access_info)
