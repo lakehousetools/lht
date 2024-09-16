@@ -1,5 +1,5 @@
 import pandas as pd
-from . import describe_sobject as desc
+from . import sobjects as sobj, sobject_query as sobj_query
 import os
 import json
 from util import merge
@@ -20,14 +20,13 @@ def new_changed_records(session, sobject, local_table, match_field, lmd=None):
 
         results_df = session.sql(local_query).collect()
         lmd = pd.to_datetime(results_df[0]['LASTMODIFIEDDATE'])
-        print(lmd)
 
     if lmd is not None:
         lmd_sf = str(pd.to_datetime(lmd))[:10]+'T'+str(pd.to_datetime(lmd))[11:19]+'.000z'
     else:
         lmd_sf = None
     tmp_table = 'TMP_{}'.format(local_table)
-    session.sql("CREATE or REPLACE TEMPORARY TABLE {} LIKE {}""".format(tmp_table,local_table)).collect()
+    session.sql("CREATE or REPLACE TABLE {} LIKE {}""".format(tmp_table,local_table)).collect()
 
     #get the columns from the local table.  There may be fields that are not in the local table
     #and the salesforce sync will need to skip them
@@ -36,10 +35,10 @@ def new_changed_records(session, sobject, local_table, match_field, lmd=None):
     for field in results:
         table_fields.append(field[2]) 
  
-    query, df_fields, create_table_fields = desc.describe(session, access_info, sobject, lmd_sf)
+    query, df_fields, create_table_fields = sobj.describe(session, access_info, sobject, lmd_sf)
     print(query)
 
-    desc.query_records(session, access_info, query, sobject, local_table, df_fields, table_fields)
+    sobj_query.query_records(session, access_info, query, sobject, local_table, df_fields, table_fields)
     merge.format_filter_condition(session, tmp_table, local_table,match_field, match_field)
     return query
 

@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import tempfile
 
 
 def salesforce_field_type(field_type):
@@ -111,3 +112,29 @@ def convert_field_types(df, df_fieldsets, table_fields):
 			#df[col] = pd.to_datetime(df[col],errors='coerce').dt.datetime64
 	df = df.replace(np.nan, None)
 	return df.rename(columns={col: col.upper() for col in df.columns})
+
+def cache_data(data):
+	with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+		temp_file.write(data)
+		temp_file_path = temp_file.name
+	#print("  {}".format(temp_file_path))
+	return temp_file_path
+
+
+def format_sync_file(df, df_fields):
+	for col, dtype in df_fields.items():
+		try:
+			if dtype == 'int64':
+				df[col] = pd.to_numeric(df[col], errors='coerce').astype('Int64')
+			elif dtype == 'object':
+				df[col] = df[col].astype(str)
+			elif dtype == 'float64':
+				df[col] = pd.to_numeric(df[col], errors='coerce').astype('float64')
+			elif dtype == 'bool':
+				df[col] = pd.to_numeric(df[col], errors='coerce').astype('bool')
+			elif dtype == 'datetime64':
+				df[col] = pd.to_datetime(df[col], errors='coerce')
+				#df[col] = df[col].astype(str)
+		except Exception as e:
+			print("field not found {}".format(e))
+	return df
