@@ -3,28 +3,6 @@ import requests
 from snowflake.snowpark import Session
 import json
 
-def get_refresh_token(session, user_name):
-	query = """select 
-			s.REFRESH_TOKEN,
-			u.USER_NAME,
-			CASE
-			when i.custom_domain ilike '%.sandbox.%' then 0
-			else 1
-			end as PRODUCTION,
-			u.org_id
-			from DTSO_PROVIDER_DATA.CORE.SESSION s
-			join DTSO_PROVIDER_DATA.CORE.USER u
-			ON u.ORG_ID = s.ORG_ID and u.USER_ID = s.USER_ID
-			join DTSO_PROVIDER_DATA.CORE.INSTANCE i
-			on i.org_id = u.org_id
-			where user_name = \'{}\'""".format(user_name)
-	results_df = dtso_session.sql(query).collect()
-	refresh_token = results_df[0]['REFRESH_TOKEN']
-	prod = results_df[0]['PRODUCTION']
-	org_id = results_df[0]['ORG_ID']
-	
-	return refresh_token, prod, org_id
-
 def salesforce_oauth(session, token, prod):
 	headers = {'content-Type': 'application/x-www-form-urlencoded'}
 	if prod == 1:
