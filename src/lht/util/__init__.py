@@ -1,1 +1,1 @@
-from .soql_query import soql_query  # If this is how you want to import it
+from .soql_query import build_soql  # If this is how you want to import it
