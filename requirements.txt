@@ -1,0 +1,9 @@
+numpy==2.1.0
+oauthlib==3.2.2
+pandas==2.2.2
+python-dateutil==2.9.0.post0
+requests
+requests-oauthlib
+snowflake-connector-python
+snowflake-snowpark-python
+toml==0.10.2
