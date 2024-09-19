@@ -1,5 +1,5 @@
 import requests
-from util import field_types 
+from ..util import field_types 
 
 def describe(session, access_info, sobject, lmd=None):
 	headers = {
