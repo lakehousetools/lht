@@ -1,5 +1,5 @@
 import requests
-from ..util import field_types 
+from util import field_types 
 
 def describe(session, access_info, sobject, lmd=None):
 	headers = {
@@ -20,17 +20,20 @@ def describe(session, access_info, sobject, lmd=None):
 	create_table_fields = ''
 	cfields = []
 	df_fields = {}
+	#print("\n\n@@@ RESULTS {}".format(results.json()))
 	if results.status_code > 200:
 		print("you are not logged in")
 		exit(0)
 	for field in results.json()['fields']:
-		if field['compoundFieldName'] is not None and field['compoundFieldName'] not in cfields:
+		
+		if field['compoundFieldName'] is not None and field['compoundFieldName'] not in cfields and field['compoundFieldName'] != 'Name':
 			cfields.append(field['compoundFieldName'])
 	for row in results.json()['fields']:
 		if row['name'] in cfields:
 			continue
 		if len(query_fields) == 0:
-			print("first time")
+			#print("first time")
+			pass
 		else:
 			query_fields +='+,'
 			create_table_fields +=','

@@ -55,7 +55,6 @@ def query_status(access_info, job_type, job_id):
 	return query_statuses
 
 def get_bulk_results(session, access_info, job_id, sobject, schema, table):
-
 	headers = {
 			"Authorization":"Bearer {}".format(access_info['access_token']),
 			"Content-Type": "application/json"
@@ -72,11 +71,15 @@ def get_bulk_results(session, access_info, job_id, sobject, schema, table):
 		df = pd.read_csv(temp_file_path)
 		print("\n\nFILE 1:{}".format(temp_file_path))
 		query_string, df_fields, create_table_fields = sobjects.describe(session, access_info, sobject)
+
 		formatted_df = field_types.format_sync_file(df, df_fields)
+
 		formatted_df = formatted_df.replace(np.nan, None)
+
+		#formatted_df = formatted_df[string_columns].fillna('')
 		schema_table = schema+"."+table
-		session.write_pandas(formatted_df, schema_table, quote_identifiers=False, auto_create_table=False, overwrite=True)
-		print("\n\nHEADERS {}".format(results.headers))
+		session.write_pandas(formatted_df, schema_table, quote_identifiers=False, auto_create_table=True, overwrite=True,use_logical_type=True)
+		#print("\n\nHEADERS {}".format(results.headers))
 		if os.path.exists(temp_file_path):
 			# Remove the file
 			os.remove(temp_file_path)
@@ -86,7 +89,7 @@ def get_bulk_results(session, access_info, job_id, sobject, schema, table):
 				break
 			elif results.headers['Sforce-Locator'] == 'null':
 				break
-			print("\n\nHEADERS {}".format(results.headers))
+			#print("\n\nHEADERS {}".format(results.headers))
 			url = access_info['instance_url']+"/services/data/v58.0/jobs/query/{}/results?locator={}".format(job_id,results.headers['Sforce-Locator'])
 			results = requests.get(url, headers=headers)
 			temp_file_path = field_types.cache_data(results.text.encode('utf-8'))
@@ -95,9 +98,10 @@ def get_bulk_results(session, access_info, job_id, sobject, schema, table):
 			df = pd.read_csv(temp_file_path)
 			formatted_df = field_types.format_sync_file(df, df_fields)
 			formatted_df = formatted_df.replace(np.nan, None)
-			#print(temp_file_path)
+		
 			schema_table = schema+"."+table
-			session.write_pandas(formatted_df, schema_table, quote_identifiers=False, auto_create_table=False, overwrite=False)
+			session.write_pandas(formatted_df, schema_table, quote_identifiers=False, auto_create_table=False, overwrite=False,use_logical_type=True)
+			#session.write_pandas(formatted_df, schema_table, quote_identifiers=False, auto_create_table=False, overwrite=False)
 			if os.path.exists(temp_file_path):
 				# Remove the file
 				os.remove(temp_file_path)

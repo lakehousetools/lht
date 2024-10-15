@@ -4,15 +4,15 @@ import os
 import json
 from util import merge
 
-def new_changed_records(session, sobject, local_table, match_field, lmd=None):
+def new_changed_records(session, access_info, sobject, local_table, match_field, lmd=None):
     current_dir = os.path.dirname(os.path.abspath(__file__))
     creds_path = os.path.join(current_dir, '..', '.snowflake', 'token.json')
 
-    with open(creds_path, 'r') as file:
+    """with open(creds_path, 'r') as file:
         file_str = file.read()
     access_info1 = file_str.replace("'", '"')
     access_info = json.loads(access_info1)
-    print(type(access_info))
+    print(type(access_info))"""
 
     if lmd is None:
         #get the most recent last modified date
@@ -36,9 +36,10 @@ def new_changed_records(session, sobject, local_table, match_field, lmd=None):
         table_fields.append(field[2]) 
  
     query, df_fields, create_table_fields = sobj.describe(session, access_info, sobject, lmd_sf)
-    print(query)
+    #print(query)
 
     sobj_query.query_records(session, access_info, query, sobject, local_table, df_fields, table_fields)
+
     merge.format_filter_condition(session, tmp_table, local_table,match_field, match_field)
     return query
 
