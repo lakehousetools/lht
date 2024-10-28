@@ -1,13 +1,12 @@
 
 import toml
-#from salesforce import sobject_create
-from salesforce import sobject_create, sobject_sync, query_bapi20 as bapi20
+from salesforce import sobject_create, sobject_sync, query_bapi20 as bapi20, retl
 from util import soql_query as soql
 from snowflake.snowpark import Session
 from user import auth
 import argparse
-#from user import salesforce_login as sf_login
-import json
+from args import retl_args as rargs, results_args as res_args
+from util import log_retl as log
 
 def snowflake_connection(connection_name):
     config = toml.load(".snowflake/connections.toml")
@@ -77,13 +76,21 @@ def main():
     bulk_results_parser.add_argument('--username', '--u', type=str, required=True, help='The username you wish to use to login to Salesforce')
     bulk_results_parser.add_argument('--db_connect','--db', type=str, required=False, help='The Snowflake database connection')
 
+    retl_a = subparsers.add_parser('retl_upsert', help='Reverse ETL upsert data into Salesforce')
+    rargs.retl_bulk_args(retl_a)
+
+    retl_del = subparsers.add_parser('retl_delete', help='Reverse ETL delete data from Salesforce')
+    rargs.retl_delete_args(retl_del)
+
+    retl_res = subparsers.add_parser('results', help='Log the results of a job')
+    res_args.retl_results_args(retl_res)
+
     subparsers.add_parser('login', help='Sync something')
 
     sfdc_info = 'radnet_salesforce_sandbox'
     #sandbox is radnet_salesforce_sandbox
     #prod is salesforce_prod]
  
-    # Parse the arguments
     args = parser.parse_args()
 
     # Handle the subcommands
@@ -118,6 +125,19 @@ def main():
             job_type = args.job_type
         bapi20_info = bapi20.query_status(auth.get_salesforce_token(session,sfdc_info, f"{args.username}"), job_type, f"{args.job_id}")
         print(bapi20_info)
+    elif args.command == 'retl_upsert':
+        session = snowflake_connection(f"{args.db_connect}")
+        retl_upsert_outcome = retl.upsert(session, auth.get_salesforce_token(session,sfdc_info, f"{args.username}"), f"{args.sobject}", f"{args.query}", f"{args.field}")
+    elif args.command == 'retl_delete':
+        session = snowflake_connection(f"{args.db_connect}")
+        print("here")
+
+        retl_delete_outcome = retl.delete(session, auth.get_salesforce_token(session,sfdc_info, f"{args.username}"), f"{args.sobject}", f"{args.query}", f"{args.field}")
+    elif args.command == 'results':
+        
+        session = snowflake_connection(f"{args.db_connect}")
+        log_res = log.log_results(session, auth.get_salesforce_token(session,sfdc_info,  f"{args.username}"), f"{args.job_id}", f"{args.schema}", f"{args.table}")
+    
     elif args.command == 'login':
         sf_login.authenticate()
     else:

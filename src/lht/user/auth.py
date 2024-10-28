@@ -99,7 +99,7 @@ def get_user(session, user):
 		#schema['name'] = result['SPECIALTY']
 		#schemas.append(schema)
 		#schema = {}
-	print("\n\nRESULT {}\n\n".format(results))
+	print("\n\nRESULT {}\n\n".format(user))
 	if len(results) == 0:
 		print("invalid user")
 		exit(0)

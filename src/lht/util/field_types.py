@@ -49,6 +49,8 @@ def salesforce_field_type(field_type):
 		return 'number({},{})'.format(field_type['precision'], field_type['scale'])
 	elif field_type['type'] == 'combobox':
 		return 'string({})'.format(field_type['length'])
+	elif field_type['type'] == 'encryptedstring':
+		return 'string({})'.format(field_type['length'])
 	else:
 		print("KACK {}".format(field_type['type']))
 		exit(0)
@@ -75,7 +77,8 @@ def df_field_type(field_type):
 	elif field_type['type'] == 'datetime':
 		return 'datetime64'
 	elif field_type['type'] == 'date':
-		return 'datetime64[ns]'
+		#return 'datetime64[ns]'
+		return 'object'
 	elif field_type['type'] == 'address':
 		return 'object'
 	elif field_type['type'] == 'url':
