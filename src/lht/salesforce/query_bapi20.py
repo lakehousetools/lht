@@ -78,7 +78,8 @@ def get_bulk_results(session, access_info, job_id, sobject, schema, table):
 
 		#formatted_df = formatted_df[string_columns].fillna('')
 		schema_table = schema+"."+table
-		session.write_pandas(formatted_df, schema_table, quote_identifiers=False, auto_create_table=True, overwrite=True,use_logical_type=True)
+
+		session.write_pandas(formatted_df, schema_table, quote_identifiers=False, auto_create_table=True, overwrite=True,use_logical_type=True, on_error="CONTINUE")
 		#print("\n\nHEADERS {}".format(results.headers))
 		if os.path.exists(temp_file_path):
 			# Remove the file
@@ -90,6 +91,7 @@ def get_bulk_results(session, access_info, job_id, sobject, schema, table):
 			elif results.headers['Sforce-Locator'] == 'null':
 				break
 			#print("\n\nHEADERS {}".format(results.headers))
+
 			url = access_info['instance_url']+"/services/data/v58.0/jobs/query/{}/results?locator={}".format(job_id,results.headers['Sforce-Locator'])
 			results = requests.get(url, headers=headers)
 			temp_file_path = field_types.cache_data(results.text.encode('utf-8'))
@@ -100,7 +102,7 @@ def get_bulk_results(session, access_info, job_id, sobject, schema, table):
 			formatted_df = formatted_df.replace(np.nan, None)
 		
 			schema_table = schema+"."+table
-			session.write_pandas(formatted_df, schema_table, quote_identifiers=False, auto_create_table=False, overwrite=False,use_logical_type=True)
+			session.write_pandas(formatted_df, schema_table, quote_identifiers=False, auto_create_table=False, overwrite=False,use_logical_type=True, on_error="CONTINUE")
 			#session.write_pandas(formatted_df, schema_table, quote_identifiers=False, auto_create_table=False, overwrite=False)
 			if os.path.exists(temp_file_path):
 				# Remove the file
