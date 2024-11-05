@@ -15,8 +15,11 @@ def json_to_csv(json_data):
     writer = csv.writer(output)
 
     # Write the header (keys of the first dictionary)
-    writer.writerow(json_data[0].keys())
-
+    try:
+        writer.writerow(json_data[0].keys())
+    except:
+        print("no data to process")
+        exit(0)
     # Write the data (values of each dictionary)
     for item in json_data:
         writer.writerow(item.values())

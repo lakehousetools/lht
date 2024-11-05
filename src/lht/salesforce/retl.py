@@ -27,7 +27,6 @@ def upsert(session, access_info, sobject, query, field):
     print("creating job")
     response = requests.post(bulk_api_url, headers=headers, data=json.dumps(job_data))
     job_info = response.json()
-
     log_retl.job(session, job_info)
 
     job_id = job_info['id']
