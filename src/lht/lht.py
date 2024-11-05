@@ -1,4 +1,3 @@
-
 import toml
 from salesforce import sobject_create, sobject_sync, query_bapi20 as bapi20, retl
 from util import soql_query as soql
@@ -87,8 +86,8 @@ def main():
 
     subparsers.add_parser('login', help='Sync something')
 
-    sfdc_info = 'radnet_salesforce_sandbox'
-    #sandbox is radnet_salesforce_sandbox
+    sfdc_info = 'salesforce_sandbox'
+    #sandbox is salesforce_sandbox
     #prod is salesforce_prod]
  
     args = parser.parse_args()
