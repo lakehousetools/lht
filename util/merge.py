@@ -9,7 +9,7 @@ def format_filter_condition(snowpark_session, src_table, tgt_table,src_filter, t
   # -- Note : Filter condition order matters here:
   if len(split_src) == len(split_tgt):
     for i in range(len(split_src)):
-        print(i)
+        #print(i)
         filter_cond.append('src.'+ '"' + split_src[i]+ '"' + '= tgt.'+ '"' +split_tgt[i]+ '"')
   else:
     return "Error"
@@ -23,7 +23,7 @@ def format_filter_condition(snowpark_session, src_table, tgt_table,src_filter, t
   s_final_result = ""
   #if s_merge_stament.upper() != 'ERROR':
   if s_merge_stament != 'Error':
-    print("\n\n@@@ {}".format(s_merge_stament))
+    #print("\n\n@@@ {}".format(s_merge_stament))
     src_table_col = snowpark_session.sql(s_merge_stament).collect()
     s_final_result = "Number of Rows Inserted: {0} Updated:{1}".format(str(src_table_col[0][0]), str(src_table_col[0][1]))
     

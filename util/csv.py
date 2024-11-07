@@ -19,7 +19,7 @@ def json_to_csv(json_data):
         writer.writerow(json_data[0].keys())
     except:
         print("no data to process")
-        exit(0)
+        return None
     # Write the data (values of each dictionary)
     for item in json_data:
         writer.writerow(item.values())

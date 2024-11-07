@@ -81,6 +81,9 @@ def main():
     retl_del = subparsers.add_parser('retl_delete', help='Reverse ETL delete data from Salesforce')
     rargs.retl_delete_args(retl_del)
 
+    retl_insert = subparsers.add_parser('retl_insert', help='Reverse ETL insert data from Salesforce')
+    rargs.retl_bulk_insert_args(retl_insert)
+
     retl_res = subparsers.add_parser('results', help='Log the results of a job')
     res_args.retl_results_args(retl_res)
 
@@ -110,6 +113,8 @@ def main():
         query = soql.build_soql(session,access_token, f"{args.sobject}")
         bapi20_request = bapi20.create_batch_query(access_token, query)
         print(bapi20_request)
+
+
     elif args.command == 'bulk_results':
         #access_token = auth.get_access_token()
         session = snowflake_connection(f"{args.db_connect}")
@@ -127,6 +132,10 @@ def main():
     elif args.command == 'retl_upsert':
         session = snowflake_connection(f"{args.db_connect}")
         retl_upsert_outcome = retl.upsert(session, auth.get_salesforce_token(session,sfdc_info, f"{args.username}"), f"{args.sobject}", f"{args.query}", f"{args.field}")
+    elif args.command == 'retl_insert':
+        session = snowflake_connection(f"{args.db_connect}")
+        retl_upsert_outcome = retl.insert(session, auth.get_salesforce_token(session,sfdc_info, f"{args.username}"), f"{args.sobject}", f"{args.query}")
+
     elif args.command == 'retl_delete':
         session = snowflake_connection(f"{args.db_connect}")
         print("here")
