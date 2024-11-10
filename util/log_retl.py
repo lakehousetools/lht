@@ -23,7 +23,6 @@ def successful_results(access_info, job_id):
     }
     response = requests.get(url, headers=headers)
     results = csv.success_upserts(response.text, job_id)
-    #response.raise_for_status()
 
     return results
 
@@ -35,25 +34,22 @@ def failed_results(access_info, job_id):
         'Accept': 'text/csv'
     }
     response = requests.get(url, headers=headers)
-    response.raise_for_status()
-    print("@@@ STATUS {}".format(response.text))
-    return response.text
+    results = csv.fail_upserts(response.text, job_id)
 
-def log_results(session, access_info, job_id, schema, table):   
+    return results
+
+def log_results(session, access_info, job_id, schema):   
     if check_log(session, job_id) > 0:
         return "see existing logs"
     else:
         successes = successful_results(access_info, job_id)
-        print(successes)
-        
-        session.write_pandas(successes, 'RADNET_SANDBOX.LOGS.RETL_RESULTS', quote_identifiers=False, auto_create_table=False, overwrite=False,use_logical_type=True)
-        #def success_upserts(data):
-        #
+        if len(successes) > 0:
+            session.write_pandas(successes, 'RETL_RESULTS', schema=schema, quote_identifiers=False, auto_create_table=False, overwrite=False,use_logical_type=True)
+
         failures = failed_results(access_info, job_id)
-        
-        #print(successes)
-        print("\n---------------------------\n")
-        print(failures)
+        if len(failures) > 0:
+            session.write_pandas(failures, 'RETL_FAILURES', schema=schema, quote_identifiers=False, auto_create_table=True, overwrite=False,use_logical_type=True)
+
     return None
 
 

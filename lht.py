@@ -144,7 +144,7 @@ def main():
     elif args.command == 'results':
         
         session = snowflake_connection(f"{args.db_connect}")
-        log_res = log.log_results(session, auth.get_salesforce_token(session,sfdc_info,  f"{args.username}"), f"{args.job_id}", f"{args.schema}", f"{args.table}")
+        log_res = log.log_results(session, auth.get_salesforce_token(session,sfdc_info,  f"{args.username}"), f"{args.job_id}", f"{args.schema}")
     
     elif args.command == 'login':
         sf_login.authenticate()
