@@ -38,7 +38,6 @@ def success_upserts(data, job_id):
     header = next(csv_reader, None)
     record = {}
     records = []
-    update_field = header[3]
     
     if header:
         row_count = 1  # If header exists, count it as a row
