@@ -36,7 +36,6 @@ def success_upserts(data, job_id):
     csv_reader = csv.reader(csv_file)
 
     header = next(csv_reader, None)
-
     record = {}
     records = []
     update_field = header[3]
@@ -48,11 +47,39 @@ def success_upserts(data, job_id):
         record['HISTORY_ID'] = job_id
         record['SF_ID'] = row[0]
         record['SF_CREATED'] = row[1]
-        record['SF_ERROR'] = ''
-        record['MATCH_FIELD'] = update_field
-        record['MATCH_ID'] = row[3]
+        #if 'sf__Error' in row:
+        #record['SF_ERROR'] = ''
+        #record['MATCH_FIELD'] = update_field
+        #record['MATCH_ID'] = row[3]
         records.append(record)
         record = {}
     df = pd.DataFrame(records)
     return df
     
+def fail_upserts(data, job_id):
+    csv_file = io.StringIO(data)
+
+    csv_reader = csv.reader(csv_file)
+
+    header = next(csv_reader, None)
+
+    record = {}
+    records = []
+    
+    if header:
+        row_count = 1  # If header exists, count it as a row
+        print("@@@{}\n".format(header))
+    for row in csv_reader:
+        record['HISTORY_ID'] = job_id
+        record['SF_ID'] = row[0]
+        record['SF_CREATED'] = False
+        #if 'sf__Error' in row:
+        record['SF_ERROR'] = row[1]
+        record['HEADERS'] = header
+        record['RESULTS'] = row
+        #record['MATCH_FIELD'] = None
+        #record['MATCH_ID'] = None
+        records.append(record)
+        record = {}
+    df = pd.DataFrame(records)
+    return df

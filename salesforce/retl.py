@@ -67,8 +67,9 @@ def insert(session, access_info, sobject, query):
 
     # Create a new job
     job_data = {
-        "object": f"{sobject}",  # Specify the Salesforce object
-        "operation": "insert",  # Use upsert operation
+        "object": f"{sobject}",  
+        "contentType" : "CSV",
+        "operation": "insert",  
         "lineEnding" : "CRLF"
     }
 
@@ -119,8 +120,9 @@ def delete(session, access_info, sobject, query, field):
 
     # Create a new job
     job_data = {
-        "object": f"{sobject}",  # Specify the Salesforce object
-        "operation": "delete",  # Field to use for upsert
+        "object": f"{sobject}",  
+        "contentType" : "CSV",
+        "operation": "delete", 
         "lineEnding" : "CRLF"
     }
 
