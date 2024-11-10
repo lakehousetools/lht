@@ -15,7 +15,7 @@ def query_records(session, access_info, query, sobject, local_table, df_fields, 
 	results = requests.get(url, headers=headers)
 	if results.json()['totalSize'] == 0:
 		print("nothing to process")
-		exit(0)
+		return None
 	sobj_data = pd.json_normalize(results.json()['records'])
 	batch_counter = 1
 	try:
