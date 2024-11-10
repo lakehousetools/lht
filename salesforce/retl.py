@@ -57,6 +57,8 @@ def upsert(session, access_info, sobject, query, field):
             break
         time.sleep(10)
 
+    return job_info
+
 def insert(session, access_info, sobject, query):
     access_token = access_info['access_token']
 
@@ -108,6 +110,8 @@ def insert(session, access_info, sobject, query):
         if close_results['state'] == 'JobComplete':
             break
         time.sleep(10)
+
+    return job_info
 
 def delete(session, access_info, sobject, query, field):
 
@@ -162,3 +166,5 @@ def delete(session, access_info, sobject, query, field):
         if close_results['state'] == 'JobComplete':
             break
         time.sleep(10)
+    
+    return job_info
