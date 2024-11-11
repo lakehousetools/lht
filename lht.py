@@ -27,6 +27,12 @@ def snowflake_connection(connection_name):
     session = sessionBuilder.create()
     return session
 
+def instance_type(type):
+    if type == 1:
+    #prod is salesforce_prod]
+        return 'salesforce_prod'
+    else:
+        return 'salesforce_sandbox'
 
 def main():
     # Create the top-level parser
@@ -38,7 +44,8 @@ def main():
     create_parser.add_argument('--sobject','--sobj', type=str, required=True, help='The Salesforce sobject to create')
     create_parser.add_argument('--table', '--t', type=str, required=True, help='The name of the table to create')
     create_parser.add_argument('--username', '--u', type=str, required=True, help='The username you wish to use to login to Salesforce')
-    create_parser.add_argument('--db_connect','--db', type=str, required=False, help='The Snowflake database connection')
+    create_parser.add_argument('--db_connect','--db', type=str, required=True, help='The Snowflake database connection')
+    create_parser.add_argument('--instance_type','--instance', type=int, required=True, help='Salesforce Instance Type:  1 = Productio; 0 = Sandbox')
 
     # Define the "sync" subcommand
     sync_parser = subparsers.add_parser('sync', help='Sync something')
@@ -48,6 +55,7 @@ def main():
     sync_parser.add_argument('--username', '--u', type=str, required=True, help='The username you wish to use to login to Salesforce')
     sync_parser.add_argument('--db_connect','--db', type=str, required=True, help='The Snowflake database connection')
     sync_parser.add_argument('--lastmodifieddate', '--lmd', type=str, required=False, help='The date and time for the most recent record after which records will be synchronized.  The format is YYYY-MM-DD HH:MM:SS')
+    sync_parser.add_argument('--instance_type','--instance', type=int, required=True, help='Salesforce Instance Type:  1 = Productio; 0 = Sandbox')
 
     #   Define the "bulk query 2.0" subcommand
     bulk_query_parser = subparsers.add_parser('query', help='Bulk query an sobject')
@@ -55,12 +63,16 @@ def main():
     bulk_query_parser.add_argument('--sobject', '--sobj', type=str, required=True, help='The name of the table to create')
     bulk_query_parser.add_argument('--username', '--u', type=str, required=True, help='The username you wish to use to login to Salesforce')
     bulk_query_parser.add_argument('--db_connect','--db', type=str, required=False, help='The Snowflake database connection')
+    bulk_query_parser.add_argument('--instance_type','--instance', type=int, required=True, help='Salesforce Instance Type:  1 = Productio; 0 = Sandbox')
+
 
     bulk_status_parser = subparsers.add_parser('bulk_status', help='Get the status of bulk jobs')
     bulk_status_parser.add_argument('--job_id','--id', help='Get the status of a job.  If omitted, it will return the status of all jobs')
     bulk_status_parser.add_argument('--job_type','--type', required=False, help='Filter by the type of job. Options are Classic, V2Ingest, V2Query.  If blank, will return all')
     bulk_status_parser.add_argument('--username', '--u', type=str, required=True, help='The username you wish to use to login to Salesforce')
     bulk_status_parser.add_argument('--db_connect','--db', type=str, required=False, help='The Snowflake database connection')
+    bulk_status_parser.add_argument('--instance_type','--instance', type=int, required=True, help='Salesforce Instance Type:  1 = Productio; 0 = Sandbox')
+
     #job types include:
     #BigObjectIngest: BigObjects job
     #Classic: Bulk API 1.0 job
@@ -74,6 +86,8 @@ def main():
     bulk_results_parser.add_argument('--table', help='the table to load the data into')
     bulk_results_parser.add_argument('--username', '--u', type=str, required=True, help='The username you wish to use to login to Salesforce')
     bulk_results_parser.add_argument('--db_connect','--db', type=str, required=False, help='The Snowflake database connection')
+    bulk_results_parser.add_argument('--instance_type','--instance', type=int, required=True, help='Salesforce Instance Type:  1 = Productio; 0 = Sandbox')
+
 
     retl_a = subparsers.add_parser('retl_upsert', help='Reverse ETL upsert data into Salesforce')
     rargs.retl_bulk_args(retl_a)
@@ -89,7 +103,8 @@ def main():
 
     subparsers.add_parser('login', help='Sync something')
 
-    sfdc_info = 'salesforce_sandbox'
+    
+    #sfdc_info = 'salesforce_sandbox'
     #sandbox is salesforce_sandbox
     #prod is salesforce_prod]
  
@@ -98,17 +113,18 @@ def main():
     # Handle the subcommands
     if args.command == 'create':
         session = snowflake_connection(f"{args.db_connect}")
-        # access_token = auth.get_access_token()
+        sfdc_info = instance_type(args.instance_type)
         sobject_create.create(session,auth.get_salesforce_token(session,sfdc_info, f"{args.username}"), f"{args.sobject}", f"{args.table}")
     elif args.command == 'sync':
         session = snowflake_connection(f"{args.db_connect}")
+        sfdc_info = instance_type(args.instance_type)
         if args.lastmodifieddate is None:
             sobject_sync.new_changed_records(session, auth.get_salesforce_token(session,sfdc_info, f"{args.username}"), f"{args.sobject}", f"{args.table}",f"{args.sync_field}")
         else:
             sobject_sync.new_changed_records(session, auth.get_salesforce_token(session,sfdc_info, f"{args.username}"), f"{args.sobject}", f"{args.table}",f"{args.sync_field}",f"{args.lastmodifieddate}" )
     elif args.command == 'query':
-        #access_token = auth.get_access_token()
         session = snowflake_connection(f"{args.db_connect}")
+        sfdc_info = instance_type(args.instance_type)
         access_token = auth.get_salesforce_token(session,sfdc_info, f"{args.username}")
         query = soql.build_soql(session,access_token, f"{args.sobject}")
         bapi20_request = bapi20.create_batch_query(access_token, query)
@@ -116,13 +132,13 @@ def main():
 
 
     elif args.command == 'bulk_results':
-        #access_token = auth.get_access_token()
         session = snowflake_connection(f"{args.db_connect}")
+        sfdc_info = instance_type(args.instance_type)
         bapi20.get_bulk_results(session, auth.get_salesforce_token(session,sfdc_info, f"{args.username}"),  f"{args.job_id}",  f"{args.sobject}", f"{args.schema}", f"{args.table}")
 
     elif args.command == 'bulk_status':
-        #access_token = auth.get_access_token()
         session = snowflake_connection(f"{args.db_connect}")
+        sfdc_info = instance_type(args.instance_type)
         if args.job_type == 'None':
             job_type = None
         else:
@@ -131,19 +147,21 @@ def main():
         print(bapi20_info)
     elif args.command == 'retl_upsert':
         session = snowflake_connection(f"{args.db_connect}")
+        sfdc_info = instance_type(args.instance_type)
         retl_upsert_outcome = retl.upsert(session, auth.get_salesforce_token(session,sfdc_info, f"{args.username}"), f"{args.sobject}", f"{args.query}", f"{args.field}")
     elif args.command == 'retl_insert':
         session = snowflake_connection(f"{args.db_connect}")
+        sfdc_info = instance_type(args.instance_type)
         retl_upsert_outcome = retl.insert(session, auth.get_salesforce_token(session,sfdc_info, f"{args.username}"), f"{args.sobject}", f"{args.query}")
 
     elif args.command == 'retl_delete':
         session = snowflake_connection(f"{args.db_connect}")
-        print("here")
-
+        sfdc_info = instance_type(args.instance_type)
         retl_delete_outcome = retl.delete(session, auth.get_salesforce_token(session,sfdc_info, f"{args.username}"), f"{args.sobject}", f"{args.query}", f"{args.field}")
     elif args.command == 'results':
         
         session = snowflake_connection(f"{args.db_connect}")
+        sfdc_info = instance_type(args.instance_type)
         log_res = log.log_results(session, auth.get_salesforce_token(session,sfdc_info,  f"{args.username}"), f"{args.job_id}", f"{args.schema}")
     
     elif args.command == 'login':

@@ -18,16 +18,11 @@ def sf_login():
 
 
 def get_salesforce_token(session, sfdc_info, username):
-	print('here')
 	config = toml.load(".snowflake/connections.toml")
 	salesforce_access = config[sfdc_info]
-	#salesforce_tokens = sf_login()
-	print("\n\nUSER {}".format(username))
 	refresh_token = get_user(session, username)
-	print("\n\nREFRESH TOKEN {}".format(refresh_token))
 	headers = {'content-Type': 'application/x-www-form-urlencoded'}
 	if salesforce_access['sandbox']== False:
-		print("here {}".format(refresh_token))
 		payload = {
 			'grant_type': 'refresh_token full',
 			'client_id': salesforce_access['CLIENT_ID'],
