@@ -95,8 +95,11 @@ def main():
     retl_del = subparsers.add_parser('retl_delete', help='Reverse ETL delete data from Salesforce')
     rargs.retl_delete_args(retl_del)
 
-    retl_insert = subparsers.add_parser('retl_insert', help='Reverse ETL insert data from Salesforce')
+    retl_insert = subparsers.add_parser('retl_insert', help='Reverse ETL insert data into Salesforce')
     rargs.retl_bulk_insert_args(retl_insert)
+
+    retl_update = subparsers.add_parser('retl_update', help='Reverse ETL update data into Salesforce')
+    rargs.retl_update_args(retl_update)
 
     retl_res = subparsers.add_parser('results', help='Log the results of a job')
     res_args.retl_results_args(retl_res)
@@ -153,6 +156,11 @@ def main():
         session = snowflake_connection(f"{args.db_connect}")
         sfdc_info = instance_type(args.instance_type)
         retl_upsert_outcome = retl.insert(session, auth.get_salesforce_token(session,sfdc_info, f"{args.username}"), f"{args.sobject}", f"{args.query}")
+
+    elif args.command == 'retl_update':
+        session = snowflake_connection(f"{args.db_connect}")
+        sfdc_info = instance_type(args.instance_type)
+        retl_upsert_outcome = retl.update(session, auth.get_salesforce_token(session,sfdc_info, f"{args.username}"), f"{args.sobject}", f"{args.query}")
 
     elif args.command == 'retl_delete':
         session = snowflake_connection(f"{args.db_connect}")
