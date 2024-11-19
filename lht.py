@@ -102,6 +102,7 @@ def main():
     rargs.retl_update_args(retl_update)
 
     retl_res = subparsers.add_parser('results', help='Log the results of a job')
+    
     res_args.retl_results_args(retl_res)
 
     subparsers.add_parser('login', help='Sync something')
@@ -167,7 +168,7 @@ def main():
         sfdc_info = instance_type(args.instance_type)
         retl_delete_outcome = retl.delete(session, auth.get_salesforce_token(session,sfdc_info, f"{args.username}"), f"{args.sobject}", f"{args.query}", f"{args.field}")
     elif args.command == 'results':
-        
+        print('here')
         session = snowflake_connection(f"{args.db_connect}")
         sfdc_info = instance_type(args.instance_type)
         log_res = log.log_results(session, auth.get_salesforce_token(session,sfdc_info,  f"{args.username}"), f"{args.job_id}", f"{args.schema}")
