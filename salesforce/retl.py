@@ -27,7 +27,7 @@ def upsert(session, access_info, sobject, query, field):
     print("creating job")
     response = requests.post(bulk_api_url, headers=headers, data=json.dumps(job_data))
     job_info = response.json()
-    log_retl.job(session, job_info)
+    #log_retl.job(session, job_info)
 
     job_id = job_info['id']
 
@@ -80,7 +80,7 @@ def update(session, access_info, sobject, query):
     print("creating job")
     response = requests.post(bulk_api_url, headers=headers, data=json.dumps(job_data))
     job_info = response.json()
-    log_retl.job(session, job_info)
+    #log_retl.job(session, job_info)
 
     job_id = job_info['id']
 
@@ -134,7 +134,7 @@ def insert(session, access_info, sobject, query):
     print("creating job")
     response = requests.post(bulk_api_url, headers=headers, data=json.dumps(job_data))
     job_info = response.json()
-    log_retl.job(session, job_info)
+    #log_retl.job(session, job_info)
 
     job_id = job_info['id']
 
@@ -190,7 +190,7 @@ def delete(session, access_info, sobject, query, field):
     response = requests.post(bulk_api_url, headers=headers, data=json.dumps(job_data))
     job_info = response.json()
     print("@@@ JOB: {}".format(job_info))
-    log_retl.job(session, job_info)
+    #log_retl.job(session, job_info)
 
     job_id = job_info['id']
 
