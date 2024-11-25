@@ -11,7 +11,7 @@ def query_records(session, access_info, query, sobject, local_table, df_fields, 
 			"Sforce-Query-Options": "batchSize={}".format(batch_size)
 	}
 	url = access_info['instance_url']+"/services/data/v58.0/queryAll?q={}".format(query)
-	print(url)
+
 	results = requests.get(url, headers=headers)
 	if results.json()['totalSize'] == 0:
 		print("nothing to process")
@@ -26,7 +26,7 @@ def query_records(session, access_info, query, sobject, local_table, df_fields, 
 	try:
 		session.write_pandas(sobj_data, 'TMP_{}'.format(local_table),quote_identifiers=False,use_logical_type = True)	
 	except Exception as e:
-		#print(sobj_data)
+
 		print(e)
 		exit(0)
 	while True:
