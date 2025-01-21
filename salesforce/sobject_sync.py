@@ -1,7 +1,6 @@
 import pandas as pd
 from . import sobjects as sobj, sobject_query as sobj_query
 import os
-import json
 from util import merge
 
 def new_changed_records(session, access_info, sobject, local_table, match_field, lmd=None):
@@ -17,8 +16,9 @@ def new_changed_records(session, access_info, sobject, local_table, match_field,
     if lmd is None:
         #get the most recent last modified date
         local_query = """Select max(LastModifiedDate::timestamp_ntz) as LastModifiedDate from {}""".format(local_table)
-
+        print(local_query)
         results_df = session.sql(local_query).collect()
+        print(results_df)
         lmd = pd.to_datetime(results_df[0]['LASTMODIFIEDDATE'])
 
     if lmd is not None:
@@ -33,10 +33,14 @@ def new_changed_records(session, access_info, sobject, local_table, match_field,
     results = session.sql("SHOW COLUMNS IN TABLE TMP_{}".format(local_table)).collect()
     table_fields = []
     for field in results:
-        table_fields.append(field[2]) 
+        try:
+            table_fields.append(field[2]) 
+        except:
+            print("field {} not present.  Skipping".format(field[2]))
+            continue
  
     query, df_fields, create_table_fields = sobj.describe(session, access_info, sobject, lmd_sf)
-    #print(query)
+    print(query)
 
     sobj_query.query_records(session, access_info, query, sobject, local_table, df_fields, table_fields)
 
