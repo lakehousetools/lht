@@ -7,7 +7,7 @@ import requests
 import toml
 
 config = toml.load("./.snowflake/connections.toml")
-config = config['salesforce']
+config = config['salesforce_sandbox']
 
 # Replace these values with your app's client ID and secret
 CLIENT_ID = config["CLIENT_ID"]

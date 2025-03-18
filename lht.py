@@ -2,7 +2,7 @@ import toml
 from salesforce import sobject_create, sobject_sync, query_bapi20 as bapi20, retl
 from util import soql_query as soql
 from snowflake.snowpark import Session
-from user import auth
+from user import auth, salesforce_login
 import argparse
 from args import retl_args as rargs, results_args as res_args
 from util import log_retl as log
@@ -106,11 +106,6 @@ def main():
     res_args.retl_results_args(retl_res)
 
     subparsers.add_parser('login', help='Sync something')
-
-    
-    #sfdc_info = 'salesforce_sandbox'
-    #sandbox is salesforce_sandbox
-    #prod is salesforce_prod]
  
     args = parser.parse_args()
 
@@ -174,7 +169,7 @@ def main():
         log_res = log.log_results(session, auth.get_salesforce_token(session,sfdc_info,  f"{args.username}"), f"{args.job_id}", f"{args.schema}")
     
     elif args.command == 'login':
-        sf_login.authenticate()
+        salesforce_login.authenticate()
     else:
         parser.print_help()
 
