@@ -10,6 +10,8 @@ __pycache__/
 
 .snowflake/
 
+*.p8
+*.pub
 # C extensions
 *.so
 
