@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lht"
-version = "0.0.3"
+version = "0.0.5"
 authors = [
   { name="LHT Author", email="dan@solomo.io" },
 ]
@@ -17,11 +17,11 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "toml>=0.10.2",
     "pandas>=2.1.2",
     "snowflake-snowpark-python>=1.18.0",
-    "toml>=0.10.2",
-    "requests>=2.31.0"
+    "tomli>=2.0.2",
+    "requests>=2.31.0",
+    "requests_oauthlib"
 ]
 
 [project.urls]
