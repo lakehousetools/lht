@@ -1,4 +1,4 @@
-import toml
+import tomli as toml
 from salesforce import sobject_create, sobject_sync, query_bapi20 as bapi20, retl
 from util import soql_query as soql
 from snowflake.snowpark import Session
