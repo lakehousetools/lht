@@ -1,7 +1,7 @@
 import os
 import requests		
 from snowflake.snowpark import Session
-import toml
+import tomli as toml
 import json
 
 def sf_login():

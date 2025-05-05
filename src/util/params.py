@@ -1,4 +1,4 @@
-import toml
+import tomli as toml
 
 def get_param(group, item):
     config = toml.load(".snowflake/connections.toml")

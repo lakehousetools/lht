@@ -4,7 +4,7 @@ import webbrowser
 from requests_oauthlib import OAuth2Session
 from requests.auth import HTTPBasicAuth
 import requests
-import toml
+import tomli as toml
 
 CLIENT_ID = '3MVG9cHH2bfKACZbozJZ6VCTB.WIZcgxpPRcobzSVrhJW3.IEaOjkgUIVgWZkjJSIxZ2Zohhdg5uXjrqUF4HC'
 CLIENT_SECRET = 'C888F0F7EC1282FEB7D5A1A2C332811F12141656EFA903021CC696A799D4FCEF'
