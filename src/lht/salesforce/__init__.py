@@ -1,0 +1,1 @@
+from .sobjects import describe  # Expose describe directly, if needed
