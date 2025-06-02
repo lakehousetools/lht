@@ -1,7 +1,7 @@
 import requests
 from lht.util import field_types 
 
-def describe(session, access_info, sobject, lmd=None):
+def describe(access_info, sobject, lmd=None):
 	headers = {
 		"Authorization":"Bearer {}".format(access_info['access_token']),
 		"Accept": "application/json"
@@ -15,7 +15,9 @@ def describe(session, access_info, sobject, lmd=None):
 		print(e)
 		return None
 	results = requests.get(url, headers=headers)
-
+	if results.json()['retrieveable'] is False:
+		return []
+	
 	query_fields = ""
 
 	create_table_fields = ''

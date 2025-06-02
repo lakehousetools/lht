@@ -1,28 +1,48 @@
 import requests
-from snowflake.connector.pandas_tools import write_pandas
 import pandas as pd
-from lht.util import field_types 
+from lht.util import field_types
 
-def query_records(session, access_info, query, local_table, df_fields, table_fields, batch_size=1000):
+def query_records(access_info, query, batch_size=1000):
+	"""
+	Query Salesforce records and yield DataFrames for each batch.
+	
+	Args:
+		session: Snowpark Session (passed for compatibility, not used in query).
+		access_info: Dictionary with 'access_token' and 'instance_url'.
+		query: Salesforce SOQL query string.
+		batch_size: Number of records per batch (default: 1000).
+	
+	Yields:
+		pandas.DataFrame: DataFrame containing a batch of records.
+	
+	Returns:
+		None: If no records are found.
+	"""
 	headers = {
-			"Authorization":"Bearer {}".format(access_info['access_token']),
-			"Content-Type": "application/json",
-			"Sforce-Query-Options": "batchSize={}".format(batch_size)
+		"Authorization": f"Bearer {access_info['access_token']}",
+		"Content-Type": "application/json",
+		"Sforce-Query-Options": f"batchSize={batch_size}"
 	}
-	url = access_info['instance_url']+"/services/data/v58.0/queryAll?q={}".format(query)
+	url = f"{access_info['instance_url']}/services/data/v58.0/queryAll?q={query}"
 
+	# Initial query
 	results = requests.get(url, headers=headers)
-	if results.json()['totalSize'] == 0:
-		print("nothing to process")
+	results.raise_for_status()  # Raise exception for HTTP errors
+	json_data = results.json()
+
+	if json_data['totalSize'] == 0:
 		return None
-	sobj_data = pd.json_normalize(results.json()['records'])
-	batch_counter = 1
+
+	# Process first batch
+	sobj_data = pd.json_normalize(json_data['records'])
 	try:
 		sobj_data.drop(columns=['attributes.type', 'attributes.url'], inplace=True)
-	except:
-		print("moving on")
-	sobj_data = field_types.convert_field_types(sobj_data, df_fields, table_fields)
+	except KeyError:
+		print("Attributes not found, moving on")
+	
+	#sobj_data = field_types.convert_field_types(sobj_data, df_fields, table_fields)
 
+	# Replace NaT in datetime64 columns
 	for col in sobj_data.select_dtypes(include=['datetime64']).columns:
 		sobj_data[col] = sobj_data[col].fillna(pd.Timestamp('1900-01-01'))
 
@@ -30,26 +50,37 @@ def query_records(session, access_info, query, local_table, df_fields, table_fie
 	for col in sobj_data.select_dtypes(include=['float64', 'int64']).columns:
 		sobj_data[col] = sobj_data[col].fillna(0)
 
-	try:
-		session.write_pandas(sobj_data, 'TMP_{}'.format(local_table),quote_identifiers=False,use_logical_type = True)	
-	except Exception as e:
+	# Replace None in String columns
+	for col in sobj_data.select_dtypes(include=['object']).columns:
+		sobj_data[col] = sobj_data[col].fillna('')
 
-		print(e)
-		exit(0)
-	while True:
-		if 'nextRecordsUrl' in results.json() and results.json()['nextRecordsUrl'] is not None:
-			batch_counter +=1
-			url = access_info['instance_url']+results.json()['nextRecordsUrl']
-			results = requests.get(url, headers=headers)
-			sobj_data = pd.json_normalize(results.json()['records'])
+	sobj_data.columns =sobj_data.columns.str.upper()
+	# Yield first batch
+	yield sobj_data
+
+	# Process subsequent batches
+	while json_data.get('nextRecordsUrl'):
+		url = f"{access_info['instance_url']}{json_data['nextRecordsUrl']}"
+		results = requests.get(url, headers=headers)
+		results.raise_for_status()
+		json_data = results.json()
+
+		sobj_data = pd.json_normalize(json_data['records'])
+		sobj_data.columns =sobj_data.columns.str.upper()
+		try:
 			sobj_data.drop(columns=['attributes.type', 'attributes.url'], inplace=True)
-			sobj_data = field_types.convert_field_types(sobj_data, df_fields, table_fields)
-			try:
-				session.write_pandas(sobj_data, 'TMP_{}'.format(local_table),auto_create_table=False, overwrite=False,quote_identifiers=False,use_logical_type = True)	
-			except Exception as e:
-				print(e)
-				#print(results.json()['records'])
-				exit(0)
-		else:
-			break
-	return results.json()
+		except KeyError:
+			print("Attributes not found, moving on")
+		
+		#sobj_data = field_types.convert_field_types(sobj_data, df_fields, table_fields)
+
+		# Replace NaT and NaN
+		for col in sobj_data.select_dtypes(include=['datetime64']).columns:
+			sobj_data[col] = sobj_data[col].fillna(pd.Timestamp('1900-01-01')) 
+		for col in sobj_data.select_dtypes(include=['float64', 'int64']).columns:
+			sobj_data[col] = sobj_data[col].fillna(0)
+		for col in sobj_data.select_dtypes(include=['object']).columns:
+			sobj_data[col] = sobj_data[col].fillna('')
+
+		# Yield subsequent batch
+		yield sobj_data
