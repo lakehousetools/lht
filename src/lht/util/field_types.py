@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import tempfile
+import re
 
 
 def salesforce_field_type(field_type):
@@ -17,7 +18,7 @@ def salesforce_field_type(field_type):
 	elif field_type['type'] == 'picklist':
 		return 'string({})'.format(field_type['length'])
 	elif field_type['type'] == 'textarea':
-		return 'string({})'.format(field_type['length'])
+		return 'string'
 	elif field_type['type'] == 'double':
 		if field_type['precision'] > 0:
 			precision = field_type['precision']
@@ -28,11 +29,11 @@ def salesforce_field_type(field_type):
 	elif field_type['type'] == 'phone':
 		return 'string({})'.format(field_type['length'])
 	elif field_type['type'] == 'datetime':
-		return 'timestamp_ntz'
+		return 'timestamp_ntz' #'NUMBER(38,0)' #
 	elif field_type['type'] == 'date':
-		return 'date'
+		return 'date' #'NUMBER(38,0)' #
 	elif field_type['type'] == 'address':
-		return 'string({})'.format(field_type['length'])
+		return 'string' #({})'.format(field_type['length'])
 	elif field_type['type'] == 'url':
 		return 'string({})'.format(field_type['length'])
 	elif field_type['type'] == 'currency':
@@ -51,6 +52,26 @@ def salesforce_field_type(field_type):
 		return 'string({})'.format(field_type['length'])
 	elif field_type['type'] == 'encryptedstring':
 		return 'string({})'.format(field_type['length'])
+	elif field_type['type'] == 'base64':
+		return 'string'
+	elif field_type['type'] == 'datacategorygroupreference':
+		return 'string(80)'	
+	elif field_type['type'] == 'anyType':
+		return 'string'
+	elif field_type['type'] == 'byte':
+		return 'string(1)'	
+	elif field_type['type'] == 'calc':
+		return 'string(255)'
+	elif field_type['type'] == 'int':
+		return 'number(32)'
+	elif field_type['type'] == 'junctionidlist':
+		return 'string(18)'
+	elif field_type['type'] == 'reference':
+		return 'string(18)'
+	elif field_type['type'] == 'long':
+		return 'number(32)'
+	elif field_type['type'] == 'time':
+		return 'string(24)'
 	else:
 		print("KACK {}".format(field_type['type']))
 		exit(0)
@@ -95,11 +116,6 @@ def convert_field_types(df, df_fieldsets, table_fields):
 		if col.upper() not in table_fields:
 			df.drop(columns=[col], inplace=True)
 			continue 
-		#if col =='LastModifiedDate' or col =='CreatedDate':
-		#	df[col] = pd.to_numeric(pd.to_datetime(df[col], errors='coerce'), errors='coerce').astype('Int64')/1000000000
-		if col == 'Last_Activity_Date__c':
-			df[col] = pd.to_datetime(df[col],errors='coerce').dt.date
-			print(df[col])
 		elif dtype == 'date':
 			df[col] == pd.to_datetime(df[col],errors='coerce').dt.date
 		elif dtype == 'int64':
@@ -115,6 +131,32 @@ def convert_field_types(df, df_fieldsets, table_fields):
 			#df[col] = pd.to_datetime(df[col],errors='coerce').dt.datetime64
 	df = df.replace(np.nan, None)
 	return df.rename(columns={col: col.upper() for col in df.columns})
+
+def convert_df2snowflake(df, table_fields):
+	print(table_fields)
+	for field in table_fields:
+		if field not in df.columns:
+			continue
+		if table_fields[field].startswith('TIMESTAMP_NTZ'):
+			df[field] = pd.to_datetime(df[field], errors='coerce').fillna(pd.Timestamp('1900-01-01'))
+		if table_fields[field].startswith('DATE'):
+			df[field] = pd.to_datetime(df[field].astype(str), format='%Y%m%d', errors='coerce').fillna(pd.Timestamp('1900-01-01'))
+			df[field] = df[field].dt.strftime('%Y-%m-%d')
+		elif table_fields[field].startswith('VARCHAR'):
+			df[field] = df[field].astype(str)
+		elif table_fields[field] == 'BOOLEAN':
+			df[field] = pd.to_numeric(df[field], errors='coerce').astype('bool')
+		elif table_fields[field].startswith('NUMBER'):
+			match = re.match(r'(NUMBER)\((\d+),(\d+)\)', table_fields[field])
+			if match:
+				scale = int(match.group(3))  # Extract scale
+				if scale == 0:
+					df[field] = pd.to_numeric(df[field], errors='coerce').astype('Int64') 
+				else:
+					df[field] = pd.to_numeric(df[field], errors='coerce').astype('float64') 
+			#df[field] = df[field].astype(str)
+
+	return df
 
 def cache_data(data):
 	with tempfile.NamedTemporaryFile(delete=False) as temp_file:

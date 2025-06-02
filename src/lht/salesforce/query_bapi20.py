@@ -70,7 +70,7 @@ def get_bulk_results(session, access_info, job_id, sobject, schema, table):
 		temp_file_path = field_types.cache_data(results.text.encode('utf-8'))
 		df = pd.read_csv(temp_file_path)
 		print("\n\nFILE 1:{}".format(temp_file_path))
-		query_string, df_fields, create_table_fields = sobjects.describe(session, access_info, sobject)
+		query_string, df_fields = sobjects.describe(access_info, sobject)
 
 		formatted_df = field_types.format_sync_file(df, df_fields)
 
