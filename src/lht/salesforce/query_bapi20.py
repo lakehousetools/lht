@@ -54,6 +54,46 @@ def query_status(access_info, job_type, job_id):
 			break
 	return query_statuses
 
+def delete_query(access_info, job_id):
+
+	headers = {
+			"Authorization":"Bearer {}".format(access_info['access_token']),
+			"Content-Type": "application/json"
+	}
+	url = access_info['instance_url']+"/services/data/v58.0/jobs/query/{}".format(job_id)
+	results = requests.delete(url, headers=headers)
+
+	return results
+
+def get_query_ids(access_info):
+
+	headers = {
+			"Authorization":"Bearer {}".format(access_info['access_token']),
+			"Content-Type": "application/json"
+	}
+	url = access_info['instance_url']+"/services/data/v58.0/jobs/query/"
+	while True:
+		results = requests.get(url, headers=headers)
+		jobs = []
+		job = {}
+		for result in results.json()['records']:
+			if result['jobType'] == 'Classic':
+				continue
+			job['id'] = result['id']
+			job['jobType'] = result['jobType']
+			job['operation'] = result['operation']
+			job['object'] = result['object']
+			job['createdDate'] = result['createdDate']
+			job['state'] = result['state']
+			jobs.append(job)
+			job = {}
+		if results.json()['nextRecordsUrl'] is not None:
+				url = access_info['instance_url']+results.json()['nextRecordsUrl']
+		else:
+			break
+
+	return jobs
+
 def get_bulk_results(session, access_info, job_id, sobject, schema, table):
 	headers = {
 			"Authorization":"Bearer {}".format(access_info['access_token']),
@@ -103,7 +143,6 @@ def get_bulk_results(session, access_info, job_id, sobject, schema, table):
 		
 			schema_table = schema+"."+table
 			session.write_pandas(formatted_df, schema_table, quote_identifiers=False, auto_create_table=False, overwrite=False,use_logical_type=True, on_error="CONTINUE")
-			#session.write_pandas(formatted_df, schema_table, quote_identifiers=False, auto_create_table=False, overwrite=False)
 			if os.path.exists(temp_file_path):
 				# Remove the file
 				os.remove(temp_file_path)
