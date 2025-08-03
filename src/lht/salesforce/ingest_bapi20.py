@@ -36,6 +36,3 @@ def send_file(access_info, job_id, data):
     response = requests.put(url, headers=headers, data=data)
     print(response.status_code)
 
-
-
-
