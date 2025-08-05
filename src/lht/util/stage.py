@@ -1,7 +1,7 @@
 import io
 import os
 
-def put_file(session, stage, file):
+def put_file(session, stage, file, filename=None):
     # Create an in-memory file object
     file_obj = io.BytesIO(file)
 
@@ -14,11 +14,14 @@ def put_file(session, stage, file):
         temp_file_path = temp_file.name
 
     # Use Snowflake's PUT command to upload the temporary file to the stage
-    put_command = f"PUT file://{temp_file_path} @{}".format(stage)
+    if filename:
+        put_command = f"PUT file://{temp_file_path} @{stage}/{filename}"
+    else:
+        put_command = f"PUT file://{temp_file_path} @{stage}"
 
     session.execute(put_command)
 
     # Clean up temporary file
     os.remove(temp_file_path)
 
-    session.close()
+    # Note: Removed session.close() to allow reuse of session for multiple operations
