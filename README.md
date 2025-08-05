@@ -1,276 +1,231 @@
-# LHT (Lake House Tools) User Guide
+# Steps to Push New Version to Test PyPI
 
-## Table of Contents
-1. [Introduction](#introduction)
-2. [Installation](#installation)
-3. [Configuration](#configuration)
-4. [Basic Usage](#basic-usage)
-5. [Advanced Features](#advanced-features)
-6. [Troubleshooting](#troubleshooting)
-7. [Best Practices](#best-practices)
-8. [API Reference](#api-reference)
+## Prerequisites
+1. **Install required tools:**
+   ```bash
+   pip install --upgrade pip setuptools wheel twine
+   ```
 
-## Introduction
+2. **Create Test PyPI account** at https://test.pypi.org/account/register/ if you don't have one
 
-LHT (Lake House Tools) is a Python package designed to facilitate seamless data integration between Salesforce and Snowflake. It provides robust ETL (Extract, Transform, Load) and Reverse ETL capabilities, making it ideal for organizations that need to maintain synchronized data between these platforms.
+3. **Generate API token** (recommended over password):
+   - Go to https://test.pypi.org/manage/account/
+   - Scroll to "API tokens" section
+   - Click "Add API token"
+   - Give it a name and set scope (project-specific or account-wide)
+   - Copy the token (starts with `pypi-`)
 
-### Key Features
-- Bi-directional data synchronization
-- Automatic schema mapping
-- Bulk data operations
-- Incremental updates
-- Error handling and logging
-- CLI interface for common operations
+## Step-by-Step Process
 
-## Installation
+### 1. Update Version Number
+Update the version in your package configuration:
+- **setup.py**: Update the `version` parameter
+- **setup.cfg**: Update version in `[metadata]` section
+- **pyproject.toml**: Update version in `[project]` or `[tool.setuptools]`
+- **__init__.py**: Update `__version__` variable if present
 
-### Prerequisites
-- Python 3.10 or higher
-- Access to Salesforce instance
-- Snowflake account
-- Required Python packages (see requirements.txt)
-
-### Install via pip
+### 2. Clean Previous Builds
 ```bash
-pip install git+https://github.com/dansolomo/lht.git@initial_pypi_package#egg=lht
+rm -rf build/ dist/ *.egg-info/
 ```
 
-### Install from source
+### 3. Build the Package
 ```bash
-git clone https://github.com/dansolomo/lht.git
-cd lht
-pip install -e .
+python -m build
+```
+Or if using older setuptools:
+```bash
+python setup.py sdist bdist_wheel
 ```
 
-## Configuration
-
-### Directory Structure
-```plaintext
-your_project/
-├── .snowflake/
-│   ├── connections.toml
-│   └── sfdc.json
-└── your_code.py
+### 4. Check the Build
+Verify the package was built correctly:
+```bash
+twine check dist/*
 ```
 
-### Snowflake Configuration (connections.toml)
+### 5. Upload to Test PyPI
+Using API token (recommended):
+```bash
+twine upload --repository testpypi dist/*
+```
+
+When prompted:
+- Username: `__token__`
+- Password: [paste your API token]
+
+Or specify credentials directly:
+```bash
+twine upload --repository testpypi dist/* --username __token__ --password pypi-your-token-here
+```
+
+### 6. Test Installation
+Test that your package can be installed from Test PyPI:
+```bash
+pip install --index-url https://test.pypi.org/simple/ your-package-name
+```
+
+If your package has dependencies from regular PyPI:
+```bash
+pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ your-package-name
+```
+
+## Configuration File Method (Optional)
+
+Create `~/.pypirc` file to store repository configurations:
+```ini
+[distutils]
+index-servers =
+    testpypi
+    pypi
+
+[testpypi]
+repository = https://test.pypi.org/legacy/
+username = __token__
+password = pypi-your-test-token-here
+
+[pypi]
+repository = https://upload.pypi.org/legacy/
+username = __token__
+password = pypi-your-production-token-here
+```
+
+Then upload with:
+```bash
+twine upload --repository testpypi dist/*
+```
+
+## Troubleshooting Tips
+
+- **Version conflicts**: Each upload must have a unique version number
+- **File already exists**: You cannot overwrite files; increment version number
+- **Authentication errors**: Double-check your API token and username format
+- **Network issues**: Try again or check your internet connection
+- **Package validation**: Run `twine check dist/*` before uploading
+
+## Next Steps
+Once testing is complete on Test PyPI:
+1. Upload to production PyPI using `twine upload dist/*` (without repository flag)
+2. Test installation from production PyPI: `pip install your-package-name`
+
+# Salesforce Integration Configuration
+
+This project integrates with Salesforce to synchronize data between Salesforce and Snowflake.
+
+## Prerequisites
+- Admin has already created a Connected App in Salesforce
+- Python environment with required dependencies (see `requirements.txt`)
+- Access to the Salesforce org where the Connected App was created
+
+## Configuration Steps
+
+### Step 1: Gather Connected App Credentials
+From the Salesforce admin, obtain the following information from the Connected App:
+- **Consumer Key** (Client ID)
+- **Consumer Secret** (Client Secret)
+- **My Domain** (if using a custom domain)
+- **Authorization Endpoint URL**
+- **Token Endpoint URL**
+
+### Step 2: Create Configuration File
+Create a `.solomo/connections.toml` file in your project root with the following structure:
+
 ```toml
-[myconnection]
-account = "your_account"
-user = "your_user"
-password = "your_password"
-warehouse = "your_warehouse"
-database = "your_database"
-schema = "your_schema"
+[salesforce_prod]
+CLIENT_ID = 'your_consumer_key_here'
+CLIENT_SECRET = 'your_consumer_secret_here'
+AUTHORIZATION_BASE_URL = 'https://login.salesforce.com/services/oauth2/authorize'
+TOKEN_URL = 'https://login.salesforce.com/services/oauth2/token'
+REDIRECT_URI = 'https://localhost:1717/OauthRedirect'
+SCOPE = "refresh_token full"
+sandbox = false
+
+# For sandbox environments, use:
+# AUTHORIZATION_BASE_URL = 'https://test.salesforce.com/services/oauth2/authorize'
+# TOKEN_URL = 'https://test.salesforce.com/services/oauth2/token'
+# sandbox = true
+
+# If using My Domain, add:
+# MY_DOMAIN = "your_my_domain_name"
+```
+
+### Step 3: Install Required Dependencies
+Install the Python packages listed in `requirements.txt`:
+
+```bash
+pip install -r requirements.txt
+```
+
+Key dependencies for Salesforce integration:
+- `requests` - For HTTP API calls
+- `toml` - For configuration file parsing
+- `lht` - Custom Salesforce integration library
+
+### Step 4: Configure Authentication Method
+The codebase supports two authentication methods:
+
+#### Option A: Client Credentials Flow (Recommended for Server-to-Server)
+Use the `login_user_flow()` function in `user/salesforce_auth.py`:
+
+```python
+from user import salesforce_auth as sf
+import toml
+
+config = toml.load("./.solomo/connections.toml")
+config = config['salesforce_prod']
+
+CLIENT_ID = config["CLIENT_ID"]
+CLIENT_SECRET = config["CLIENT_SECRET"]
+MY_DOMAIN = config.get("MY_DOMAIN", "")  # Optional
+
+sf_token = sf.login_user_flow(CLIENT_ID, CLIENT_SECRET, MY_DOMAIN)
+```
+
+#### Option B: Refresh Token Flow (For User-Specific Access)
+This requires storing refresh tokens in a database and using the `get_salesforce_token()` function.
+
+### Step 5: Test the Connection
+Create a simple test script to verify the configuration:
+
+```python
+from user import salesforce_auth as sf
+import toml
+
+try:
+    config = toml.load("./.solomo/connections.toml")
+    config = config['salesforce_prod']
+    
+    CLIENT_ID = config["CLIENT_ID"]
+    CLIENT_SECRET = config["CLIENT_SECRET"]
+    MY_DOMAIN = config.get("MY_DOMAIN", "")
+    
+    sf_token = sf.login_user_flow(CLIENT_ID, CLIENT_SECRET, MY_DOMAIN)
+    print("Salesforce authentication successful!")
+    print(f"Access Token: {sf_token.get('access_token', 'Not found')}")
+    
+except Exception as e:
+    print(f"Error: {e}")
+```
+
+### Step 6: Configure Connected App Settings (Admin Required)
+Ensure the Salesforce admin has configured the Connected App with:
+
+1. **OAuth Scopes**: Include `refresh_token` and `full` scopes
+2. **IP Restrictions**: Configure if needed for security
+3. **Callback URL**: Set to `https://localhost:1717/OauthRedirect` (or your preferred URL)
+4. **API Access**: Enable access to the Salesforce APIs you need
+
+### Step 7: Environment-Specific Configuration
+For different environments, create separate configuration sections:
+
+```toml
+[salesforce_prod]
+# Production settings
+sandbox = false
 
 [salesforce_sandbox]
-CLIENT_ID = "your_client_id"
-CLIENT_SECRET = "your_client_secret"
+# Sandbox settings
 sandbox = true
-
-[salesforce_prod]
-CLIENT_ID = "your_client_id"
-CLIENT_SECRET = "your_client_secret"
-sandbox = false
+AUTHORIZATION_BASE_URL = 'https://test.salesforce.com/services/oauth2/authorize'
+TOKEN_URL = 'https://test.salesforce.com/services/oauth2/token'
 ```
-
-### Salesforce Authentication
-1. Set up Connected App in Salesforce
-2. Use the CLI to authenticate:
-```bash
-lht login
-```
-
-## Basic Usage
-
-### 1. Creating Tables
-Create a Snowflake table that mirrors a Salesforce object:
-
-```bash
-lht create --sobject Account --table MY_ACCOUNTS --username your_username --db_connect myconnection
-```
-
-This will:
-- Fetch the Salesforce object schema
-- Create a corresponding Snowflake table
-- Map data types appropriately
-
-### 2. Syncing Data
-Perform initial or incremental sync:
-
-```bash
-lht sync \
-    --sobject Account \
-    --table MY_ACCOUNTS \
-    --sync_field Id \
-    --username your_username \
-    --db_connect myconnection
-```
-
-Optional: Specify last modified date for incremental sync:
-```bash
-lht sync \
-    --sobject Account \
-    --table MY_ACCOUNTS \
-    --sync_field Id \
-    --lastmodifieddate "2024-01-01 00:00:00" \
-    --username your_username \
-    --db_connect myconnection
-```
-
-### 3. Bulk Query Operations
-Execute bulk queries against Salesforce:
-
-```bash
-lht query \
-    --bapi20 \
-    --sobject Account \
-    --username your_username \
-    --db_connect myconnection
-```
-
-Check job status:
-```bash
-lht bulk_status --job_id your_job_id --username your_username
-```
-
-Get results:
-```bash
-lht bulk_results \
-    --job_id your_job_id \
-    --sobject Account \
-    --schema your_schema \
-    --table your_table \
-    --username your_username \
-    --db_connect myconnection
-```
-
-### 4. Reverse ETL Operations
-Send data from Snowflake to Salesforce:
-
-```bash
-lht retl_upsert \
-    --sobject Account \
-    --query path/to/query.sql \
-    --field ExternalId \
-    --username your_username \
-    --db_connect myconnection
-```
-
-Delete records in Salesforce:
-```bash
-lht retl_delete \
-    --sobject Account \
-    --query path/to/query.sql \
-    --field Id \
-    --username your_username \
-    --db_connect myconnection
-```
-
-## Advanced Features
-
-### 1. Custom Field Mappings
-When creating tables, you can specify custom field mappings:
-
-```python
-from lht.util import field_types
-
-custom_mappings = {
-    'MyCustomField__c': 'string(255)',
-    'AnotherField__c': 'number(18,2)'
-}
-
-field_types.register_custom_mappings(custom_mappings)
-```
-
-### 2. Batch Size Configuration
-Adjust batch sizes for better performance:
-
-```bash
-lht sync \
-    --sobject Account \
-    --table MY_ACCOUNTS \
-    --sync_field Id \
-    --batch_size 5000 \
-    --username your_username \
-    --db_connect myconnection
-```
-
-### 3. Error Handling
-View and manage sync errors:
-
-```bash
-lht results \
-    --job_id your_job_id \
-    --schema your_schema \
-    --table your_table \
-    --username your_username \
-    --db_connect myconnection
-```
-
-## Troubleshooting
-
-### Common Issues and Solutions
-
-1. Authentication Errors
-```plaintext
-Error: "you are not logged in"
-Solution: Run 'lht login' to refresh authentication
-```
-
-2. Data Type Mismatches
-```plaintext
-Error: "Invalid type conversion"
-Solution: Check field mappings in field_types.py
-```
-
-3. API Limits
-```plaintext
-Error: "INVALID_BULK_API_LIMIT"
-Solution: Reduce batch size or implement rate limiting
-```
-
-## Best Practices
-
-### 1. Performance Optimization
-- Use appropriate batch sizes (typically 2000-5000 records)
-- Implement incremental syncs where possible
-- Index matching fields in Snowflake
-
-### 2. Data Quality
-- Validate data before syncing
-- Use external IDs for reliable matching
-- Maintain audit logs
-
-### 3. Security
-- Rotate credentials regularly
-- Use environment variables for sensitive data
-- Implement proper access controls
-
-## API Reference
-
-### Command Line Interface
-| Command | Description | Required Parameters |
-|---------|-------------|-------------------|
-| create | Create table | sobject, table, username |
-| sync | Sync data | sobject, table, sync_field, username |
-| query | Bulk query | bapi20, sobject, username |
-| retl_upsert | Reverse ETL | sobject, query, field, username |
-| retl_delete | Delete records | sobject, query, field, username |
-
-### Python API
-```python
-from lht.salesforce import sobject_create, sobject_sync, retl
-
-# Create table
-sobject_create.create(session, access_info, "Account", "MY_ACCOUNTS")
-
-# Sync data
-sobject_sync.new_changed_records(session, access_info, 
-                               "Account", "MY_ACCOUNTS", "Id")
-
-# Reverse ETL
-retl.upsert(session, access_info, "Account", "query.sql", "ExternalId")
-```
-
-For more detailed information, visit the [GitHub repository](https://github.com/dansolomo/lht).

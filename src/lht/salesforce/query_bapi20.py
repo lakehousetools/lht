@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 from . import sobjects
 from lht.util import field_types
+from lht.util import stage
 import os
 
 def create_batch_query(access_info, query):
@@ -149,8 +150,8 @@ def get_query_ids(access_info):
 
 	return jobs
 
-def get_bulk_results(session, access_info, job_id, sobject, schema, table):
-	"""Fetches and processes bulk query results from Salesforce, loading them into a Snowflake table.
+def get_bulk_results_with_stage(session, access_info, job_id, sobject, schema, table, stage_name=None, use_stage=False):
+	"""Fetches and processes bulk query results from Salesforce, optionally downloading to a Snowflake stage before loading into a table.
 
 	Args:
 		session (snowflake.snowpark.Session): Snowpark session for Snowflake operations.
@@ -160,6 +161,8 @@ def get_bulk_results(session, access_info, job_id, sobject, schema, table):
 		sobject (str): Salesforce SObject type (e.g., 'Account', 'Contact').
 		schema (str): Snowflake schema name (e.g., 'RAW').
 		table (str): Snowflake table name to load results into.
+		stage_name (str, optional): Snowflake stage name for temporary storage (e.g., '@MY_STAGE').
+		use_stage (bool, optional): Whether to download results to stage before loading to table. Default False.
 
 	Returns:
 		requests.Response: HTTP response object from the last API request, or None if the job is not ready.
@@ -170,6 +173,112 @@ def get_bulk_results(session, access_info, job_id, sobject, schema, table):
 		OSError: If temporary file operations fail.
 		snowflake.snowpark.exceptions.SnowparkSQLException: If Snowflake write operation fails.
 	"""
+	headers = {
+			"Authorization":"Bearer {}".format(access_info['access_token']),
+			"Content-Type": "application/json"
+	}
+	
+	url = access_info['instance_url']+"/services/data/v58.0/jobs/query/{}/results".format(job_id)
+	results = requests.get(url, headers=headers)
+	if results.status_code != 200:
+		print('The job is not ready.  Retry in a few minutes')
+		return None
+	
+	# Get field descriptions for formatting
+	query_string, df_fields = sobjects.describe(access_info, sobject)
+	
+	# Process first batch
+	temp_file_path = field_types.cache_data(results.text.encode('utf-8'))
+	print(f"\n\nFILE 1: {temp_file_path}")
+	
+	# If using stage, upload to Snowflake stage first
+	if use_stage and stage_name:
+		print(f"📤 Uploading to Snowflake stage: {stage_name}")
+		with open(temp_file_path, 'rb') as f:
+			file_content = f.read()
+		# Use unique filename for first batch
+		stage.put_file(session, stage_name, file_content, filename=f"batch_1_{sobject}_{job_id}.csv")
+		print(f"✅ Successfully uploaded to stage: {stage_name}")
+	
+	# Load and process data
+	df = pd.read_csv(temp_file_path)
+	formatted_df = field_types.format_sync_file(df, df_fields)
+	formatted_df = formatted_df.replace(np.nan, None)
+	
+	schema_table = schema+"."+table
+	session.write_pandas(formatted_df, schema_table, quote_identifiers=False, auto_create_table=True, overwrite=True, use_logical_type=True, on_error="CONTINUE")
+	
+	# Clean up temporary file
+	if os.path.exists(temp_file_path):
+		os.remove(temp_file_path)
+	
+	# Process remaining batches
+	counter = 2
+	while True:
+		if 'Sforce-Locator' not in results.headers:			
+			break
+		elif results.headers['Sforce-Locator'] == 'null':
+			break
+
+		url = access_info['instance_url']+"/services/data/v58.0/jobs/query/{}/results?locator={}".format(job_id, results.headers['Sforce-Locator'])
+		results = requests.get(url, headers=headers)
+		temp_file_path = field_types.cache_data(results.text.encode('utf-8'))
+		print(f"\n\nFILE {counter}: {temp_file_path}")
+		
+		# If using stage, upload to Snowflake stage first
+		if use_stage and stage_name:
+			print(f"📤 Uploading batch {counter} to Snowflake stage: {stage_name}")
+			with open(temp_file_path, 'rb') as f:
+				file_content = f.read()
+			# Use unique filename for subsequent batches
+			stage.put_file(session, stage_name, file_content, filename=f"batch_{counter}_{sobject}_{job_id}.csv")
+			print(f"✅ Successfully uploaded batch {counter} to stage: {stage_name}")
+		
+		df = pd.read_csv(temp_file_path)
+		formatted_df = field_types.format_sync_file(df, df_fields)
+		formatted_df = formatted_df.replace(np.nan, None)
+	
+		schema_table = schema+"."+table
+		session.write_pandas(formatted_df, schema_table, quote_identifiers=False, auto_create_table=False, overwrite=False, use_logical_type=True, on_error="CONTINUE")
+		
+		# Clean up temporary file
+		if os.path.exists(temp_file_path):
+			os.remove(temp_file_path)
+		
+		counter += 1
+	
+	return results
+
+def get_bulk_results(session, access_info, job_id, sobject, schema, table, use_stage=False, stage_name=None):
+	"""Fetches and processes bulk query results from Salesforce, loading them into a Snowflake table.
+	
+	This function now supports optional stage upload for Snowflake notebook environments.
+
+	Args:
+		session (snowflake.snowpark.Session): Snowpark session for Snowflake operations.
+		access_info (dict): Dictionary containing Salesforce access details, including
+			'access_token' (str) and 'instance_url' (str).
+		job_id (str): ID of the query job to retrieve results for.
+		sobject (str): Salesforce SObject type (e.g., 'Account', 'Contact').
+		schema (str): Snowflake schema name (e.g., 'RAW').
+		table (str): Snowflake table name to load results into.
+		use_stage (bool, optional): Whether to download results to stage before loading to table. Default False.
+		stage_name (str, optional): Snowflake stage name for temporary storage (e.g., '@MY_STAGE').
+
+	Returns:
+		requests.Response: HTTP response object from the last API request, or None if the job is not ready.
+
+	Raises:
+		requests.exceptions.RequestException: If the API request fails (e.g., invalid job ID, network error).
+		pandas.errors.EmptyDataError: If the CSV data is empty or malformed.
+		OSError: If temporary file operations fail.
+		snowflake.snowpark.exceptions.SnowparkSQLException: If Snowflake write operation fails.
+	"""
+	# If stage upload is requested, use the new function
+	if use_stage:
+		return get_bulk_results_with_stage(session, access_info, job_id, sobject, schema, table, stage_name, use_stage)
+	
+	# Original implementation for backward compatibility
 	headers = {
 			"Authorization":"Bearer {}".format(access_info['access_token']),
 			"Content-Type": "application/json"
