@@ -204,7 +204,13 @@ class IntelligentSync:
         if not table_exists or last_modified_date is None:
             # First-time sync
             logger.debug("🆕 First-time sync detected")
-            if estimated_records >= self.BULK_API_THRESHOLD:
+            logger.debug(f"📊 Record count: {estimated_records}, Bulk API threshold: {self.BULK_API_THRESHOLD}")
+            
+            # Force Bulk API for large datasets (1M+ records)
+            if estimated_records >= 1000000:
+                method = "bulk_api_stage_full" if use_stage and stage_name else "bulk_api_full"
+                logger.debug(f"📊 Forcing bulk API for large dataset (records: {estimated_records} >= 1,000,000)")
+            elif estimated_records >= self.BULK_API_THRESHOLD:
                 method = "bulk_api_full"
                 logger.debug(f"📊 Using bulk API (records: {estimated_records} >= {self.BULK_API_THRESHOLD})")
                 if use_stage and stage_name and estimated_records >= self.STAGE_THRESHOLD:
@@ -235,6 +241,12 @@ class IntelligentSync:
         }
         
         logger.debug(f"🎯 Final strategy: {strategy}")
+        
+        # Additional validation for first-time syncs
+        if not table_exists and strategy['method'].startswith('regular_api'):
+            logger.warning(f"⚠️ Warning: First-time sync with large dataset using regular API. This may be inefficient.")
+            logger.warning(f"⚠️ Consider using Bulk API for datasets with {estimated_records} records.")
+        
         return strategy
     
     def _estimate_record_count(self, sobject: str, last_modified_date: Optional[pd.Timestamp]) -> int:
@@ -438,6 +450,12 @@ class IntelligentSync:
         
         if strategy['is_incremental']:
             # Incremental sync - use merge logic
+            # First check if the main table exists before creating temp table
+            if not self._table_exists(schema, table):
+                error_msg = f"Cannot perform incremental sync: table {schema}.{table} does not exist"
+                logger.error(f"❌ {error_msg}")
+                raise Exception(error_msg)
+            
             tmp_table = f"TMP_{table}"
             create_temp_query = f"CREATE OR REPLACE TEMPORARY TABLE {schema}.{tmp_table} LIKE {schema}.{table}"
             logger.debug(f"🔍 Creating temp table: {create_temp_query}")
