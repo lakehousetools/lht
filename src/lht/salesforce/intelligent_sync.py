@@ -60,6 +60,24 @@ class IntelligentSync:
         logger.debug(f"🔄 Starting intelligent sync for {sobject} -> {schema}.{table}")
         print(f"🔄 Starting intelligent sync for {sobject} -> {schema}.{table}")
         
+        # Ensure schema exists before proceeding
+        logger.debug(f"🔍 Ensuring schema {schema} exists...")
+        if not self._ensure_schema_exists(schema):
+            error_msg = f"Failed to ensure schema {schema} exists"
+            logger.error(f"❌ {error_msg}")
+            return {
+                'sobject': sobject,
+                'target_table': f"{schema}.{table}",
+                'sync_method': 'failed',
+                'estimated_records': 0,
+                'actual_records': 0,
+                'sync_duration_seconds': 0,
+                'last_modified_date': None,
+                'sync_timestamp': pd.Timestamp.now(),
+                'success': False,
+                'error': error_msg
+            }
+        
         # Check if table exists and get sync status
         logger.debug(f"🔍 Checking if table {schema}.{table} exists...")
         table_exists = self._table_exists(schema, table)
@@ -105,6 +123,15 @@ class IntelligentSync:
     def _table_exists(self, schema: str, table: str) -> bool:
         """Check if the target table exists in Snowflake."""
         try:
+            # First check if schema exists
+            schema_query = f"SHOW SCHEMAS LIKE '{schema}'"
+            logger.debug(f"🔍 Checking if schema exists: {schema_query}")
+            schema_result = self.session.sql(schema_query).collect()
+            if len(schema_result) == 0:
+                logger.debug(f"📋 Schema {schema} does not exist")
+                return False
+            
+            # Then check if table exists in schema
             query = f"SHOW TABLES LIKE '{table}' IN SCHEMA {schema}"
             logger.debug(f"🔍 Executing table existence check: {query}")
             result = self.session.sql(query).collect()
@@ -114,6 +141,26 @@ class IntelligentSync:
         except Exception as e:
             logger.error(f"❌ Error checking table existence: {e}")
             return False
+    
+    def _ensure_schema_exists(self, schema: str) -> bool:
+        """Ensure the schema exists in Snowflake, create it if it doesn't."""
+        try:
+            schema_query = f"SHOW SCHEMAS LIKE '{schema}'"
+            logger.debug(f"🔍 Checking if schema exists: {schema_query}")
+            schema_result = self.session.sql(schema_query).collect()
+            
+            if len(schema_result) == 0:
+                logger.debug(f"📋 Schema {schema} does not exist, creating it...")
+                create_schema_query = f"CREATE SCHEMA IF NOT EXISTS {schema}"
+                logger.debug(f"🔍 Creating schema: {create_schema_query}")
+                self.session.sql(create_schema_query).collect()
+                logger.debug(f"✅ Schema {schema} created successfully")
+                return True
+            else:
+                logger.debug(f"📋 Schema {schema} already exists")
+                return True
+        except Exception as e:
+            logger.error(f"❌ Error ensuring schema exists: {e}")
             return False
     
     def _get_last_modified_date(self, schema: str, table: str) -> Optional[pd.Timestamp]:
@@ -271,8 +318,19 @@ class IntelligentSync:
                 logger.debug(f"📅 Using last modified date for incremental sync: {lmd_sf}")
         
         logger.debug(f"🔍 Getting field descriptions for {sobject}")
-        query_string, df_fields = sobjects.describe(self.access_info, sobject, lmd_sf if last_modified_date else None)
-        logger.debug(f"📋 Raw query string from sobjects.describe: {query_string}")
+        try:
+            query_string, df_fields = sobjects.describe(self.access_info, sobject, lmd_sf if last_modified_date else None)
+            logger.debug(f"📋 Raw query string from sobjects.describe: {query_string}")
+            logger.debug(f"📋 Field descriptions: {df_fields}")
+            
+            if not query_string or not df_fields:
+                error_msg = f"Failed to get field descriptions for {sobject}"
+                logger.error(f"❌ {error_msg}")
+                raise Exception(error_msg)
+        except Exception as e:
+            error_msg = f"Error getting field descriptions for {sobject}: {str(e)}"
+            logger.error(f"❌ {error_msg}")
+            raise Exception(error_msg)
         
         # Convert query string to proper SOQL
         soql_query = query_string.replace('+', ' ').replace('select', 'SELECT').replace('from', 'FROM')
