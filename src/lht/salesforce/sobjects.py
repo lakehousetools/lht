@@ -10,7 +10,7 @@ def describe(access_info, sobject, lmd=None):
 	field = {}
 	fields = []
 	try:
-		url = access_info['instance_url'] + "/services/data/v58.0/sobjects/{}/describe".format(sobject)
+		url = access_info['instance_url'] + "/services/data/v62.0/sobjects/{}/describe".format(sobject)
 	except Exception as e:
 		print(e)
 		return None
