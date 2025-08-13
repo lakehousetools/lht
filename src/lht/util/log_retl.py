@@ -42,13 +42,16 @@ def log_results(session, access_info, job_id, schema):
     if check_log(session, job_id) > 0:
         return "see existing logs"
     else:
+        # Get current database for fully qualified table names
+        current_db = session.sql('SELECT CURRENT_DATABASE()').collect()[0][0]
+        
         successes = successful_results(access_info, job_id)
         if len(successes) > 0:
-            session.write_pandas(successes, 'RETL_RESULTS', schema=schema, quote_identifiers=False, auto_create_table=False, overwrite=False,use_logical_type=True)
+            session.write_pandas(successes, f'{current_db}.{schema}.RETL_RESULTS', quote_identifiers=False, auto_create_table=False, overwrite=False,use_logical_type=True)
 
         failures = failed_results(access_info, job_id)
         if len(failures) > 0:
-            session.write_pandas(failures, 'RETL_FAILURES', schema=schema, quote_identifiers=False, auto_create_table=True, overwrite=False,use_logical_type=True)
+            session.write_pandas(failures, f'{current_db}.{schema}.RETL_FAILURES', quote_identifiers=False, auto_create_table=True, overwrite=False,use_logical_type=True)
 
     return None
 
