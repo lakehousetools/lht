@@ -5,11 +5,87 @@ import numpy as np
 import logging
 from typing import Optional, Dict, Any, Tuple
 from . import query_bapi20, sobjects, sobject_query
-from lht.util import merge, field_types
+from lht.util import merge, field_types, data_writer
 
 # Set up logging for debugging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
+
+# Global debug flag - can be set by applications using the package
+SQL_DEBUG_MODE = False
+
+def set_sql_debug_mode(debug: bool):
+    """Set global SQL debug mode for all SQL operations."""
+    global SQL_DEBUG_MODE
+    SQL_DEBUG_MODE = debug
+    if debug:
+        print("🔍 SQL Debug Mode: ENABLED")
+    else:
+        print("🔍 SQL Debug Mode: DISABLED")
+
+def get_sql_debug_mode() -> bool:
+    """Get current SQL debug mode setting."""
+    return SQL_DEBUG_MODE
+
+
+def sql_execution(session, query, context="", debug=None):
+    """SQL execution with optional debug output."""
+    # Use global flag if debug not specified
+    if debug is None:
+        debug = SQL_DEBUG_MODE
+    
+    if debug:
+        # Full debug output
+        print(f"\n{'='*80}")
+        print(f"🔍 EXECUTING SQL [{context}]:")
+        print(f"Query: {query}")
+        print(f"{'='*80}")
+        
+        # Check for common issues
+        if not query or query.strip() == "":
+            print(f"❌ ERROR: Empty SQL query in {context}")
+            return None
+        
+        if query.strip().upper().startswith('FROM'):
+            print(f"❌ ERROR: SQL query starts with FROM in {context}: {query}")
+            return None
+        
+        # Additional checks for malformed queries
+        query_upper = query.strip().upper()
+        if query_upper.startswith('FROM ') or query_upper.startswith('FROM\n') or query_upper.startswith('FROM\t'):
+            print(f"❌ ERROR: SQL query starts with FROM in {context}: {query}")
+            print(f"❌ Query length: {len(query)}")
+            print(f"❌ Query stripped: '{query.strip()}'")
+            return None
+        
+        try:
+            print(f"🚀 Executing query...")
+            result = session.sql(query).collect()
+            print(f"✅ SUCCESS: {len(result)} rows returned")
+            print(f"Result: {result}")
+            return result
+        except Exception as e:
+            print(f"❌ FAILED: {e}")
+            print(f"❌ Query was: {query}")
+            print(f"❌ Query type: {type(query)}")
+            print(f"❌ Query length: {len(query)}")
+            print(f"❌ Query stripped: '{query.strip()}'")
+            print(f"❌ Error type: {type(e).__name__}")
+            import traceback
+            print(f"❌ Full traceback: {traceback.format_exc()}")
+            raise
+    else:
+        # Silent execution with minimal error info
+        try:
+            return session.sql(query).collect()
+        except Exception as e:
+            print(f"❌ SQL Error in {context}: {e}")
+            raise
+
+# Keep the old function name for backward compatibility
+def debug_sql_execution(session, query, context=""):
+    """Backward compatibility wrapper for debug_sql_execution."""
+    return sql_execution(session, query, context, debug=True)
 
 
 class IntelligentSync:
@@ -80,16 +156,27 @@ class IntelligentSync:
         
         # Check if table exists and get sync status
         logger.debug(f"🔍 Checking if table {schema}.{table} exists...")
+        print(f"🔍 Checking if table {schema}.{table} exists...")
         table_exists = self._table_exists(schema, table)
+        print(f"📋 Table exists: {table_exists}")
         last_modified_date = None
         
         if table_exists and not force_full_sync:
             logger.debug("🔍 Getting last modified date for incremental sync...")
+            print("🔍 Getting last modified date for incremental sync...")
             last_modified_date = self._get_last_modified_date(schema, table)
             print(f"📅 Last sync date: {last_modified_date}")
+            
+            # Debug: Check why incremental sync might be failing
+            if last_modified_date is None:
+                print(f"⚠️ WARNING: last_modified_date is None - this will force a FULL sync!")
+                print(f"⚠️ Check if the table has LASTMODIFIEDDATE field or if the query is failing")
+        else:
+            print(f"📋 Skipping last modified date check - table_exists: {table_exists}, force_full_sync: {force_full_sync}")
         
         # Determine sync strategy
         logger.debug("🎯 Determining sync strategy...")
+        print("🎯 Determining sync strategy...")
         sync_strategy = self._determine_sync_strategy(
             sobject, table_exists, last_modified_date, use_stage, stage_name
         )
@@ -126,20 +213,39 @@ class IntelligentSync:
             # First check if schema exists
             schema_query = f"SHOW SCHEMAS LIKE '{schema}'"
             logger.debug(f"🔍 Checking if schema exists: {schema_query}")
-            schema_result = self.session.sql(schema_query).collect()
-            if len(schema_result) == 0:
+            print(f"🔍 Checking if schema exists: {schema_query}")
+            schema_result = debug_sql_execution(self.session, schema_query, "schema_check")
+            print(f"📋 Schema result: {schema_result}")
+            if not schema_result or len(schema_result) == 0:
                 logger.debug(f"📋 Schema {schema} does not exist")
+                print(f"📋 Schema {schema} does not exist")
                 return False
             
-            # Then check if table exists in schema
-            query = f"SHOW TABLES LIKE '{table}' IN SCHEMA {schema}"
+            # Then check if table exists in schema - use more specific query
+            current_db = self.session.sql('SELECT CURRENT_DATABASE()').collect()[0][0]
+            query = f"SELECT COUNT(*) as table_count FROM information_schema.tables WHERE table_schema = '{schema}' AND table_name = '{table}' AND table_type = 'BASE TABLE'"
             logger.debug(f"🔍 Executing table existence check: {query}")
-            result = self.session.sql(query).collect()
-            exists = len(result) > 0
+            print(f"🔍 Executing table existence check: {query}")
+            result = debug_sql_execution(self.session, query, "table_check")
+            print(f"📋 Table result: {result}")
+            
+            # More robust result checking
+            if result is not None and len(result) > 0:
+                # Check if result has the expected structure
+                if 'table_count' in result[0]:
+                    exists = result[0]['table_count'] > 0
+                else:
+                    # Fallback: check if any result was returned
+                    exists = len(result) > 0
+            else:
+                exists = False
+                
             logger.debug(f"📋 Table {schema}.{table} exists: {exists}")
+            print(f"📋 Table {schema}.{table} exists: {exists}")
             return exists
         except Exception as e:
             logger.error(f"❌ Error checking table existence: {e}")
+            print(f"❌ Error checking table existence: {e}")
             return False
     
     def _ensure_schema_exists(self, schema: str) -> bool:
@@ -147,13 +253,13 @@ class IntelligentSync:
         try:
             schema_query = f"SHOW SCHEMAS LIKE '{schema}'"
             logger.debug(f"🔍 Checking if schema exists: {schema_query}")
-            schema_result = self.session.sql(schema_query).collect()
+            schema_result = debug_sql_execution(self.session, schema_query, "schema_exists_check")
             
-            if len(schema_result) == 0:
+            if not schema_result or len(schema_result) == 0:
                 logger.debug(f"📋 Schema {schema} does not exist, creating it...")
                 create_schema_query = f"CREATE SCHEMA IF NOT EXISTS {schema}"
                 logger.debug(f"🔍 Creating schema: {create_schema_query}")
-                self.session.sql(create_schema_query).collect()
+                debug_sql_execution(self.session, create_schema_query, "create_schema")
                 logger.debug(f"✅ Schema {schema} created successfully")
                 return True
             else:
@@ -166,18 +272,83 @@ class IntelligentSync:
     def _get_last_modified_date(self, schema: str, table: str) -> Optional[pd.Timestamp]:
         """Get the most recent LastModifiedDate from the target table."""
         try:
-            query = f"SELECT MAX(LASTMODIFIEDDATE::TIMESTAMP_NTZ) as LAST_MODIFIED FROM {schema}.{table}"
-            logger.debug(f"🔍 Executing last modified date query: {query}")
-            result = self.session.sql(query).collect()
+            # Double-check that table exists before querying
+            if not self._table_exists(schema, table):
+                logger.debug(f"📋 Table {schema}.{table} does not exist, skipping last modified date check")
+                return None
             
-            if result and result[0]['LAST_MODIFIED']:
-                last_modified = pd.to_datetime(result[0]['LAST_MODIFIED'])
-                logger.debug(f"📅 Last modified date: {last_modified}")
-                return last_modified
-            logger.debug("📅 No last modified date found (table empty or no LASTMODIFIEDDATE field)")
+            # Get current database for fully qualified table name
+            current_db = self.session.sql('SELECT CURRENT_DATABASE()').collect()[0][0]
+            
+            # Try a more robust approach to get the last modified date
+            try:
+                # First, try to get the last modified date with error handling
+                query = f"SELECT MAX(TRY_CAST(LASTMODIFIEDDATE AS TIMESTAMP_NTZ)) as LAST_MODIFIED FROM {current_db}.{schema}.{table}"
+                logger.debug(f"🔍 Executing last modified date query: {query}")
+                print(f"🔍 Executing SQL: {query}")
+                
+                result = debug_sql_execution(self.session, query, "last_modified_date")
+                logger.debug(f"📋 Query result: {result}")
+                
+                if result and result[0]['LAST_MODIFIED']:
+                    last_modified = pd.to_datetime(result[0]['LAST_MODIFIED'])
+                    logger.debug(f"📅 Last modified date: {last_modified}")
+                    return last_modified
+                    
+            except Exception as e:
+                logger.warning(f"⚠️ First attempt failed, trying alternative approach: {e}")
+                print(f"⚠️ First attempt failed, trying alternative approach: {e}")
+                
+                try:
+                    # Alternative: try to get the last modified date without casting
+                    query = f"SELECT MAX(LASTMODIFIEDDATE) as LAST_MODIFIED FROM {current_db}.{schema}.{table}"
+                    logger.debug(f"🔍 Executing alternative query: {query}")
+                    print(f"🔍 Executing alternative query: {query}")
+                    
+                    result = debug_sql_execution(self.session, query, "last_modified_date_alt")
+                    logger.debug(f"📋 Alternative query result: {result}")
+                    
+                    if result and result[0]['LAST_MODIFIED']:
+                        # Try to convert the raw value to datetime
+                        raw_value = result[0]['LAST_MODIFIED']
+                        logger.debug(f"📅 Raw LAST_MODIFIED value: {raw_value} (type: {type(raw_value)})")
+                        
+                        if isinstance(raw_value, str):
+                            # Handle Salesforce ISO 8601 format: 2023-09-08T02:00:39.000Z
+                            logger.debug(f"📅 Processing Salesforce timestamp: {raw_value}")
+                            
+                            try:
+                                # Let pandas handle the ISO 8601 format directly
+                                last_modified = pd.to_datetime(raw_value, errors='coerce')
+                                logger.debug(f"📅 Converted timestamp: {raw_value} -> {last_modified}")
+                            except Exception as e:
+                                logger.warning(f"⚠️ Failed to parse timestamp {raw_value}: {e}")
+                                last_modified = None
+                        else:
+                            # Handle numeric dates (Unix timestamps)
+                            # Try milliseconds first (Salesforce often uses millisecond timestamps)
+                            try:
+                                last_modified = pd.to_datetime(raw_value, unit='ms', errors='coerce')
+                                logger.debug(f"📅 Converted from milliseconds: {raw_value} -> {last_modified}")
+                            except:
+                                # Fallback to seconds
+                                last_modified = pd.to_datetime(raw_value, unit='s', errors='coerce')
+                                logger.debug(f"📅 Converted from seconds: {raw_value} -> {last_modified}")
+                        
+                        if pd.notna(last_modified):
+                            logger.debug(f"📅 Converted last modified date: {last_modified}")
+                            return last_modified
+                            
+                except Exception as e2:
+                    logger.warning(f"⚠️ Alternative approach also failed: {e2}")
+                    print(f"⚠️ Alternative approach also failed: {e2}")
+            
+            logger.debug("📅 No valid last modified date found (table empty, no LASTMODIFIEDDATE field, or conversion failed)")
+            print(f"📅 No valid last modified date found - will use full sync")
             return None
         except Exception as e:
             logger.error(f"❌ Error getting last modified date: {e}")
+            print(f"❌ SQL Error in _get_last_modified_date: {e}")
             return None
     
     def _determine_sync_strategy(self, 
@@ -199,38 +370,51 @@ class IntelligentSync:
         
         # Get estimated record count
         estimated_records = self._estimate_record_count(sobject, last_modified_date)
+        print(f"📊 Estimated records: {estimated_records}")
         
         # Determine sync method
         if not table_exists or last_modified_date is None:
             # First-time sync
             logger.debug("🆕 First-time sync detected")
+            print("🆕 First-time sync detected")
             logger.debug(f"📊 Record count: {estimated_records}, Bulk API threshold: {self.BULK_API_THRESHOLD}")
+            print(f"📊 Record count: {estimated_records}, Bulk API threshold: {self.BULK_API_THRESHOLD}")
             
             # Force Bulk API for large datasets (1M+ records)
             if estimated_records >= 1000000:
                 method = "bulk_api_stage_full" if use_stage and stage_name else "bulk_api_full"
                 logger.debug(f"📊 Forcing bulk API for large dataset (records: {estimated_records} >= 1,000,000)")
+                print(f"📊 Forcing bulk API for large dataset (records: {estimated_records} >= 1,000,000)")
             elif estimated_records >= self.BULK_API_THRESHOLD:
                 method = "bulk_api_full"
                 logger.debug(f"📊 Using bulk API (records: {estimated_records} >= {self.BULK_API_THRESHOLD})")
+                print(f"📊 Using bulk API (records: {estimated_records} >= {self.BULK_API_THRESHOLD})")
                 if use_stage and stage_name and estimated_records >= self.STAGE_THRESHOLD:
                     method = "bulk_api_stage_full"
                     logger.debug(f"📦 Using stage-based bulk API (records: {estimated_records} >= {self.STAGE_THRESHOLD})")
+                    print(f"📦 Using stage-based bulk API (records: {estimated_records} >= {self.STAGE_THRESHOLD})")
             else:
                 method = "regular_api_full"
                 logger.debug(f"📊 Using regular API (records: {estimated_records} < {self.BULK_API_THRESHOLD})")
+                print(f"📊 Using regular API (records: {estimated_records} < {self.BULK_API_THRESHOLD})")
         else:
-            # Incremental sync
+            # Incremental sync - prefer REST API for better performance with small changes
             logger.debug("🔄 Incremental sync detected")
-            if estimated_records >= self.BULK_API_THRESHOLD:
+            print("🔄 Incremental sync detected")
+            
+            # For incremental syncs, prefer REST API unless there are a very large number of changes
+            if estimated_records >= 100000:  # Only use Bulk API for very large incremental changes
                 method = "bulk_api_incremental"
-                logger.debug(f"📊 Using bulk API incremental (records: {estimated_records} >= {self.BULK_API_THRESHOLD})")
+                logger.debug(f"📊 Using bulk API incremental (large changes: {estimated_records} >= 100,000)")
+                print(f"📊 Using bulk API incremental (large changes: {estimated_records} >= 100,000)")
                 if use_stage and stage_name and estimated_records >= self.STAGE_THRESHOLD:
                     method = "bulk_api_stage_incremental"
                     logger.debug(f"📦 Using stage-based bulk API incremental (records: {estimated_records} >= {self.STAGE_THRESHOLD})")
+                    print(f"📦 Using stage-based bulk API incremental (records: {estimated_records} >= {self.STAGE_THRESHOLD})")
             else:
                 method = "regular_api_incremental"
-                logger.debug(f"📊 Using regular API incremental (records: {estimated_records} < {self.BULK_API_THRESHOLD})")
+                logger.debug(f"📊 Using regular API incremental (optimal for small changes: {estimated_records} < 100,000)")
+                print(f"📊 Using regular API incremental (optimal for small changes: {estimated_records} < 100,000)")
         
         strategy = {
             'method': method,
@@ -256,12 +440,13 @@ class IntelligentSync:
             if last_modified_date:
                 # Incremental sync - count records modified since last sync
                 lmd_sf = str(last_modified_date)[:10] + 'T' + str(last_modified_date)[11:19] + '.000Z'
-                query = f"SELECT COUNT() FROM {sobject} WHERE LastModifiedDate > {lmd_sf}"
+                query = f"SELECT COUNT(Id) FROM {sobject} WHERE LastModifiedDate > {lmd_sf}"
             else:
                 # Full sync - count all records
-                query = f"SELECT COUNT() FROM {sobject}"
+                query = f"SELECT COUNT(Id) FROM {sobject}"
             
             logger.debug(f"🔍 Executing record count query: {query}")
+            print(f"🔍 Executing Salesforce record count query: {query}")
             
             # Use regular API for count (faster than Bulk API for counts)
             headers = {
@@ -271,19 +456,77 @@ class IntelligentSync:
             url = f"{self.access_info['instance_url']}/services/data/v58.0/query?q={query}"
             
             logger.debug(f"🌐 Making API request to: {url}")
+            print(f"🌐 Making Salesforce API request to: {url}")
             response = requests.get(url, headers=headers)
             response.raise_for_status()
             
             result = response.json()
-            count = result['records'][0]['expr0']
-            logger.debug(f"📊 Estimated record count: {count}")
-            return count
+            print(f"📊 Salesforce API response: {result}")
+            
+            # Handle different response structures for COUNT queries
+            if isinstance(result, dict):
+                # For COUNT queries, check records array first (totalSize is always 1 for COUNT queries)
+                if 'records' in result and len(result['records']) > 0:
+                    first_record = result['records'][0]
+                    # Try different possible field names for count
+                    count_fields = ['expr0', 'count', 'COUNT', 'count__c', 'Id']
+                    for field in count_fields:
+                        if field in first_record:
+                            count = first_record[field]
+                            logger.debug(f"📊 Estimated record count from {field}: {count}")
+                            print(f"📊 Estimated record count from {field}: {count}")
+                            return count
+                    
+                    # If no expected field found, log the structure
+                    logger.warning(f"📊 Unexpected record structure: {first_record}")
+                    print(f"📊 Unexpected record structure: {first_record}")
+                    print(f"📊 Available fields: {list(first_record.keys())}")
+                
+                # Fallback to totalSize (though this should not be used for COUNT queries)
+                if 'totalSize' in result and result['records'][0]['expr0'] > 0:
+                    count = result['records'][0]['expr0']
+                    logger.debug(f"📊 Estimated record count from totalSize: {count}")
+                    print(f"📊 Estimated record count from totalSize: {count}")
+                    return count
+                
+                # Log all available keys for debugging
+                logger.warning("📊 No count found in response, using conservative estimate")
+                print("📊 No count found in response, using conservative estimate")
+                print(f"📊 Response keys: {list(result.keys())}")
+            else:
+                logger.warning(f"📊 Unexpected response type: {type(result)}")
+                print(f"📊 Unexpected response type: {type(result)}")
+                print(f"📊 Response: {result}")
+            
+            return 1000 if last_modified_date else 100000
             
         except Exception as e:
-            logger.error(f"❌ Error estimating record count: {e}")
+            print(f"❌ Error estimating record count: {e}")
+            import traceback
+            print(f"📋 Full traceback: {traceback.format_exc()}")
+            
+            # Try to get more information about the response if available
+            try:
+                if 'response' in locals():
+                    print(f"📊 Response status: {response.status_code}")
+                    print(f"📊 Response headers: {dict(response.headers)}")
+                    print(f"📊 Response content: {response.text[:500]}...")
+                    
+                    # Try to parse the response if possible
+                    try:
+                        if 'result' in locals():
+                            logger.error(f"❌ Error in result: {result}")
+                        else:
+                            logger.error(f"❌ Response content: {response.text}")
+                    except:
+                        logger.error(f"❌ Could not log response content")
+            except:
+                pass
+            
             # Return a conservative estimate
-            estimate = 50000 if last_modified_date else 100000
+            estimate = 1000 if last_modified_date else 100000
             logger.debug(f"📊 Using conservative estimate: {estimate}")
+            print(f"📊 Using conservative estimate: {estimate}")
             return estimate
     
     def _execute_sync_strategy(self, 
@@ -295,16 +538,25 @@ class IntelligentSync:
         """Execute the determined sync strategy."""
         
         method = strategy['method']
+        print(f"🚀 Executing sync strategy: {method}")
+        logger.debug(f"🚀 Executing sync strategy: {method}")
         
         try:
             if method.startswith('bulk_api'):
+                print(f"📦 Using Bulk API sync method: {method}")
                 return self._execute_bulk_api_sync(strategy, sobject, schema, table)
             elif method.startswith('regular_api'):
+                print(f"📡 Using Regular API sync method: {method}")
                 return self._execute_regular_api_sync(strategy, sobject, schema, table, match_field)
             else:
-                raise ValueError(f"Unknown sync method: {method}")
+                error_msg = f"Unknown sync method: {method}"
+                print(f"❌ {error_msg}")
+                raise ValueError(error_msg)
                 
         except Exception as e:
+            error_msg = f"Error executing sync strategy: {str(e)}"
+            print(f"❌ {error_msg}")
+            logger.error(f"❌ {error_msg}")
             return {
                 'success': False,
                 'error': str(e),
@@ -386,25 +638,23 @@ class IntelligentSync:
         use_stage = strategy.get('use_stage', False)
         stage_name = strategy.get('stage_name')
         
-        logger.debug(f"📥 Getting results (use_stage={use_stage}, stage_name={stage_name})")
+        logger.debug(f"📥 Getting results (optimized direct loading)")
         
-        if use_stage and stage_name:
-            logger.debug(f"📤 Using stage-based results retrieval: {stage_name}")
-            result = query_bapi20.get_bulk_results_with_stage(
-                self.session, self.access_info, job_id, sobject, schema, table,
-                stage_name=stage_name, use_stage=True
-            )
-        else:
-            logger.debug("📥 Using direct results retrieval")
-            result = query_bapi20.get_bulk_results(
-                self.session, self.access_info, job_id, sobject, schema, table
-            )
+        # Use optimized direct loading for all cases (stage parameters are deprecated)
+        result = query_bapi20.get_bulk_results(
+            self.session, self.access_info, job_id, sobject, schema, table,
+            use_stage=use_stage, stage_name=stage_name
+        )
         
         # Clean up job
         try:
             logger.debug(f"🧹 Cleaning up job: {job_id}")
-            query_bapi20.delete_query(self.access_info, job_id)
-            print(f"🧹 Cleaned up job: {job_id}")
+            cleanup_result = query_bapi20.delete_specific_job(self.access_info, job_id)
+            if cleanup_result.get('success'):
+                print(f"🧹 Cleaned up job: {job_id}")
+            else:
+                logger.warning(f"⚠️ Warning: Could not clean up job {job_id}: {cleanup_result.get('error', 'Unknown error')}")
+                print(f"⚠️ Warning: Could not clean up job {job_id}: {cleanup_result.get('error', 'Unknown error')}")
         except Exception as e:
             logger.warning(f"⚠️ Warning: Could not clean up job {job_id}: {e}")
             print(f"⚠️ Warning: Could not clean up job {job_id}: {e}")
@@ -414,6 +664,37 @@ class IntelligentSync:
             'records_processed': strategy['estimated_records'],
             'job_id': job_id
         }
+    
+    def cleanup_old_jobs(self, max_age_hours=24):
+        """Clean up old completed Bulk API 2.0 jobs from Salesforce.
+        
+        Args:
+            max_age_hours (int): Maximum age in hours for jobs to be kept. 
+                Jobs older than this will be deleted. Default is 24 hours.
+        
+        Returns:
+            dict: Summary of cleanup operation.
+        """
+        logger.debug(f"🧹 Starting cleanup of jobs older than {max_age_hours} hours")
+        print(f"🧹 Starting cleanup of jobs older than {max_age_hours} hours")
+        
+        try:
+            from . import query_bapi20
+            cleanup_result = query_bapi20.cleanup_completed_jobs(self.access_info, max_age_hours)
+            
+            logger.debug(f"🧹 Cleanup result: {cleanup_result}")
+            return cleanup_result
+            
+        except Exception as e:
+            error_msg = f"Error during job cleanup: {str(e)}"
+            logger.error(f"❌ {error_msg}")
+            print(f"❌ {error_msg}")
+            return {
+                'deleted_count': 0,
+                'failed_count': 0,
+                'total_processed': 0,
+                'error': str(e)
+            }
     
     def _execute_regular_api_sync(self, 
                                  strategy: Dict[str, Any], 
@@ -456,40 +737,78 @@ class IntelligentSync:
                 logger.error(f"❌ {error_msg}")
                 raise Exception(error_msg)
             
-            tmp_table = f"TMP_{table}"
-            create_temp_query = f"CREATE OR REPLACE TEMPORARY TABLE {schema}.{tmp_table} LIKE {schema}.{table}"
-            logger.debug(f"🔍 Creating temp table: {create_temp_query}")
-            self.session.sql(create_temp_query).collect()
+            # Get current database for fully qualified table names
+            current_db = self.session.sql('SELECT CURRENT_DATABASE()').collect()[0][0]
             
-            # Get table fields
-            show_columns_query = f"SHOW COLUMNS IN TABLE {schema}.{tmp_table}"
-            logger.debug(f"🔍 Getting table columns: {show_columns_query}")
-            results = self.session.sql(show_columns_query).collect()
-            table_fields = [field[2] for field in results if field[2]]
-            logger.debug(f"📋 Table fields: {table_fields}")
+            tmp_table = f"TMP_{table}"
+            create_temp_query = f"CREATE OR REPLACE TEMPORARY TABLE {current_db}.{schema}.{tmp_table} LIKE {current_db}.{schema}.{table}"
+            logger.debug(f"🔍 Creating temp table: {create_temp_query}")
+            debug_sql_execution(self.session, create_temp_query, "create_temp_table")
+            
+            # Use the existing df_fields from Salesforce describe - no need to query temp table
+            table_fields = df_fields
+            logger.debug(f"📋 Using existing table fields: {len(table_fields)} fields")
             
             # Query and load to temp table
             logger.debug("📥 Processing batches for incremental sync...")
+            print(f"📥 Processing batches for incremental sync...")
             for batch_num, batch_df in enumerate(sobject_query.query_records(self.access_info, soql_query), 1):
                 if batch_df is not None and not batch_df.empty:
                     logger.debug(f"📦 Processing batch {batch_num}: {len(batch_df)} records")
-                    # Format data
-                    formatted_df = field_types.format_sync_file(batch_df, df_fields)
-                    formatted_df = formatted_df.replace(np.nan, None)
+                    print(f"📦 Processing batch {batch_num}: {len(batch_df)} records")
+                    # Let data_writer handle all formatting - no duplicate calls
+                    formatted_df = batch_df.replace(np.nan, None)
                     
-                    # Write to temp table
+                    # Write to temp table using centralized data writer with type handling
                     logger.debug(f"💾 Writing batch {batch_num} to temp table {schema}.{tmp_table}")
-                    self.session.write_pandas(
-                        formatted_df, f"{schema}.{tmp_table}", 
-                        quote_identifiers=False, auto_create_table=False, 
-                        overwrite=False, use_logical_type=True, on_error="CONTINUE"
-                    )
+                    print(f"💾 Writing batch {batch_num} to temp table {schema}.{tmp_table}")
+                    
+                    # Use type handling to prevent casting errors
+                    try:
+                        data_writer.write_batch_to_temp_table(
+                            self.session, formatted_df, schema, tmp_table, df_fields,
+                            validate_types=True
+                        )
+                    except Exception as e:
+                        error_msg = str(e)
+                        if any(phrase in error_msg for phrase in ["Failed to cast", "cast", "variant", "FIXED"]):
+                            logger.warning(f"⚠️ Casting error detected: {error_msg[:100]}...")
+                            logger.warning(f"⚠️ Retrying with type standardization...")
+                            # Standardize types and retry
+                            df_standardized = data_writer.standardize_dataframe_types(formatted_df, "string")
+                            data_writer.write_batch_to_temp_table(
+                                self.session, df_standardized, schema, tmp_table, df_fields,
+                                validate_types=False
+                            )
+                        else:
+                            logger.error(f"❌ Non-casting error: {error_msg}")
+                            raise
+                    
                     records_processed += len(batch_df)
             
             # Merge temp table with main table
             if records_processed > 0:
                 logger.debug(f"🔄 Merging {records_processed} records from temp table to main table")
-                merge.format_filter_condition(self.session, f"{schema}.{tmp_table}", f"{schema}.{table}", match_field, match_field)
+                print(f"🔄 Merging {records_processed} records from temp table to main table")
+                try:
+                    print(f"📋 About to call merge.format_filter_condition")
+                    print(f"📋 Parameters: session={type(self.session)}, src_table={schema}.{tmp_table}, tgt_table={schema}.{table}, match_field={match_field}")
+                    
+                    # Get current database for schema context
+                    current_db = self.session.sql('SELECT CURRENT_DATABASE()').collect()[0][0]
+                    
+                    # Set the correct schema context for the merge operation
+                    self.session.sql(f"USE SCHEMA {current_db}.{schema}").collect()
+                    
+                    # Call merge with just table names (not fully qualified) since we set the schema context
+                    merge_result = merge.format_filter_condition(self.session, tmp_table, table, match_field, match_field)
+                    print(f"✅ Merge completed: {merge_result}")
+                except Exception as e:
+                    print(f"❌ Error during merge: {e}")
+                    print(f"❌ Error type: {type(e).__name__}")
+                    import traceback
+                    print(f"❌ Full merge error traceback: {traceback.format_exc()}")
+                    raise
             
         else:
             # Full sync - overwrite table
@@ -497,18 +816,38 @@ class IntelligentSync:
             for batch_num, batch_df in enumerate(sobject_query.query_records(self.access_info, soql_query), 1):
                 if batch_df is not None and not batch_df.empty:
                     logger.debug(f"📦 Processing batch {batch_num}: {len(batch_df)} records")
-                    # Format data
-                    formatted_df = field_types.format_sync_file(batch_df, df_fields)
-                    formatted_df = formatted_df.replace(np.nan, None)
+                    # Let data_writer handle all formatting - no duplicate calls
+                    formatted_df = batch_df.replace(np.nan, None)
                     
-                    # Write to table (overwrite for first batch, append for subsequent)
-                    overwrite = records_processed == 0
-                    logger.debug(f"💾 Writing batch {batch_num} to table {schema}.{table} (overwrite={overwrite})")
-                    self.session.write_pandas(
-                        formatted_df, f"{schema}.{table}", 
-                        quote_identifiers=False, auto_create_table=True, 
-                        overwrite=overwrite, use_logical_type=True, on_error="CONTINUE"
-                    )
+                    # Write to table using centralized data writer with type handling (overwrite for first batch, append for subsequent)
+                    is_first_batch = records_processed == 0
+                    logger.debug(f"💾 Writing batch {batch_num} to table {schema}.{table} (overwrite={is_first_batch})")
+                    
+                    # Use type handling to prevent casting errors
+                    try:
+                        data_writer.write_batch_to_main_table(
+                            self.session, formatted_df, schema, table, is_first_batch,
+                            validate_types=True,
+                            use_logical_type=False,  # More lenient for problematic data
+                            df_fields=df_fields  # Pass field definitions for proper formatting
+                        )
+                    except Exception as e:
+                        error_msg = str(e)
+                        if any(phrase in error_msg for phrase in ["Failed to cast", "cast", "variant", "FIXED"]):
+                            logger.warning(f"⚠️ Casting error detected: {error_msg[:100]}...")
+                            logger.warning(f"⚠️ Retrying with type standardization...")
+                            # Standardize types and retry
+                            df_standardized = data_writer.standardize_dataframe_types(formatted_df, "string")
+                            data_writer.write_batch_to_main_table(
+                                self.session, df_standardized, schema, table, is_first_batch,
+                                validate_types=False,
+                                use_logical_type=False,
+                                df_fields=df_fields  # Pass field definitions for proper formatting
+                            )
+                        else:
+                            logger.error(f"❌ Non-casting error: {error_msg}")
+                            raise
+                    
                     records_processed += len(batch_df)
         
         logger.debug(f"✅ Regular API sync completed: {records_processed} records processed")
@@ -547,4 +886,50 @@ def sync_sobject_intelligent(session,
     sync_system = IntelligentSync(session, access_info)
     return sync_system.sync_sobject(
         sobject, schema, table, match_field, use_stage, stage_name, force_full_sync
-    ) 
+    )
+
+
+def sync_with_debug(session, access_info, sobject, schema, table, **kwargs):
+    """
+    Simple debug wrapper that prints everything to stdout.
+    Use this in Snowflake notebooks to see exactly what's happening.
+    """
+    print("\n" + "="*100)
+    print("🚀 STARTING SYNC WITH DEBUG OUTPUT")
+    print("="*100)
+    print(f"📋 Parameters:")
+    print(f"   - SObject: {sobject}")
+    print(f"   - Schema: {schema}")
+    print(f"   - Table: {table}")
+    print(f"   - Additional args: {kwargs}")
+    print("="*100)
+    
+    try:
+        result = sync_sobject_intelligent(
+            session=session,
+            access_info=access_info,
+            sobject=sobject,
+            schema=schema,
+            table=table,
+            **kwargs
+        )
+        
+        print("\n" + "="*100)
+        print("✅ SYNC COMPLETED SUCCESSFULLY")
+        print("="*100)
+        print(f"📊 Result: {result}")
+        print("="*100)
+        
+        return result
+        
+    except Exception as e:
+        print("\n" + "="*100)
+        print("❌ SYNC FAILED")
+        print("="*100)
+        print(f"Error: {e}")
+        print(f"Error type: {type(e).__name__}")
+        import traceback
+        print(f"Full traceback:")
+        print(traceback.format_exc())
+        print("="*100)
+        raise 

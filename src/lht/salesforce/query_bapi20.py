@@ -2,6 +2,7 @@ import requests
 import json
 import pandas as pd
 import numpy as np
+import io
 from . import sobjects
 from lht.util import field_types
 from lht.util import stage
@@ -150,8 +151,12 @@ def get_query_ids(access_info):
 
 	return jobs
 
-def get_bulk_results_with_stage(session, access_info, job_id, sobject, schema, table, stage_name=None, use_stage=False):
-	"""Fetches and processes bulk query results from Salesforce, optionally downloading to a Snowflake stage before loading into a table.
+def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table, database=None):
+	# Auto-detect database if not provided
+	if database is None:
+		database = session.sql('SELECT CURRENT_DATABASE()').collect()[0][0]
+		print(f"🔍 DEBUG: Auto-detected database: {database}")
+	"""Fetches and processes bulk query results from Salesforce, loading them directly into a Snowflake table.
 
 	Args:
 		session (snowflake.snowpark.Session): Snowpark session for Snowflake operations.
@@ -161,8 +166,7 @@ def get_bulk_results_with_stage(session, access_info, job_id, sobject, schema, t
 		sobject (str): Salesforce SObject type (e.g., 'Account', 'Contact').
 		schema (str): Snowflake schema name (e.g., 'RAW').
 		table (str): Snowflake table name to load results into.
-		stage_name (str, optional): Snowflake stage name for temporary storage (e.g., '@MY_STAGE').
-		use_stage (bool, optional): Whether to download results to stage before loading to table. Default False.
+		database (str, optional): Snowflake database name. If not provided, uses current database.
 
 	Returns:
 		requests.Response: HTTP response object from the last API request, or None if the job is not ready.
@@ -170,7 +174,6 @@ def get_bulk_results_with_stage(session, access_info, job_id, sobject, schema, t
 	Raises:
 		requests.exceptions.RequestException: If the API request fails (e.g., invalid job ID, network error).
 		pandas.errors.EmptyDataError: If the CSV data is empty or malformed.
-		OSError: If temporary file operations fail.
 		snowflake.snowpark.exceptions.SnowparkSQLException: If Snowflake write operation fails.
 	"""
 	headers = {
@@ -188,29 +191,42 @@ def get_bulk_results_with_stage(session, access_info, job_id, sobject, schema, t
 	query_string, df_fields = sobjects.describe(access_info, sobject)
 	
 	# Process first batch
-	temp_file_path = field_types.cache_data(results.text.encode('utf-8'))
-	print(f"\n\nFILE 1: {temp_file_path}")
+	csv_content = results.text
+	print(f"\n\nPROCESSING BATCH 1")
 	
-	# If using stage, upload to Snowflake stage first
-	if use_stage and stage_name:
-		print(f"📤 Uploading to Snowflake stage: {stage_name}")
-		with open(temp_file_path, 'rb') as f:
-			file_content = f.read()
-		# Use unique filename for first batch
-		stage.put_file(session, stage_name, file_content, filename=f"batch_1_{sobject}_{job_id}.csv")
-		print(f"✅ Successfully uploaded to stage: {stage_name}")
-	
-	# Load and process data
-	df = pd.read_csv(temp_file_path)
+	# Load and process data directly (no stage upload needed)
+	df = pd.read_csv(io.StringIO(csv_content))
 	formatted_df = field_types.format_sync_file(df, df_fields)
 	formatted_df = formatted_df.replace(np.nan, None)
 	
-	schema_table = schema+"."+table
-	session.write_pandas(formatted_df, schema_table, quote_identifiers=False, auto_create_table=True, overwrite=True, use_logical_type=True, on_error="CONTINUE")
+	# Set the current database and schema context
+	session.sql(f"USE DATABASE {database}").collect()
+	session.sql(f"USE SCHEMA {schema}").collect()
 	
-	# Clean up temporary file
-	if os.path.exists(temp_file_path):
-		os.remove(temp_file_path)
+	# Use fully qualified table name for write_pandas
+	fully_qualified_table = f"{schema}.{table}"
+	
+	# CRITICAL FIX: Create table with correct schema BEFORE write_pandas
+	try:
+		create_table_sql = _build_create_table_sql(schema, table, df_fields)
+		
+		# Execute CREATE TABLE statement
+		result = session.sql(create_table_sql).collect()
+		print(f"✅ Table created with correct schema")
+		
+		# Verify table exists before proceeding
+		table_check = session.sql(f'SHOW TABLES IN SCHEMA "{schema}"').collect()
+		table_names = [row['name'] for row in table_check]
+		if table not in table_names:
+			raise Exception(f"Table {schema}.{table} was not created successfully")
+		
+		# Now load data into existing table (no auto-create, no overwrite)
+		session.write_pandas(formatted_df, fully_qualified_table, quote_identifiers=False, auto_create_table=False, overwrite=False, use_logical_type=False, on_error="CONTINUE")
+		print(f"✅ Data loaded successfully")
+		
+	except Exception as e:
+		print(f"❌ Failed to create table or load data: {e}")
+		raise
 	
 	# Process remaining batches
 	counter = 2
@@ -222,37 +238,35 @@ def get_bulk_results_with_stage(session, access_info, job_id, sobject, schema, t
 
 		url = access_info['instance_url']+"/services/data/v58.0/jobs/query/{}/results?locator={}".format(job_id, results.headers['Sforce-Locator'])
 		results = requests.get(url, headers=headers)
-		temp_file_path = field_types.cache_data(results.text.encode('utf-8'))
-		print(f"\n\nFILE {counter}: {temp_file_path}")
+		csv_content = results.text
+		print(f"\n\nPROCESSING BATCH {counter}")
 		
-		# If using stage, upload to Snowflake stage first
-		if use_stage and stage_name:
-			print(f"📤 Uploading batch {counter} to Snowflake stage: {stage_name}")
-			with open(temp_file_path, 'rb') as f:
-				file_content = f.read()
-			# Use unique filename for subsequent batches
-			stage.put_file(session, stage_name, file_content, filename=f"batch_{counter}_{sobject}_{job_id}.csv")
-			print(f"✅ Successfully uploaded batch {counter} to stage: {stage_name}")
-		
-		df = pd.read_csv(temp_file_path)
+		df = pd.read_csv(io.StringIO(csv_content))
 		formatted_df = field_types.format_sync_file(df, df_fields)
 		formatted_df = formatted_df.replace(np.nan, None)
 	
-		schema_table = schema+"."+table
-		session.write_pandas(formatted_df, schema_table, quote_identifiers=False, auto_create_table=False, overwrite=False, use_logical_type=True, on_error="CONTINUE")
+		# Set the current database and schema context
+		session.sql(f"USE DATABASE {database}").collect()
+		session.sql(f"USE SCHEMA {schema}").collect()
 		
-		# Clean up temporary file
-		if os.path.exists(temp_file_path):
-			os.remove(temp_file_path)
+		# Use fully qualified table name for write_pandas
+		fully_qualified_table = f"{schema}.{table}"
+		
+		try:
+			session.write_pandas(formatted_df, fully_qualified_table, quote_identifiers=False, auto_create_table=False, overwrite=False, use_logical_type=True, on_error="CONTINUE")
+			print(f"✅ Batch {counter} loaded successfully")
+		except Exception as e:
+			print(f"❌ Batch {counter} failed: {e}")
+			raise
 		
 		counter += 1
 	
 	return results
 
-def get_bulk_results(session, access_info, job_id, sobject, schema, table, use_stage=False, stage_name=None):
+def get_bulk_results(session, access_info, job_id, sobject, schema, table, use_stage=False, stage_name=None, database=None):
 	"""Fetches and processes bulk query results from Salesforce, loading them into a Snowflake table.
 	
-	This function now supports optional stage upload for Snowflake notebook environments.
+	This function now uses direct DataFrame-to-table loading for optimal performance.
 
 	Args:
 		session (snowflake.snowpark.Session): Snowpark session for Snowflake operations.
@@ -262,8 +276,9 @@ def get_bulk_results(session, access_info, job_id, sobject, schema, table, use_s
 		sobject (str): Salesforce SObject type (e.g., 'Account', 'Contact').
 		schema (str): Snowflake schema name (e.g., 'RAW').
 		table (str): Snowflake table name to load results into.
-		use_stage (bool, optional): Whether to download results to stage before loading to table. Default False.
-		stage_name (str, optional): Snowflake stage name for temporary storage (e.g., '@MY_STAGE').
+		use_stage (bool, optional): Deprecated - kept for backward compatibility. Default False.
+		stage_name (str, optional): Deprecated - kept for backward compatibility.
+		database (str, optional): Snowflake database name. If not provided, uses current database.
 
 	Returns:
 		requests.Response: HTTP response object from the last API request, or None if the job is not ready.
@@ -271,66 +286,9 @@ def get_bulk_results(session, access_info, job_id, sobject, schema, table, use_s
 	Raises:
 		requests.exceptions.RequestException: If the API request fails (e.g., invalid job ID, network error).
 		pandas.errors.EmptyDataError: If the CSV data is empty or malformed.
-		OSError: If temporary file operations fail.
 		snowflake.snowpark.exceptions.SnowparkSQLException: If Snowflake write operation fails.
 	"""
-	# If stage upload is requested, use the new function
-	if use_stage:
-		return get_bulk_results_with_stage(session, access_info, job_id, sobject, schema, table, stage_name, use_stage)
-	
-	# Original implementation for backward compatibility
-	headers = {
-			"Authorization":"Bearer {}".format(access_info['access_token']),
-			"Content-Type": "application/json"
-	}
-	
-	url = access_info['instance_url']+"/services/data/v58.0/jobs/query/{}/results".format(job_id)
-	results = requests.get(url, headers=headers)
-	if results.status_code != 200:
-		print('The job is not ready.  Retry in a few minutes')
-		return None
-	#while True:
-	else:
-		temp_file_path = field_types.cache_data(results.text.encode('utf-8'))
-		df = pd.read_csv(temp_file_path)
-		print("\n\nFILE 1:{}".format(temp_file_path))
-		query_string, df_fields = sobjects.describe(access_info, sobject)
-
-		formatted_df = field_types.format_sync_file(df, df_fields)
-
-		formatted_df = formatted_df.replace(np.nan, None)
-
-		#formatted_df = formatted_df[string_columns].fillna('')
-		schema_table = schema+"."+table
-
-		session.write_pandas(formatted_df, schema_table, quote_identifiers=False, auto_create_table=True, overwrite=True,use_logical_type=True, on_error="CONTINUE")
-		#print("\n\nHEADERS {}".format(results.headers))
-		if os.path.exists(temp_file_path):
-			# Remove the file
-			os.remove(temp_file_path)
-		counter = 2
-		while True:
-			if 'Sforce-Locator' not in results.headers:			
-				break
-			elif results.headers['Sforce-Locator'] == 'null':
-				break
-			#print("\n\nHEADERS {}".format(results.headers))
-
-			url = access_info['instance_url']+"/services/data/v58.0/jobs/query/{}/results?locator={}".format(job_id,results.headers['Sforce-Locator'])
-			results = requests.get(url, headers=headers)
-			temp_file_path = field_types.cache_data(results.text.encode('utf-8'))
-			print("\n\nFILE {}:{}".format(counter, temp_file_path))
-			counter += 1
-			df = pd.read_csv(temp_file_path)
-			formatted_df = field_types.format_sync_file(df, df_fields)
-			formatted_df = formatted_df.replace(np.nan, None)
-		
-			schema_table = schema+"."+table
-			session.write_pandas(formatted_df, schema_table, quote_identifiers=False, auto_create_table=False, overwrite=False,use_logical_type=True, on_error="CONTINUE")
-			if os.path.exists(temp_file_path):
-				# Remove the file
-				os.remove(temp_file_path)
-	return results
+	return get_bulk_results_direct(session, access_info, job_id, sobject, schema, table, database)
 
 def delete_query(access_info, job_id):
 	"""Deletes a Salesforce query job by ID using the Bulk Query API.
@@ -403,3 +361,241 @@ def get_query_ids(access_info):
 			break
 
 	return jobs
+
+def test_snowflake_permissions(session, schema, table, database=None):
+	"""Test Snowflake permissions and context for debugging."""
+	# Auto-detect database if not provided
+	if database is None:
+		database = session.sql('SELECT CURRENT_DATABASE()').collect()[0][0]
+		print(f"🔍 DEBUG: Auto-detected database: {database}")
+	
+	print(f"\n🔍 DEBUG: Testing Snowflake permissions and context")
+	print(f"🔍 DEBUG: Target schema: {schema}")
+	print(f"🔍 DEBUG: Target table: {table}")
+	print(f"🔍 DEBUG: Target database: {database}")
+	
+	# Check current context
+	current_db = session.sql('SELECT CURRENT_DATABASE()').collect()[0][0]
+	current_schema = session.sql('SELECT CURRENT_SCHEMA()').collect()[0][0]
+	current_role = session.sql('SELECT CURRENT_ROLE()').collect()[0][0]
+	
+	print(f"🔍 DEBUG: Current database: {current_db}")
+	print(f"🔍 DEBUG: Current schema: {current_schema}")
+	print(f"🔍 DEBUG: Current role: {current_role}")
+	
+	# Test database permissions
+	try:
+		print(f"🔍 DEBUG: Testing database access: {database}")
+		session.sql(f"SHOW SCHEMAS IN DATABASE {database}").collect()
+		print(f"✅ DEBUG: Database access successful")
+	except Exception as e:
+		print(f"❌ DEBUG: Database access failed: {e}")
+	
+	# Test schema permissions
+	try:
+		print(f"🔍 DEBUG: Testing schema access: {database}.{schema}")
+		session.sql(f"SHOW TABLES IN SCHEMA {database}.{schema}").collect()
+		print(f"✅ DEBUG: Schema access successful")
+	except Exception as e:
+		print(f"❌ DEBUG: Schema access failed: {e}")
+	
+	# Test table creation permissions
+	try:
+		print(f"🔍 DEBUG: Testing table creation in schema: {database}.{schema}")
+		test_table = f"{database}.{schema}.TEST_PERMISSIONS_TEMP"
+		session.sql(f"CREATE OR REPLACE TEMPORARY TABLE {test_table} (test_col STRING)").collect()
+		session.sql(f"DROP TABLE {test_table}").collect()
+		print(f"✅ DEBUG: Table creation test successful")
+	except Exception as e:
+		print(f"❌ DEBUG: Table creation test failed: {e}")
+	
+	print(f"🔍 DEBUG: Permission test completed\n")
+
+def cleanup_completed_jobs(access_info, max_age_hours=24):
+	"""Deletes completed Salesforce Bulk API 2.0 jobs that are older than the specified age.
+	
+	Args:
+		access_info (dict): Dictionary containing Salesforce access details, including
+			'access_token' (str) for authentication and 'instance_url' (str) for the API endpoint.
+		max_age_hours (int): Maximum age in hours for jobs to be kept. Jobs older than this will be deleted.
+			Default is 24 hours.
+	
+	Returns:
+		dict: Summary of cleanup operation including deleted_count, failed_count, and details.
+	
+	Raises:
+		requests.exceptions.RequestException: If the API request fails.
+		json.JSONDecodeError: If the API response is not valid JSON.
+	"""
+	import datetime
+	
+	headers = {
+		"Authorization": "Bearer {}".format(access_info['access_token']),
+		"Content-Type": "application/json"
+	}
+	
+	# Get all query jobs
+	url = access_info['instance_url'] + "/services/data/v58.0/jobs/query/"
+	completed_jobs = []
+	
+	try:
+		while True:
+			results = requests.get(url, headers=headers)
+			results.raise_for_status()
+			
+			for job in results.json()['records']:
+				# Only process completed jobs (JobComplete, Failed, Aborted)
+				if job['state'] in ['JobComplete', 'Failed', 'Aborted']:
+					# Parse the created date
+					created_date = datetime.datetime.fromisoformat(job['createdDate'].replace('Z', '+00:00'))
+					age_hours = (datetime.datetime.now(datetime.timezone.utc) - created_date).total_seconds() / 3600
+					
+					# If job is older than max_age_hours, mark for deletion
+					if age_hours > max_age_hours:
+						completed_jobs.append({
+							'id': job['id'],
+							'state': job['state'],
+							'created_date': job['createdDate'],
+							'age_hours': age_hours
+						})
+			
+			# Check for next page
+			if results.json().get('nextRecordsUrl'):
+				url = access_info['instance_url'] + results.json()['nextRecordsUrl']
+			else:
+				break
+		
+		# Delete the old completed jobs
+		deleted_count = 0
+		failed_count = 0
+		failed_jobs = []
+		
+		for job in completed_jobs:
+			try:
+				delete_url = access_info['instance_url'] + f"/services/data/v58.0/jobs/query/{job['id']}"
+				delete_response = requests.delete(delete_url, headers=headers)
+				
+				if delete_response.status_code == 204:  # Success
+					deleted_count += 1
+					print(f"🗑️ Deleted completed job {job['id']} (age: {job['age_hours']:.1f}h, state: {job['state']})")
+				else:
+					failed_count += 1
+					failed_jobs.append({
+						'id': job['id'],
+						'status_code': delete_response.status_code,
+						'error': delete_response.text
+					})
+					print(f"❌ Failed to delete job {job['id']}: {delete_response.status_code}")
+					
+			except Exception as e:
+				failed_count += 1
+				failed_jobs.append({
+					'id': job['id'],
+					'error': str(e)
+				})
+				print(f"❌ Error deleting job {job['id']}: {e}")
+		
+		cleanup_summary = {
+			'deleted_count': deleted_count,
+			'failed_count': failed_count,
+			'total_processed': len(completed_jobs),
+			'max_age_hours': max_age_hours,
+			'failed_jobs': failed_jobs
+		}
+		
+		print(f"🧹 Cleanup completed: {deleted_count} jobs deleted, {failed_count} failed")
+		return cleanup_summary
+		
+	except Exception as e:
+		print(f"❌ Error during job cleanup: {e}")
+		return {
+			'deleted_count': 0,
+			'failed_count': 0,
+			'total_processed': 0,
+			'error': str(e)
+		}
+
+def delete_specific_job(access_info, job_id):
+	"""Deletes a specific Salesforce Bulk API 2.0 job by ID.
+	
+	Args:
+		access_info (dict): Dictionary containing Salesforce access details.
+		job_id (str): ID of the job to delete.
+	
+	Returns:
+		dict: Result of the deletion operation.
+	"""
+	headers = {
+		"Authorization": "Bearer {}".format(access_info['access_token']),
+		"Content-Type": "application/json"
+	}
+	
+	try:
+		delete_url = access_info['instance_url'] + f"/services/data/v58.0/jobs/query/{job_id}"
+		delete_response = requests.delete(delete_url, headers=headers)
+		
+		if delete_response.status_code == 204:
+			print(f"🗑️ Successfully deleted job {job_id}")
+			return {
+				'success': True,
+				'job_id': job_id,
+				'message': 'Job deleted successfully'
+			}
+		else:
+			print(f"❌ Failed to delete job {job_id}: {delete_response.status_code}")
+			return {
+				'success': False,
+				'job_id': job_id,
+				'status_code': delete_response.status_code,
+				'error': delete_response.text
+			}
+			
+	except Exception as e:
+		print(f"❌ Error deleting job {job_id}: {e}")
+		return {
+			'success': False,
+			'job_id': job_id,
+			'error': str(e)
+		}
+
+def _build_create_table_sql(schema: str, table: str, df_fields: dict) -> str:
+	"""
+	Build CREATE TABLE SQL statement based on Salesforce field definitions.
+	
+	Args:
+		schema: Snowflake schema name
+		table: Snowflake table name
+		df_fields: Dictionary mapping field names to pandas dtypes
+		
+	Returns:
+		str: CREATE TABLE SQL statement
+	"""
+	# Map pandas dtypes to Snowflake types
+	type_mapping = {
+		'object': 'VARCHAR(16777216)',      # String fields (including PO_Number__c)
+		'int64': 'NUMBER(38,0)',            # Integer fields
+		'float64': 'DOUBLE',                 # Float fields
+		'bool': 'BOOLEAN',                   # Boolean fields
+		'datetime64': 'TIMESTAMP_NTZ',       # Datetime fields
+		'datetime64[ns]': 'TIMESTAMP_NTZ',   # Datetime fields with nanoseconds
+	}
+	
+	# Build column definitions
+	columns = []
+	for field_name, dtype in df_fields.items():
+		# Convert field name to uppercase to match DataFrame
+		field_upper = field_name.upper()
+		
+		# Map the dtype to Snowflake type
+		snowflake_type = type_mapping.get(dtype, 'VARCHAR(16777216)')  # Default to VARCHAR
+		
+		# Add column definition
+		columns.append(f'"{field_upper}" {snowflake_type}')
+	
+	# Build CREATE TABLE statement
+	column_defs = ',\n\t'.join(columns)
+	create_sql = f"""CREATE OR REPLACE TABLE "{schema}"."{table}" (
+	{column_defs}
+)"""
+	
+	return create_sql

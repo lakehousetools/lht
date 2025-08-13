@@ -41,9 +41,13 @@ def format_insert_upsert(snowpark_session, src_table, tgt_table, s_filter_cond):
     update_col = list()
     insert_sel = list()
     insert_val = list()
+    # Get current database and schema for proper table references
+    current_db = snowpark_session.sql("SELECT CURRENT_DATABASE()").collect()[0][0]
     schema_name = snowpark_session.get_current_schema().replace('"','')
-    src_table_col = snowpark_session.sql("select COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '{0}' AND TABLE_SCHEMA = \'{1}\' ORDER BY ORDINAL_POSITION".format(src_table,schema_name)).collect()
-    tgt_table_col = snowpark_session.sql("select COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '{0}' AND TABLE_SCHEMA = \'{1}\' ORDER BY ORDINAL_POSITION".format(tgt_table,schema_name)).collect()
+    
+    # Use fully qualified table names for temporary table queries
+    src_table_col = snowpark_session.sql("select COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '{0}' AND TABLE_SCHEMA = \'{1}\' ORDER BY ORDINAL_POSITION".format(src_table, schema_name)).collect()
+    tgt_table_col = snowpark_session.sql("select COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '{0}' AND TABLE_SCHEMA = \'{1}\' ORDER BY ORDINAL_POSITION".format(tgt_table, schema_name)).collect()
 
     if len(src_table_col) != 0:
         for idx_value in range(len(src_table_col)):
