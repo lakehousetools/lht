@@ -226,8 +226,3 @@ result = sync_sobject_intelligent(
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🔗 Related Documentation
-
-- **[PyPI Upload Guide](UPLOAD_README.md)**: Instructions for uploading to PyPI
-- **[NPI App Documentation](apps/npi/README_NPI_APP.md)**: NPI Streamlit application guide
