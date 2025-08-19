@@ -273,7 +273,11 @@ def format_sync_file(df, df_fields, force_datetime_to_string=False):
 								return timestamp_str
 							
 							df[col_upper] = df[col_upper].apply(convert_salesforce_timestamp)
-							print(f"✅ {col_upper} converted to Snowflake TIMESTAMP_NTZ format (YYYY-MM-DD HH:MM:SS)")
+							# Convert the clean timestamp strings to datetime64 so Snowflake recognizes them as TIMESTAMP_NTZ
+							df[col_upper] = pd.to_datetime(df[col_upper], format='%Y-%m-%d %H:%M:%S', errors='coerce')
+							# Convert to timezone-naive for Snowflake TIMESTAMP_NTZ compatibility
+							df[col_upper] = df[col_upper].dt.tz_localize(None)
+							print(f"✅ {col_upper} converted to Snowflake TIMESTAMP_NTZ format (YYYY-MM-DD HH:MM:SS) and parsed as datetime64")
 							continue
 						except Exception as e:
 							print(f"⚠️ Warning: Could not convert {col_upper} format: {e}")
