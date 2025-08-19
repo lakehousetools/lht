@@ -212,30 +212,29 @@ def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table
 		print(f"🔍 DEBUG: df_fields contains {len(df_fields)} fields: {list(df_fields.keys())}")
 		
 		# Check if table already exists first
-		print(f"🔍 DEBUG: Checking if table already exists...")
 		try:
 			table_check = session.sql(f'SHOW TABLES IN SCHEMA "{schema}"').collect()
 			table_names = [row['name'] for row in table_check]
-			print(f"🔍 DEBUG: Tables in schema {schema}: {table_names}")
-					if table in table_names:
-			print(f"✅ Table {schema}.{table} already exists, skipping creation")
-		else:
-			print(f"🔧 Table {schema}.{table} does not exist, creating it...")
-			# Create a filtered snowflake_fields dict with only the fields we're actually using
 			
-			# Check for field name mismatches
-			missing_in_snowflake = [k for k in df_fields.keys() if k not in snowflake_fields]
-			if missing_in_snowflake:
-				print(f"⚠️ WARNING: Fields missing from snowflake_fields: {missing_in_snowflake}")
-			
-			filtered_snowflake_fields = {k: snowflake_fields.get(k, 'VARCHAR(16777216)') for k in df_fields.keys()}
-			create_table_sql = _build_create_table_sql(schema, table, filtered_snowflake_fields)
-			print(f"🔧 CREATE TABLE SQL:")
-			print(f"{create_table_sql}")
-			
-			# Execute CREATE TABLE statement
-			result = session.sql(create_table_sql).collect()
-			print(f"✅ Table created with correct schema")
+			if table in table_names:
+				print(f"✅ Table {schema}.{table} already exists, skipping creation")
+			else:
+				print(f"🔧 Table {schema}.{table} does not exist, creating it...")
+				# Create a filtered snowflake_fields dict with only the fields we're actually using
+				
+				# Check for field name mismatches
+				missing_in_snowflake = [k for k in df_fields.keys() if k not in snowflake_fields]
+				if missing_in_snowflake:
+					print(f"⚠️ WARNING: Fields missing from snowflake_fields: {missing_in_snowflake}")
+				
+				filtered_snowflake_fields = {k: snowflake_fields.get(k, 'VARCHAR(16777216)') for k in df_fields.keys()}
+				create_table_sql = _build_create_table_sql(schema, table, filtered_snowflake_fields)
+				print(f"🔧 CREATE TABLE SQL:")
+				print(f"{create_table_sql}")
+				
+				# Execute CREATE TABLE statement
+				result = session.sql(create_table_sql).collect()
+				print(f"✅ Table created with correct schema")
 		
 		except Exception as table_check_error:
 			print(f"⚠️ Error checking/creating table: {table_check_error}")
