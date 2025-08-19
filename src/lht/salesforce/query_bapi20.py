@@ -224,10 +224,18 @@ def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table
 			else:
 				print(f"🔍 DEBUG: Table {schema}.{table} does not exist, creating it...")
 				# Create a filtered snowflake_fields dict with only the fields we're actually using
-				filtered_snowflake_fields = {k: snowflake_fields.get(k, 'VARCHAR(16777216)') for k in df_fields.keys()}
 				print(f"🔍 DEBUG: Field filtering:")
 				print(f"  - df_fields keys: {list(df_fields.keys())}")
 				print(f"  - snowflake_fields keys: {list(snowflake_fields.keys())}")
+				print(f"  - df_fields values: {list(df_fields.values())}")
+				print(f"  - snowflake_fields values: {list(snowflake_fields.values())}")
+				
+				# Check for field name mismatches
+				missing_in_snowflake = [k for k in df_fields.keys() if k not in snowflake_fields]
+				if missing_in_snowflake:
+					print(f"⚠️ WARNING: Fields missing from snowflake_fields: {missing_in_snowflake}")
+				
+				filtered_snowflake_fields = {k: snowflake_fields.get(k, 'VARCHAR(16777216)') for k in df_fields.keys()}
 				print(f"  - filtered_snowflake_fields: {filtered_snowflake_fields}")
 				create_table_sql = _build_create_table_sql(schema, table, filtered_snowflake_fields)
 				print(f"🔍 DEBUG: CREATE TABLE SQL: {create_table_sql}")
@@ -651,6 +659,11 @@ def _build_create_table_sql(schema: str, table: str, snowflake_fields: dict) -> 
 	Returns:
 		str: CREATE TABLE SQL statement
 	"""
+	print(f"🔍 DEBUG: _build_create_table_sql called with:")
+	print(f"  - schema: {schema}")
+	print(f"  - table: {table}")
+	print(f"  - snowflake_fields: {snowflake_fields}")
+	
 	# Build column definitions
 	columns = []
 	for field_name, snowflake_type in snowflake_fields.items():
@@ -659,6 +672,7 @@ def _build_create_table_sql(schema: str, table: str, snowflake_fields: dict) -> 
 		
 		# Use the Snowflake type directly (already mapped from Salesforce field types)
 		columns.append(f'"{field_upper}" {snowflake_type}')
+		print(f"  - Column: {field_upper} -> {snowflake_type}")
 	
 	# Build CREATE TABLE statement
 	column_defs = ',\n\t'.join(columns)
@@ -666,4 +680,5 @@ def _build_create_table_sql(schema: str, table: str, snowflake_fields: dict) -> 
 	{column_defs}
 )"""
 	
+	print(f"🔍 DEBUG: Generated SQL: {create_sql}")
 	return create_sql
