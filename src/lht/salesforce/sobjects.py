@@ -35,11 +35,7 @@ def describe(access_info, sobject, lmd=None):
 		# Skip compound fields
 		if row['name'] in cfields:
 			continue
-		
-		# Skip fields where permissionable is false
-		if not row.get('permissionable', True):
-			print(f"⚠️ Skipping non-permissionable field: {row['name']}")
-			continue
+
 		
 		if len(query_fields) == 0:
 			pass
