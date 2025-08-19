@@ -170,9 +170,9 @@ def write_dataframe_to_table(
         # If we have field definitions and need to create a table, use centralized table creation
         if auto_create and df_fields is not None and len(df_fields) > 0:
             try:
-                # Parse Salesforce datetime fields BEFORE table creation
-                logger.info(f"🔧 Pre-processing DataFrame for Salesforce datetime fields...")
-                df_processed = parse_salesforce_datetime_fields(df, df_fields)
+                # The DataFrame has already been processed by field_types.format_sync_file above
+                # No need to process it again - use the already-processed DataFrame
+                logger.info(f"🔧 Using DataFrame already processed by field_types.format_sync_file")
                 
                 # Use provided snowflake_fields if available, otherwise infer from DataFrame
                 if snowflake_fields is not None and len(snowflake_fields) > 0:
@@ -183,17 +183,17 @@ def write_dataframe_to_table(
                     # Fallback: infer types from DataFrame (less accurate)
                     logger.warning(f"⚠️ No Salesforce field types provided, inferring from DataFrame (may cause type issues)")
                     snowflake_fields = {}
-                    for col in df_processed.columns:
+                    for col in df.columns:
                         # Map pandas types to Snowflake types
-                        if df_processed[col].dtype == 'object':
+                        if df[col].dtype == 'object':
                             snowflake_fields[col] = 'VARCHAR(16777216)'
-                        elif df_processed[col].dtype in ['int64', 'int32']:
+                        elif df[col].dtype in ['int64', 'int32']:
                             snowflake_fields[col] = 'NUMBER(38,0)'
-                        elif df_processed[col].dtype in ['float64', 'float32']:
+                        elif df[col].dtype in ['float64', 'float32']:
                             snowflake_fields[col] = 'FLOAT'
-                        elif df_processed[col].dtype == 'bool':
+                        elif df[col].dtype == 'bool':
                             snowflake_fields[col] = 'BOOLEAN'
-                        elif df_processed[col].dtype == 'datetime64[ns]':
+                        elif df[col].dtype == 'datetime64[ns]':
                             snowflake_fields[col] = 'TIMESTAMP_NTZ'
                         else:
                             snowflake_fields[col] = 'VARCHAR(16777216)'
@@ -209,9 +209,9 @@ def write_dataframe_to_table(
                     database=current_db
                 )
                 
-                # Now write to the existing table using the processed DataFrame
+                # Now write to the existing table using the already-processed DataFrame
                 result = session.write_pandas(
-                    df_processed, 
+                    df, 
                     full_table_name,
                     quote_identifiers=False, 
                     auto_create_table=False,  # Table already exists
@@ -264,67 +264,7 @@ def write_dataframe_to_table(
         
         raise Exception(f"DataFrame write operation failed: {e}")
 
-def parse_salesforce_datetime_fields(df: pd.DataFrame, df_fields: Optional[dict] = None) -> pd.DataFrame:
-    """
-    Parse Salesforce datetime fields from ISO8601 strings to proper pandas datetime objects.
-    
-    Args:
-        df: DataFrame to process
-        df_fields: Salesforce field definitions (optional, for better type detection)
-        
-    Returns:
-        DataFrame with parsed datetime fields
-    """
-    logger.info(f"🔧 Parsing Salesforce datetime fields...")
-    
-    df_parsed = df.copy()
-    
-    for column in df_parsed.columns:
-        col_data = df_parsed[column]
-        
-        # Check if this is a datetime field based on Salesforce field definitions
-        is_datetime_field = False
-        if df_fields and column in df_fields:
-            field_type = df_fields[column]
-            if field_type in ['datetime', 'date']:
-                is_datetime_field = True
-                logger.debug(f"   Column '{column}': Salesforce field type '{field_type}'")
-        
-        # Also check if column name suggests it's a datetime field
-        if not is_datetime_field:
-            datetime_keywords = ['date', 'time', 'created', 'modified', 'last']
-            if any(keyword in column.lower() for keyword in datetime_keywords):
-                is_datetime_field = True
-                logger.debug(f"   Column '{column}': Name suggests datetime field")
-        
-        if is_datetime_field and col_data.dtype == 'object':
-            logger.info(f"   🔧 Parsing datetime column '{column}' from ISO8601 format...")
-            
-            # Parse ISO8601 datetime strings
-            try:
-                # Handle various ISO8601 formats including Z timezone
-                parsed_dates = pd.to_datetime(col_data, format='mixed', errors='coerce')
-                
-                # Check if we got any valid dates
-                valid_dates = parsed_dates.notna().sum()
-                total_values = len(col_data)
-                
-                if valid_dates > 0:
-                    df_parsed[column] = parsed_dates
-                    logger.info(f"   ✅ Successfully parsed {valid_dates}/{total_values} datetime values in '{column}'")
-                    
-                    # Show sample of parsed values
-                    sample_values = parsed_dates.dropna().head(3)
-                    if len(sample_values) > 0:
-                        logger.debug(f"   📅 Sample parsed values: {sample_values.tolist()}")
-                else:
-                    logger.warning(f"   ⚠️ No valid datetime values found in '{column}'")
-                    
-            except Exception as e:
-                logger.warning(f"   ⚠️ Failed to parse datetime column '{column}': {e}")
-                # Keep original data if parsing fails
-    
-    return df_parsed
+
 
 
 def standardize_dataframe_types(df: pd.DataFrame, type_strategy: str = "auto") -> pd.DataFrame:
