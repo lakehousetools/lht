@@ -255,13 +255,23 @@ def format_sync_file(df, df_fields, force_datetime_to_string=False):
 							print(f"⚠️ Warning: Could not convert {col_upper} from epoch time: {e}")
 							# Fall through to string conversion
 					
-					# Option 3: Auto-detect problematic Salesforce ISO 8601 format
-					if any(isinstance(x, str) and ('T' in str(x) or '.000Z' in str(x)) for x in sample_values):
-						print(f"⚠️  {col_upper} contains Salesforce ISO 8601 format - converting to string to avoid parsing issues")
-						df[col_upper] = df[col_upper].replace({pd.NA: None, pd.NaT: None})
-						df[col_upper] = df[col_upper].astype(str)
-						df[col_upper] = df[col_upper].replace({'nan': None, 'None': None, '<NA>': None})
-						continue
+					# Option 3: Handle Salesforce ISO 8601 format properly
+					if any(isinstance(x, str) and ('T' in str(x) or '.000Z' in str(x) or '+0000' in str(x)) for x in sample_values):
+						print(f"🔧 {col_upper} contains Salesforce ISO 8601 format - parsing to datetime...")
+						try:
+							# Parse ISO 8601 format to datetime
+							df[col_upper] = pd.to_datetime(df[col_upper], errors='coerce')
+							# Convert to timezone-naive for Snowflake TIMESTAMP_NTZ compatibility
+							df[col_upper] = df[col_upper].dt.tz_localize(None)
+							print(f"✅ {col_upper} successfully parsed from ISO 8601 to datetime64")
+							continue
+						except Exception as e:
+							print(f"⚠️ Warning: Could not parse {col_upper} from ISO 8601: {e}")
+							# Fall through to string conversion as last resort
+							df[col_upper] = df[col_upper].replace({pd.NA: None, pd.NaT: None})
+							df[col_upper] = df[col_upper].astype(str)
+							df[col_upper] = df[col_upper].replace({'nan': None, 'None': None, '<NA>': None})
+							continue
 					
 					# Option 4: Try to convert to datetime (default behavior)
 					try:
@@ -277,19 +287,19 @@ def format_sync_file(df, df_fields, force_datetime_to_string=False):
 					
 					# Final safety check: if we still have numeric data in a datetime field, convert to string
 					if df[col_upper].dtype in ['int64', 'float64']:
-						print(f"⚠️ Safety check: {col_upper} is still numeric after datetime conversion, forcing to string")
+						#print(f"⚠️ Safety check: {col_upper} is still numeric after datetime conversion, forcing to string")
 						df[col_upper] = df[col_upper].astype(str)
 						df[col_upper] = df[col_upper].replace({'nan': None, 'None': None, '<NA>': None})
 						
 				elif dtype == 'object':
 					# Salesforce string fields (including PO_Number__c) MUST be strings
 					# Convert to string immediately, regardless of content
-					print(f"🔧 Forcing {col_upper} to string type (Salesforce field type: {dtype})")
-					print(f"🔍 DEBUG: Before conversion - {col_upper} dtype: {df[col_upper].dtype}")
+					#print(f"🔧 Forcing {col_upper} to string type (Salesforce field type: {dtype})")
+					#print(f"🔍 DEBUG: Before conversion - {col_upper} dtype: {df[col_upper].dtype}")
 					df[col_upper] = df[col_upper].replace({pd.NA: None, pd.NaT: None})
 					df[col_upper] = df[col_upper].astype(str)
 					df[col_upper] = df[col_upper].replace({'nan': None, 'None': None, '<NA>': None})
-					print(f"🔍 DEBUG: After conversion - {col_upper} dtype: {df[col_upper].dtype}")
+					#print(f"🔍 DEBUG: After conversion - {col_upper} dtype: {df[col_upper].dtype}")
 					
 				elif dtype == 'int64':
 					# Check if ANY value is non-numeric - if so, convert entire column to string
@@ -301,7 +311,7 @@ def format_sync_file(df, df_fields, force_datetime_to_string=False):
 					
 					if has_non_numeric:
 						# Convert entire column to string - no mixed types allowed in Snowflake
-						print(f"⚠️ Column {col_upper} contains non-numeric values, converting entire column to string")
+						#print(f"⚠️ Column {col_upper} contains non-numeric values, converting entire column to string")
 						df[col_upper] = df[col_upper].replace({pd.NA: None, pd.NaT: None})
 						df[col_upper] = df[col_upper].astype(str)
 						df[col_upper] = df[col_upper].replace({'nan': None, 'None': None, '<NA>': None})
@@ -328,7 +338,7 @@ def format_sync_file(df, df_fields, force_datetime_to_string=False):
 					
 					if has_non_float:
 						# Convert entire column to string
-						print(f"⚠️ Column {col_upper} contains non-float values, converting entire column to string")
+						#print(f"⚠️ Column {col_upper} contains non-float values, converting entire column to string")
 						df[col_upper] = df[col_upper].replace({pd.NA: None, pd.NaT: None})
 						df[col_upper] = df[col_upper].astype(str)
 						df[col_upper] = df[col_upper].replace({'nan': None, 'None': None, '<NA>': None})
