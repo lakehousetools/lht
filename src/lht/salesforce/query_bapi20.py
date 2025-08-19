@@ -151,7 +151,7 @@ def get_query_ids(access_info):
 
 	return jobs
 
-def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table, snowflake_fields=None, database=None):
+def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table, snowflake_fields=None, database=None, force_full_sync=False):
 	# Auto-detect database if not provided
 	if database is None:
 		database = session.sql('SELECT CURRENT_DATABASE()').collect()[0][0]
@@ -228,7 +228,7 @@ def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table
 					print(f"⚠️ WARNING: Fields missing from snowflake_fields: {missing_in_snowflake}")
 				
 				filtered_snowflake_fields = {k: snowflake_fields.get(k, 'VARCHAR(16777216)') for k in df_fields.keys()}
-				create_table_sql = _build_create_table_sql(schema, table, filtered_snowflake_fields)
+				create_table_sql = _build_create_table_sql(schema, table, filtered_snowflake_fields, force_full_sync)
 				print(f"🔧 CREATE TABLE SQL:")
 				print(f"{create_table_sql}")
 				
@@ -252,7 +252,7 @@ def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table
 				
 				# Create table with correct schema
 				filtered_snowflake_fields = {k: snowflake_fields.get(k, 'VARCHAR(16777216)') for k in df_fields.keys()}
-				create_table_sql = _build_create_table_sql(schema, table, filtered_snowflake_fields)
+				create_table_sql = _build_create_table_sql(schema, table, filtered_snowflake_fields, force_full_sync)
 				print(f"🔧 CREATE TABLE SQL (fallback):")
 				print(f"{create_table_sql}")
 				
@@ -330,7 +330,7 @@ def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table
 	
 	return results
 
-def get_bulk_results(session, access_info, job_id, sobject, schema, table, snowflake_fields=None, use_stage=False, stage_name=None, database=None):
+def get_bulk_results(session, access_info, job_id, sobject, schema, table, snowflake_fields=None, use_stage=False, stage_name=None, database=None, force_full_sync=False):
 	"""Fetches and processes bulk query results from Salesforce, loading them into a Snowflake table.
 	
 	This function now uses direct DataFrame-to-table loading for optimal performance.
@@ -355,7 +355,7 @@ def get_bulk_results(session, access_info, job_id, sobject, schema, table, snowf
 		pandas.errors.EmptyDataError: If the CSV data is empty or malformed.
 		snowflake.snowpark.exceptions.SnowparkSQLException: If Snowflake write operation fails.
 	"""
-	return get_bulk_results_direct(session, access_info, job_id, sobject, schema, table, snowflake_fields, database)
+	return get_bulk_results_direct(session, access_info, job_id, sobject, schema, table, snowflake_fields, database, force_full_sync)
 
 def delete_query(access_info, job_id):
 	"""Deletes a Salesforce query job by ID using the Bulk Query API.
@@ -625,7 +625,7 @@ def delete_specific_job(access_info, job_id):
 			'error': str(e)
 		}
 
-def _build_create_table_sql(schema: str, table: str, snowflake_fields: dict) -> str:
+def _build_create_table_sql(schema: str, table: str, snowflake_fields: dict, force_full_sync: bool = False) -> str:
 	"""
 	Build CREATE TABLE SQL statement based on Salesforce field definitions.
 	
@@ -648,7 +648,12 @@ def _build_create_table_sql(schema: str, table: str, snowflake_fields: dict) -> 
 	
 	# Build CREATE TABLE statement
 	column_defs = ',\n\t'.join(columns)
-	create_sql = f"""CREATE OR REPLACE TABLE "{schema}"."{table}" (
+	if force_full_sync:
+		create_sql = f"""CREATE OR REPLACE TABLE "{schema}"."{table}" (
+	{column_defs}
+)"""
+	else:
+		create_sql = f"""CREATE TABLE IF NOT EXISTS "{schema}"."{table}" (
 	{column_defs}
 )"""
 	
