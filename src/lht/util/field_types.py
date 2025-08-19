@@ -95,8 +95,7 @@ def df_field_type(field_type):
 	elif field_type['type'] == 'datetime':
 		return 'datetime64'
 	elif field_type['type'] == 'date':
-		#return 'datetime64[ns]'
-		return 'object'
+		return 'datetime64[ns]'  # Fix: date fields should be datetime64[ns], not object
 	elif field_type['type'] == 'address':
 		return 'object'
 	elif field_type['type'] == 'url':

@@ -4,6 +4,7 @@ from snowflake.snowpark import Session
 from snowflake.snowpark.dataframe import DataFrame
 import pandas as pd
 import numpy as np
+from . import table_creator
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +95,9 @@ def write_dataframe_to_table(
     validate_types: bool = True,
     use_logical_type: bool = True,
     on_error: str = "CONTINUE",
-    df_fields: Optional[dict] = None
+    df_fields: Optional[dict] = None,
+    snowflake_fields: Optional[dict] = None,
+    force_full_sync: bool = False
 ) -> bool:
     """
     Centralized function for writing DataFrames to Snowflake tables.
@@ -164,16 +167,77 @@ def write_dataframe_to_table(
         logger.debug(f"   - Use logical types: {use_logical_type}")
         logger.debug(f"   - On error: {on_error}")
         
-        # Write DataFrame to table
-        result = session.write_pandas(
-            df, 
-            full_table_name,
-            quote_identifiers=False, 
-            auto_create_table=auto_create,
-            overwrite=overwrite, 
-            use_logical_type=use_logical_type, 
-            on_error=on_error
-        )
+        # If we have field definitions and need to create a table, use centralized table creation
+        if auto_create and df_fields is not None and len(df_fields) > 0:
+            try:
+                # Use provided snowflake_fields if available, otherwise infer from DataFrame
+                if snowflake_fields is not None and len(snowflake_fields) > 0:
+                    # Use the Salesforce field types directly (correct approach)
+                    logger.info(f"🔧 Using provided Salesforce field types for table creation")
+                    logger.info(f"🔧 Field types: {snowflake_fields}")
+                else:
+                    # Fallback: infer types from DataFrame (less accurate)
+                    logger.warning(f"⚠️ No Salesforce field types provided, inferring from DataFrame (may cause type issues)")
+                    snowflake_fields = {}
+                    for col in df.columns:
+                        # Map pandas types to Snowflake types
+                        if df[col].dtype == 'object':
+                            snowflake_fields[col] = 'VARCHAR(16777216)'
+                        elif df[col].dtype in ['int64', 'int32']:
+                            snowflake_fields[col] = 'NUMBER(38,0)'
+                        elif df[col].dtype in ['float64', 'float32']:
+                            snowflake_fields[col] = 'FLOAT'
+                        elif df[col].dtype == 'bool':
+                            snowflake_fields[col] = 'BOOLEAN'
+                        elif df[col].dtype == 'datetime64[ns]':
+                            snowflake_fields[col] = 'TIMESTAMP_NTZ'
+                        else:
+                            snowflake_fields[col] = 'VARCHAR(16777216)'
+                
+                # Use centralized table creation
+                table_creator.ensure_table_exists_for_dataframe(
+                    session=session,
+                    schema=schema,
+                    table=target_table,
+                    df_fields=df_fields,
+                    snowflake_fields=snowflake_fields,
+                    force_full_sync=force_full_sync,  # Pass through the force_full_sync parameter
+                    database=current_db
+                )
+                
+                # Now write to the existing table
+                result = session.write_pandas(
+                    df, 
+                    full_table_name,
+                    quote_identifiers=False, 
+                    auto_create_table=False,  # Table already exists
+                    overwrite=overwrite, 
+                    use_logical_type=use_logical_type, 
+                    on_error=on_error
+                )
+            except Exception as table_error:
+                logger.warning(f"Centralized table creation failed, falling back to auto-create: {table_error}")
+                # Fallback to original behavior
+                result = session.write_pandas(
+                    df, 
+                    full_table_name,
+                    quote_identifiers=False, 
+                    auto_create_table=auto_create,
+                    overwrite=overwrite, 
+                    use_logical_type=use_logical_type, 
+                    on_error=on_error
+                )
+        else:
+            # Use original behavior
+            result = session.write_pandas(
+                df, 
+                full_table_name,
+                quote_identifiers=False, 
+                auto_create_table=auto_create,
+                overwrite=overwrite, 
+                use_logical_type=use_logical_type, 
+                on_error=on_error
+            )
         
         logger.debug(f"✅ Successfully wrote {len(df)} records to {full_table_name}")
         return True
@@ -343,7 +407,8 @@ def write_batch_to_temp_table(
     schema: str,
     temp_table: str,
     df_fields: dict,
-    validate_types: bool = True
+    validate_types: bool = True,
+    force_full_sync: bool = False
 ) -> bool:
     """
     Write a batch DataFrame to a temporary table for incremental sync operations.
@@ -373,7 +438,8 @@ def write_batch_to_temp_table(
             validate_types=validate_types,
             use_logical_type=False,  # More lenient for temp tables
             on_error="CONTINUE",
-            df_fields=df_fields  # Pass field definitions for proper formatting
+            df_fields=df_fields,  # Pass field definitions for proper formatting
+            force_full_sync=force_full_sync  # Pass through force_full_sync parameter
         )
     except Exception as e:
         error_msg = str(e)
@@ -394,7 +460,8 @@ def write_batch_to_temp_table(
                 validate_types=False,
                 use_logical_type=False,
                 on_error="CONTINUE",
-                df_fields=df_fields  # Pass field definitions for proper formatting
+                df_fields=df_fields,  # Pass field definitions for proper formatting
+                force_full_sync=force_full_sync  # Pass through force_full_sync parameter
             )
         else:
             logger.error(f"❌ Non-casting error in temp table write: {error_msg}")
@@ -408,7 +475,9 @@ def write_batch_to_main_table(
     is_first_batch: bool = False,
     validate_types: bool = True,
     use_logical_type: bool = True,
-    df_fields: Optional[dict] = None
+    df_fields: Optional[dict] = None,
+    snowflake_fields: Optional[dict] = None,
+    force_full_sync: bool = False
 ) -> bool:
     """
     Write a batch DataFrame to the main table (overwrite for first batch, append for subsequent).
@@ -440,5 +509,7 @@ def write_batch_to_main_table(
         validate_types=validate_types,
         use_logical_type=use_logical_type,
         on_error="CONTINUE",
-        df_fields=df_fields  # Pass field definitions for proper formatting
+        df_fields=df_fields,  # Pass field definitions for proper formatting
+        snowflake_fields=snowflake_fields,  # Pass Salesforce field types for proper table creation
+        force_full_sync=force_full_sync  # Pass through force_full_sync parameter
     )
