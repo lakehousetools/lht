@@ -250,8 +250,29 @@ def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table
 		
 		except Exception as table_check_error:
 			print(f"🔍 DEBUG: Error checking/creating table: {table_check_error}")
-			print(f"🔍 DEBUG: Table creation failed - cannot proceed without proper schema")
-			raise Exception(f"Failed to create table {schema}.{table} with proper schema: {table_check_error}")
+			print(f"🔍 DEBUG: Falling back to auto-created table, then recreating with correct schema")
+			
+			# Fallback: create table with write_pandas, then drop and recreate with correct schema
+			try:
+				# Create table with auto_create_table=True
+				session.write_pandas(formatted_df, fully_qualified_table, quote_identifiers=False, auto_create_table=True, overwrite=False, use_logical_type=False, on_error="CONTINUE")
+				print(f"✅ Auto-created table {schema}.{table}")
+				
+				# Now drop it and recreate with correct schema
+				print(f"🔍 DEBUG: Dropping auto-created table to recreate with correct schema...")
+				session.sql(f"DROP TABLE IF EXISTS {schema}.{table}").collect()
+				
+				# Create table with correct schema
+				filtered_snowflake_fields = {k: snowflake_fields.get(k, 'VARCHAR(16777216)') for k in df_fields.keys()}
+				create_table_sql = _build_create_table_sql(schema, table, filtered_snowflake_fields)
+				print(f"🔍 DEBUG: CREATE TABLE SQL: {create_table_sql}")
+				
+				result = session.sql(create_table_sql).collect()
+				print(f"✅ Table recreated with correct schema")
+				
+			except Exception as fallback_error:
+				print(f"❌ Fallback table creation also failed: {fallback_error}")
+				raise Exception(f"Failed to create table {schema}.{table} even with fallback: {fallback_error}")
 		
 		# Now load data into existing table using save_as_table for better schema control
 		print(f"🔍 DEBUG: Loading data into table {fully_qualified_table}")
