@@ -136,6 +136,11 @@ class IntelligentSync:
         logger.debug(f"🔄 Starting intelligent sync for {sobject} -> {schema}.{table}")
         print(f"🔄 Starting intelligent sync for {sobject} -> {schema}.{table}")
         
+        # Store force_full_sync as instance attribute for use in other methods
+        self.force_full_sync = force_full_sync
+        logger.debug(f"🔧 Force full sync: {self.force_full_sync}")
+        print(f"🔧 Force full sync: {self.force_full_sync}")
+        
         # Ensure schema exists before proceeding
         logger.debug(f"🔍 Ensuring schema {schema} exists...")
         if not self._ensure_schema_exists(schema):
@@ -162,18 +167,9 @@ class IntelligentSync:
         last_modified_date = None
         
         if table_exists and not force_full_sync:
-            #logger.debug("🔍 Getting last modified date for incremental sync...")
-            #print("🔍 Getting last modified date for incremental sync...")
             last_modified_date = self._get_last_modified_date(schema, table)
             print(f"📅 Last sync date: {last_modified_date}")
-            
-            # Debug: Check why incremental sync might be failing
-            # if last_modified_date is None:
-            #     print(f"⚠️ WARNING: lastmodifieddate is None - this will force a FULL sync!")
-            #     print(f"⚠️ Check if the table has LASTMODIFIEDDATE field or if the query is failing")
-        # else:
-        #     print(f"📋 Skipping last modified date check - table_exists: {table_exists}, force_full_sync: {force_full_sync}")
-        
+                    
         # Determine sync strategy
         logger.debug("🎯 Determining sync strategy...")
         print("🎯 Determining sync strategy...")
@@ -185,9 +181,6 @@ class IntelligentSync:
         sync_strategy = self._determine_sync_strategy(
             sobject, table_exists, last_modified_date, use_stage, stage_name, estimated_records
         )
-        
-        logger.debug(f"🎯 Sync strategy determined: {sync_strategy}")
-        print(f"🎯 Sync strategy: {sync_strategy['method']}")
         
         # Execute sync based on strategy
         start_time = time.time()
@@ -309,25 +302,13 @@ class IntelligentSync:
             # Force Bulk API for large datasets (1M+ records)
             if estimated_records >= 1000000:
                 method = "bulk_api_stage_full" if use_stage and stage_name else "bulk_api_full"
-                logger.debug(f"📊 Forcing bulk API for large dataset (records: {estimated_records} >= 1,000,000)")
-                print(f"📊 Forcing bulk API for large dataset (records: {estimated_records} >= 1,000,000)")
             elif estimated_records >= self.BULK_API_THRESHOLD:
                 method = "bulk_api_full"
-                logger.debug(f"📊 Using bulk API (records: {estimated_records} >= {self.BULK_API_THRESHOLD})")
-                print(f"📊 Using bulk API (records: {estimated_records} >= {self.BULK_API_THRESHOLD})")
                 if use_stage and stage_name and estimated_records >= self.STAGE_THRESHOLD:
                     method = "bulk_api_stage_full"
-                    logger.debug(f"📦 Using stage-based bulk API (records: {estimated_records} >= {self.STAGE_THRESHOLD})")
-                    print(f"📦 Using stage-based bulk API (records: {estimated_records} >= {self.STAGE_THRESHOLD})")
             else:
                 method = "regular_api_full"
-                logger.debug(f"📊 Using regular API (records: {estimated_records} < {self.BULK_API_THRESHOLD})")
-                print(f"📊 Using regular API (records: {estimated_records} < {self.BULK_API_THRESHOLD})")
-        else:
-            # Incremental sync - prefer REST API for better performance with small changes
-            logger.debug("🔄 Incremental sync detected")
-            print("🔄 Incremental sync detected")
-            
+        else:            
             # For incremental syncs, prefer REST API unless there are a very large number of changes
             if estimated_records >= 100000:  # Only use Bulk API for very large incremental changes
                 method = "bulk_api_incremental"
@@ -339,8 +320,6 @@ class IntelligentSync:
                     print(f"📦 Using stage-based bulk API incremental (records: {estimated_records} >= {self.STAGE_THRESHOLD})")
             else:
                 method = "regular_api_incremental"
-                logger.debug(f"📊 Using regular API incremental (optimal for small changes: {estimated_records} < 100,000)")
-                print(f"📊 Using regular API incremental (optimal for small changes: {estimated_records} < 100,000)")
         
         strategy = {
             'method': method,
@@ -1109,7 +1088,9 @@ class IntelligentSync:
                             self.session, formatted_df, schema, table, is_first_batch,
                             validate_types=True,
                             use_logical_type=False,  # More lenient for problematic data
-                            df_fields=df_fields  # Pass field definitions for proper formatting
+                            df_fields=df_fields,  # Pass field definitions for proper formatting
+                            snowflake_fields=snowflake_fields,  # Pass Salesforce field types for proper table creation
+                            force_full_sync=self.force_full_sync  # Pass force_full_sync parameter
                         )
                     except Exception as e:
                         error_msg = str(e)

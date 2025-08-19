@@ -6,6 +6,7 @@ import io
 from . import sobjects
 from lht.util import field_types
 from lht.util import stage
+from lht.util import table_creator
 import os
 
 def create_batch_query(access_info, query):
@@ -206,62 +207,25 @@ def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table
 	# Use fully qualified table name for write_pandas
 	fully_qualified_table = f"{schema}.{table}"
 	
-	# CRITICAL FIX: Create table with correct schema BEFORE write_pandas
+	# Use centralized table creation utility
 	try:
 		print(f"🔍 DEBUG: About to create table {schema}.{table}")
 		print(f"🔍 DEBUG: df_fields contains {len(df_fields)} fields: {list(df_fields.keys())}")
+		print(f"🔍 DEBUG: force_full_sync = {force_full_sync}")
+		print(f"🔍 DEBUG: snowflake_fields contains {len(snowflake_fields)} fields: {list(snowflake_fields.keys())}")
 		
-		# Check if table already exists first
-		try:
-			table_check = session.sql(f'SHOW TABLES IN SCHEMA "{schema}"').collect()
-			table_names = [row['name'] for row in table_check]
-			
-			if table in table_names:
-				print(f"✅ Table {schema}.{table} already exists, skipping creation")
-			else:
-				print(f"🔧 Table {schema}.{table} does not exist, creating it...")
-				# Create a filtered snowflake_fields dict with only the fields we're actually using
-				
-				# Check for field name mismatches
-				missing_in_snowflake = [k for k in df_fields.keys() if k not in snowflake_fields]
-				if missing_in_snowflake:
-					print(f"⚠️ WARNING: Fields missing from snowflake_fields: {missing_in_snowflake}")
-				
-				filtered_snowflake_fields = {k: snowflake_fields.get(k, 'VARCHAR(16777216)') for k in df_fields.keys()}
-				create_table_sql = _build_create_table_sql(schema, table, filtered_snowflake_fields, force_full_sync)
-				print(f"🔧 CREATE TABLE SQL:")
-				print(f"{create_table_sql}")
-				
-				# Execute CREATE TABLE statement
-				result = session.sql(create_table_sql).collect()
-				print(f"✅ Table created with correct schema")
-		
-		except Exception as table_check_error:
-			print(f"⚠️ Error checking/creating table: {table_check_error}")
-			print(f"🔄 Falling back to auto-created table, then recreating with correct schema")
-			
-			# Fallback: create table with write_pandas, then drop and recreate with correct schema
-			try:
-				# Create table with auto_create_table=True
-				session.write_pandas(formatted_df, fully_qualified_table, quote_identifiers=False, auto_create_table=True, overwrite=False, use_logical_type=False, on_error="CONTINUE")
-				print(f"✅ Auto-created table {schema}.{table}")
-				
-				# Now drop it and recreate with correct schema
-				print(f"🗑️ Dropping auto-created table to recreate with correct schema...")
-				session.sql(f"DROP TABLE IF EXISTS {schema}.{table}").collect()
-				
-				# Create table with correct schema
-				filtered_snowflake_fields = {k: snowflake_fields.get(k, 'VARCHAR(16777216)') for k in df_fields.keys()}
-				create_table_sql = _build_create_table_sql(schema, table, filtered_snowflake_fields, force_full_sync)
-				print(f"🔧 CREATE TABLE SQL (fallback):")
-				print(f"{create_table_sql}")
-				
-				result = session.sql(create_table_sql).collect()
-				print(f"✅ Table recreated with correct schema")
-				
-			except Exception as fallback_error:
-				print(f"❌ Fallback table creation also failed: {fallback_error}")
-				raise Exception(f"Failed to create table {schema}.{table} even with fallback: {fallback_error}")
+		# Use centralized table creation utility
+		print(f"🚀 Calling table_creator.ensure_table_exists_for_dataframe...")
+		table_creator.ensure_table_exists_for_dataframe(
+			session=session,
+			schema=schema,
+			table=table,
+			df_fields=df_fields,
+			snowflake_fields=snowflake_fields,
+			force_full_sync=force_full_sync,
+			database=database
+		)
+		print(f"✅ Table creation completed successfully")
 		
 		# Now load data into existing table using save_as_table for better schema control
 		print(f"📊 Loading data into table {fully_qualified_table}")
@@ -625,36 +589,3 @@ def delete_specific_job(access_info, job_id):
 			'error': str(e)
 		}
 
-def _build_create_table_sql(schema: str, table: str, snowflake_fields: dict, force_full_sync: bool = False) -> str:
-	"""
-	Build CREATE TABLE SQL statement based on Salesforce field definitions.
-	
-	Args:
-		schema: Snowflake schema name
-		table: Snowflake table name
-		snowflake_fields: Dictionary mapping field names to Snowflake types
-		
-	Returns:
-		str: CREATE TABLE SQL statement
-	"""
-	# Build column definitions
-	columns = []
-	for field_name, snowflake_type in snowflake_fields.items():
-		# Convert field name to uppercase to match DataFrame
-		field_upper = field_name.upper()
-		
-		# Use the Snowflake type directly (already mapped from Salesforce field types)
-		columns.append(f'"{field_upper}" {snowflake_type}')
-	
-	# Build CREATE TABLE statement
-	column_defs = ',\n\t'.join(columns)
-	if force_full_sync:
-		create_sql = f"""CREATE OR REPLACE TABLE "{schema}"."{table}" (
-	{column_defs}
-)"""
-	else:
-		create_sql = f"""CREATE TABLE IF NOT EXISTS "{schema}"."{table}" (
-	{column_defs}
-)"""
-	
-	return create_sql

@@ -8,3 +8,7 @@ from .data_writer import (
     standardize_dataframe_types,
     write_dataframe_with_type_handling
 )
+from .table_creator import (
+    create_salesforce_table,
+    ensure_table_exists_for_dataframe
+)
