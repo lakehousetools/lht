@@ -32,8 +32,15 @@ def describe(access_info, sobject, lmd=None):
 		if field['compoundFieldName'] is not None and field['compoundFieldName'] not in cfields and field['compoundFieldName'] != 'Name':
 			cfields.append(field['compoundFieldName'])
 	for row in results.json()['fields']:
+		# Skip compound fields
 		if row['name'] in cfields:
 			continue
+		
+		# Skip fields where permissionable is false
+		if not row.get('permissionable', True):
+			print(f"⚠️ Skipping non-permissionable field: {row['name']}")
+			continue
+		
 		if len(query_fields) == 0:
 			pass
 		else:

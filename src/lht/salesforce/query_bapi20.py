@@ -208,25 +208,63 @@ def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table
 	
 	# CRITICAL FIX: Create table with correct schema BEFORE write_pandas
 	try:
-		create_table_sql = _build_create_table_sql(schema, table, df_fields)
+		print(f"🔍 DEBUG: About to create table {schema}.{table}")
+		print(f"🔍 DEBUG: df_fields contains {len(df_fields)} fields: {list(df_fields.keys())}")
 		
-		# Execute CREATE TABLE statement
-		result = session.sql(create_table_sql).collect()
-		print(f"✅ Table created with correct schema")
+		# Check if table already exists first
+		print(f"🔍 DEBUG: Checking if table already exists...")
+		try:
+			table_check = session.sql(f'SHOW TABLES IN SCHEMA "{schema}"').collect()
+			table_names = [row['name'] for row in table_check]
+			print(f"🔍 DEBUG: Tables in schema {schema}: {table_names}")
+			print(f"🔍 DEBUG: Looking for table: {table}")
+			
+			if table in table_names:
+				print(f"🔍 DEBUG: Table {schema}.{table} already exists, skipping creation")
+			else:
+				print(f"🔍 DEBUG: Table {schema}.{table} does not exist, creating it...")
+				create_table_sql = _build_create_table_sql(schema, table, df_fields)
+				print(f"🔍 DEBUG: CREATE TABLE SQL: {create_table_sql}")
+				
+				# Execute CREATE TABLE statement
+				print(f"🔍 DEBUG: Executing CREATE TABLE statement...")
+				result = session.sql(create_table_sql).collect()
+				print(f"✅ Table created with correct schema")
+				
+				# Verify table was created
+				print(f"🔍 DEBUG: Verifying table creation...")
+				table_check_after = session.sql(f'SHOW TABLES IN SCHEMA "{schema}"').collect()
+				table_names_after = [row['name'] for row in table_check_after]
+				print(f"🔍 DEBUG: Tables after creation: {table_names_after}")
+				
+				if table not in table_names_after:
+					raise Exception(f"Table {schema}.{table} was not created successfully")
+				else:
+					print(f"🔍 DEBUG: Table {schema}.{table} verified successfully")
 		
-		# Verify table exists before proceeding
-		table_check = session.sql(f'SHOW TABLES IN SCHEMA "{schema}"').collect()
-		table_names = [row['name'] for row in table_check]
-		if table not in table_names:
-			raise Exception(f"Table {schema}.{table} was not created successfully")
+		except Exception as table_check_error:
+			print(f"🔍 DEBUG: Error checking/creating table: {table_check_error}")
+			print(f"🔍 DEBUG: Falling back to auto_create_table=True")
+			# Fallback: let Snowflake create the table automatically
+			session.write_pandas(formatted_df, fully_qualified_table, quote_identifiers=False, auto_create_table=True, overwrite=False, use_logical_type=False, on_error="CONTINUE")
+			print(f"✅ Data loaded with auto-created table")
+			return results
 		
 		# Now load data into existing table (no auto-create, no overwrite)
+		print(f"🔍 DEBUG: Loading data into table {fully_qualified_table}")
 		session.write_pandas(formatted_df, fully_qualified_table, quote_identifiers=False, auto_create_table=False, overwrite=False, use_logical_type=False, on_error="CONTINUE")
 		print(f"✅ Data loaded successfully")
 		
 	except Exception as e:
 		print(f"❌ Failed to create table or load data: {e}")
-		raise
+		print(f"🔍 DEBUG: Final fallback - trying auto_create_table=True")
+		try:
+			# Ultimate fallback: let Snowflake handle everything
+			session.write_pandas(formatted_df, fully_qualified_table, quote_identifiers=False, auto_create_table=True, overwrite=False, use_logical_type=False, on_error="CONTINUE")
+			print(f"✅ Data loaded with ultimate fallback")
+		except Exception as final_error:
+			print(f"❌ Ultimate fallback also failed: {final_error}")
+			raise final_error
 	
 	# Process remaining batches
 	counter = 2
