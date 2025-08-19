@@ -255,18 +255,28 @@ def format_sync_file(df, df_fields, force_datetime_to_string=False):
 							print(f"⚠️ Warning: Could not convert {col_upper} from epoch time: {e}")
 							# Fall through to string conversion
 					
-					# Option 3: Handle Salesforce ISO 8601 format properly
+					# Option 3: Handle Salesforce ISO 8601 format by converting to Snowflake-compatible timestamp format
 					if any(isinstance(x, str) and ('T' in str(x) or '.000Z' in str(x) or '+0000' in str(x)) for x in sample_values):
-						print(f"🔧 {col_upper} contains Salesforce ISO 8601 format - parsing to datetime...")
+						print(f"🔧 {col_upper} contains Salesforce ISO 8601 format - converting to Snowflake TIMESTAMP_NTZ format...")
 						try:
-							# Parse ISO 8601 format to datetime
-							df[col_upper] = pd.to_datetime(df[col_upper], errors='coerce')
-							# Convert to timezone-naive for Snowflake TIMESTAMP_NTZ compatibility
-							df[col_upper] = df[col_upper].dt.tz_localize(None)
-							print(f"✅ {col_upper} successfully parsed from ISO 8601 to datetime64")
+							# Convert Salesforce ISO 8601 to Snowflake-compatible timestamp format
+							# Remove timezone info and milliseconds, keep only YYYY-MM-DD HH:MM:SS
+							def convert_salesforce_timestamp(timestamp_str):
+								if pd.isna(timestamp_str) or timestamp_str is None:
+									return None
+								if isinstance(timestamp_str, str):
+									# Handle formats like: 2025-08-18T11:43:29.000+0000 or 2025-08-18T11:43:29.000Z
+									if 'T' in timestamp_str:
+										# Remove timezone and milliseconds, keep YYYY-MM-DD HH:MM:SS
+										cleaned = timestamp_str.split('T')[0] + ' ' + timestamp_str.split('T')[1].split('.')[0]
+										return cleaned
+								return timestamp_str
+							
+							df[col_upper] = df[col_upper].apply(convert_salesforce_timestamp)
+							print(f"✅ {col_upper} converted to Snowflake TIMESTAMP_NTZ format (YYYY-MM-DD HH:MM:SS)")
 							continue
 						except Exception as e:
-							print(f"⚠️ Warning: Could not parse {col_upper} from ISO 8601: {e}")
+							print(f"⚠️ Warning: Could not convert {col_upper} format: {e}")
 							# Fall through to string conversion as last resort
 							df[col_upper] = df[col_upper].replace({pd.NA: None, pd.NaT: None})
 							df[col_upper] = df[col_upper].astype(str)
