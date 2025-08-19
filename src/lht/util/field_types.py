@@ -62,11 +62,8 @@ def salesforce_field_type(field_type):
 		return 'string(1)'	
 	elif field_type['type'] == 'calc':
 		return 'string(255)'
-	elif field_type['type'] == 'int':
-		return 'number(32)'
+	# Removed duplicate int case
 	elif field_type['type'] == 'junctionidlist':
-		return 'string(18)'
-	elif field_type['type'] == 'reference':
 		return 'string(18)'
 	elif field_type['type'] == 'long':
 		return 'number(32)'
