@@ -255,28 +255,33 @@ def format_sync_file(df, df_fields, force_datetime_to_string=False):
 					if any(isinstance(x, str) and ('T' in str(x) or '.000Z' in str(x) or '+0000' in str(x)) for x in sample_values):
 						print(f"🔧 {col_upper} contains Salesforce ISO 8601 format - converting to Snowflake TIMESTAMP_NTZ format...")
 						try:
-							# Convert Salesforce ISO 8601 to Snowflake-compatible timestamp format
-							# Remove timezone info and milliseconds, keep only YYYY-MM-DD HH:MM:SS
-							def convert_salesforce_timestamp(timestamp_str):
-								if pd.isna(timestamp_str) or timestamp_str is None:
-									return None
-								if isinstance(timestamp_str, str):
-									# Handle formats like: 2025-08-18T11:43:29.000+0000 or 2025-08-18T11:43:29.000Z
-									if 'T' in timestamp_str:
-										# Remove timezone and milliseconds, keep YYYY-MM-DD HH:MM:SS
-										cleaned = timestamp_str.split('T')[0] + ' ' + timestamp_str.split('T')[1].split('.')[0]
-										return cleaned
-								return timestamp_str
+							# Use pandas to_datetime with mixed format detection for better ISO8601 handling
+							df[col_upper] = pd.to_datetime(df[col_upper], format='mixed', errors='coerce')
 							
-							df[col_upper] = df[col_upper].apply(convert_salesforce_timestamp)
-							# Convert the clean timestamp strings to datetime64 so Snowflake recognizes them as TIMESTAMP_NTZ
-							df[col_upper] = pd.to_datetime(df[col_upper], format='%Y-%m-%d %H:%M:%S', errors='coerce')
-							# Convert to timezone-naive for Snowflake TIMESTAMP_NTZ compatibility
-							df[col_upper] = df[col_upper].dt.tz_localize(None)
-							print(f"✅ {col_upper} converted to Snowflake TIMESTAMP_NTZ format (YYYY-MM-DD HH:MM:SS) and parsed as datetime64")
-							continue
+							# Check if conversion was successful
+							valid_dates = df[col_upper].notna().sum()
+							total_values = len(df[col_upper])
+							
+							if valid_dates > 0:
+								# Convert to timezone-naive for Snowflake TIMESTAMP_NTZ compatibility
+								df[col_upper] = df[col_upper].dt.tz_localize(None)
+								print(f"✅ {col_upper} successfully converted from ISO8601 to datetime64: {valid_dates}/{total_values} valid dates")
+								
+								# Show sample of converted values
+								sample_converted = df[col_upper].dropna().head(3)
+								if len(sample_converted) > 0:
+									print(f"📅 Sample converted values: {sample_converted.tolist()}")
+									print(f"🔍 Final dtype: {df[col_upper].dtype}")
+									print(f"🔍 Column type after ISO8601 conversion: {type(df[col_upper])}")
+									print(f"🔍 Sample value types: {[type(x) for x in sample_converted]}")
+								continue
+							else:
+								print(f"⚠️ No valid dates found after ISO8601 conversion, falling back to string")
+								raise Exception("No valid dates after conversion")
+								
 						except Exception as e:
-							print(f"⚠️ Warning: Could not convert {col_upper} format: {e}")
+							print(f"⚠️ Warning: Could not convert {col_upper} from ISO8601 format: {e}")
+							print(f"🔧 Falling back to string conversion...")
 							# Fall through to string conversion as last resort
 							df[col_upper] = df[col_upper].replace({pd.NA: None, pd.NaT: None})
 							df[col_upper] = df[col_upper].astype(str)
@@ -297,9 +302,14 @@ def format_sync_file(df, df_fields, force_datetime_to_string=False):
 					
 					# Final safety check: if we still have numeric data in a datetime field, convert to string
 					if df[col_upper].dtype in ['int64', 'float64']:
-						#print(f"⚠️ Safety check: {col_upper} is still numeric after datetime conversion, forcing to string")
+						print(f"⚠️ Safety check: {col_upper} is still numeric after datetime conversion, forcing to string")
+						print(f"🔍 Before safety conversion - dtype: {df[col_upper].dtype}, sample: {df[col_upper].dropna().head(3).tolist()}")
 						df[col_upper] = df[col_upper].astype(str)
 						df[col_upper] = df[col_upper].replace({'nan': None, 'None': None, '<NA>': None})
+						print(f"🔍 After safety conversion - dtype: {df[col_upper].dtype}")
+					
+					# Final verification: show what we ended up with
+					print(f"🔍 FINAL RESULT for {col_upper}: dtype={df[col_upper].dtype}, sample={df[col_upper].dropna().head(3).tolist()}")
 						
 				elif dtype == 'object':
 					# Salesforce string fields (including PO_Number__c) MUST be strings
