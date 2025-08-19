@@ -217,48 +217,29 @@ def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table
 			table_check = session.sql(f'SHOW TABLES IN SCHEMA "{schema}"').collect()
 			table_names = [row['name'] for row in table_check]
 			print(f"🔍 DEBUG: Tables in schema {schema}: {table_names}")
-			print(f"🔍 DEBUG: Looking for table: {table}")
+					if table in table_names:
+			print(f"✅ Table {schema}.{table} already exists, skipping creation")
+		else:
+			print(f"🔧 Table {schema}.{table} does not exist, creating it...")
+			# Create a filtered snowflake_fields dict with only the fields we're actually using
 			
-			if table in table_names:
-				print(f"🔍 DEBUG: Table {schema}.{table} already exists, skipping creation")
-			else:
-				print(f"🔍 DEBUG: Table {schema}.{table} does not exist, creating it...")
-				# Create a filtered snowflake_fields dict with only the fields we're actually using
-				print(f"🔍 DEBUG: Field filtering:")
-				print(f"  - df_fields keys: {list(df_fields.keys())}")
-				print(f"  - snowflake_fields keys: {list(snowflake_fields.keys())}")
-				print(f"  - df_fields values: {list(df_fields.values())}")
-				print(f"  - snowflake_fields values: {list(snowflake_fields.values())}")
-				
-				# Check for field name mismatches
-				missing_in_snowflake = [k for k in df_fields.keys() if k not in snowflake_fields]
-				if missing_in_snowflake:
-					print(f"⚠️ WARNING: Fields missing from snowflake_fields: {missing_in_snowflake}")
-				
-				filtered_snowflake_fields = {k: snowflake_fields.get(k, 'VARCHAR(16777216)') for k in df_fields.keys()}
-				print(f"  - filtered_snowflake_fields: {filtered_snowflake_fields}")
-				create_table_sql = _build_create_table_sql(schema, table, filtered_snowflake_fields)
-				print(f"🔍 DEBUG: CREATE TABLE SQL: {create_table_sql}")
-				
-				# Execute CREATE TABLE statement
-				print(f"🔍 DEBUG: Executing CREATE TABLE statement...")
-				result = session.sql(create_table_sql).collect()
-				print(f"✅ Table created with correct schema")
-				
-				# Verify table was created
-				print(f"🔍 DEBUG: Verifying table creation...")
-				table_check_after = session.sql(f'SHOW TABLES IN SCHEMA "{schema}"').collect()
-				table_names_after = [row['name'] for row in table_check_after]
-				print(f"🔍 DEBUG: Tables after creation: {table_names_after}")
-				
-				if table not in table_names_after:
-					raise Exception(f"Table {schema}.{table} was not created successfully")
-				else:
-					print(f"🔍 DEBUG: Table {schema}.{table} verified successfully")
+			# Check for field name mismatches
+			missing_in_snowflake = [k for k in df_fields.keys() if k not in snowflake_fields]
+			if missing_in_snowflake:
+				print(f"⚠️ WARNING: Fields missing from snowflake_fields: {missing_in_snowflake}")
+			
+			filtered_snowflake_fields = {k: snowflake_fields.get(k, 'VARCHAR(16777216)') for k in df_fields.keys()}
+			create_table_sql = _build_create_table_sql(schema, table, filtered_snowflake_fields)
+			print(f"🔧 CREATE TABLE SQL:")
+			print(f"{create_table_sql}")
+			
+			# Execute CREATE TABLE statement
+			result = session.sql(create_table_sql).collect()
+			print(f"✅ Table created with correct schema")
 		
 		except Exception as table_check_error:
-			print(f"🔍 DEBUG: Error checking/creating table: {table_check_error}")
-			print(f"🔍 DEBUG: Falling back to auto-created table, then recreating with correct schema")
+			print(f"⚠️ Error checking/creating table: {table_check_error}")
+			print(f"🔄 Falling back to auto-created table, then recreating with correct schema")
 			
 			# Fallback: create table with write_pandas, then drop and recreate with correct schema
 			try:
@@ -267,13 +248,14 @@ def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table
 				print(f"✅ Auto-created table {schema}.{table}")
 				
 				# Now drop it and recreate with correct schema
-				print(f"🔍 DEBUG: Dropping auto-created table to recreate with correct schema...")
+				print(f"🗑️ Dropping auto-created table to recreate with correct schema...")
 				session.sql(f"DROP TABLE IF EXISTS {schema}.{table}").collect()
 				
 				# Create table with correct schema
 				filtered_snowflake_fields = {k: snowflake_fields.get(k, 'VARCHAR(16777216)') for k in df_fields.keys()}
 				create_table_sql = _build_create_table_sql(schema, table, filtered_snowflake_fields)
-				print(f"🔍 DEBUG: CREATE TABLE SQL: {create_table_sql}")
+				print(f"🔧 CREATE TABLE SQL (fallback):")
+				print(f"{create_table_sql}")
 				
 				result = session.sql(create_table_sql).collect()
 				print(f"✅ Table recreated with correct schema")
@@ -283,18 +265,15 @@ def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table
 				raise Exception(f"Failed to create table {schema}.{table} even with fallback: {fallback_error}")
 		
 		# Now load data into existing table using save_as_table for better schema control
-		print(f"🔍 DEBUG: Loading data into table {fully_qualified_table}")
+		print(f"📊 Loading data into table {fully_qualified_table}")
 		
 		# Get actual table schema to ensure column alignment
 		table_info = session.sql(f"DESCRIBE TABLE {schema}.{table}").collect()
 		table_columns = [row['name'] for row in table_info]
-		print(f"🔍 DEBUG: Table columns: {table_columns}")
-		print(f"🔍 DEBUG: DataFrame columns: {list(formatted_df.columns)}")
 		
 		# Ensure DataFrame has all table columns (fill missing ones with NULL)
 		for col in table_columns:
 			if col not in formatted_df.columns:
-				print(f"🔍 DEBUG: Adding missing column '{col}' with NULL values")
 				formatted_df[col] = None
 		
 		# Convert to Snowpark DataFrame and write using save_as_table
@@ -659,11 +638,6 @@ def _build_create_table_sql(schema: str, table: str, snowflake_fields: dict) -> 
 	Returns:
 		str: CREATE TABLE SQL statement
 	"""
-	print(f"🔍 DEBUG: _build_create_table_sql called with:")
-	print(f"  - schema: {schema}")
-	print(f"  - table: {table}")
-	print(f"  - snowflake_fields: {snowflake_fields}")
-	
 	# Build column definitions
 	columns = []
 	for field_name, snowflake_type in snowflake_fields.items():
@@ -672,7 +646,6 @@ def _build_create_table_sql(schema: str, table: str, snowflake_fields: dict) -> 
 		
 		# Use the Snowflake type directly (already mapped from Salesforce field types)
 		columns.append(f'"{field_upper}" {snowflake_type}')
-		print(f"  - Column: {field_upper} -> {snowflake_type}")
 	
 	# Build CREATE TABLE statement
 	column_defs = ',\n\t'.join(columns)
@@ -680,5 +653,4 @@ def _build_create_table_sql(schema: str, table: str, snowflake_fields: dict) -> 
 	{column_defs}
 )"""
 	
-	print(f"🔍 DEBUG: Generated SQL: {create_sql}")
 	return create_sql
