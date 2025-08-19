@@ -32,8 +32,11 @@ def describe(access_info, sobject, lmd=None):
 		if field['compoundFieldName'] is not None and field['compoundFieldName'] not in cfields and field['compoundFieldName'] != 'Name':
 			cfields.append(field['compoundFieldName'])
 	for row in results.json()['fields']:
+		# Skip compound fields
 		if row['name'] in cfields:
 			continue
+
+		
 		if len(query_fields) == 0:
 			pass
 		else:

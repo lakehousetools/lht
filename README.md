@@ -1,6 +1,6 @@
 # Lake House Tools (LHT) - Salesforce & Snowflake Integration
 
-A comprehensive Python library for intelligent data synchronization between Salesforce and Snowflake, featuring automated method selection based on data volume and previous sync status.
+Bring Salesforce into the fold of your data cloud. LHT is a robust Python library that makes it really easy to extract data from Salesforce and reverse-extract your updates and transformations back into Salesforce.
 
 ## 🚀 Features
 
@@ -24,6 +24,71 @@ pip install lht
 ```
 
 ## 🎯 Quick Start
+
+### Prerequisites
+
+#### 1. Salesforce Setup
+
+**Option A: Developer Org (Recommended for Testing)**
+- Sign up for a [Salesforce Developer Org](https://developer.salesforce.com/signup) (free)
+- **Important**: Developer Pro or above is preferred for testing LHT
+- **Do NOT use your production Salesforce instance or production data**
+
+**Option B: Trial Org**
+- Sign up for a [Salesforce Trial](https://www.salesforce.com/trailhead/) (free)
+- Choose a trial that includes the features you want to test
+
+**Option C: Sandbox**
+- If you have a Developer Pro+ license, create a sandbox from your production org
+- **Never test LHT in production**
+
+**⚠️ Critical Requirements:**
+- **Administrative access** to the Salesforce instance
+
+**🔧 OAuth2.0 Setup Required:**
+1. **Configure a Connected App** for the OAuth2.0 Client Credentials Flow
+   - [Detailed Connected App Setup Instructions](https://help.salesforce.com/s/articleView?id=xcloud.connected_app_client_credentials_setup.htm&type=5)
+   - **Callback URL**: Enter `https://localhost/callback` (not used in this flow but required)
+   - **Scopes**: Add "Full" scopes for testing (modify for production use)
+2. **Retrieve Credentials**: Once configured, get the Client ID and Client Secret and store them securely
+3. **Get Your Domain**: From Setup, search for "My Domain" and copy the subdomain (everything before '.my.salesforce.com')
+   - **Note**: Sandbox instances will include 'sandbox' in the subdomain
+4. **Store Securely**: Keep Client ID, Client Secret, and subdomain together - you'll need them for LHT configuration
+
+**🚨 Salesforce Limitations:**
+Since Salesforce was never really architected to deal with any meaningful amount of data, there will be limitations on what you can do:
+- **API rate limits**: 15,000 API calls per 24-hour period (Enterprise), 100,000 (Unlimited)
+- **Bulk API limits**: 10,000 records per batch, 10 concurrent jobs
+- **Query limits**: SOQL queries limited to 50,000 records
+- **Storage limits**: Varies by org type and edition
+  - [Salesforce Storage Limits](https://help.salesforce.com/s/articleView?id=xcloud.overview_storage.htm&type=5)
+  - [Sandbox Storage Limits](https://help.salesforce.com/s/articleView?id=platform.data_sandbox_environments.htm&type=5)
+
+**This is why we introduced LHT** - to bridge these limitations and provide robust data integration capabilities.
+
+
+
+#### 2. Snowflake Setup
+
+**Free Trial Registration:**
+- Sign up for a [Snowflake free trial](https://www.snowflake.com/free-trial/) (free)
+- Choose a cloud provider (AWS, Azure, or GCP)
+- Select a region close to your Salesforce org
+
+**⚠️ Critical Requirements:**
+- **Account Admin privileges** (required for initial setup)
+- **Security Admin privileges** (required for user and role management)
+- **Database creation permissions**
+- **Warehouse creation permissions**
+- **Stage creation permissions**
+
+**🔑 Minimum Snowflake Roles Needed:**
+```sql
+-- Account Admin (automatically granted)
+-- Security Admin
+-- Database Admin
+-- Warehouse Admin
+```
 
 ### Basic Intelligent Sync
 
@@ -51,7 +116,7 @@ result = sync_sobject_intelligent(
     session=session,
     access_info=access_info,
     sobject="Contact",
-    schema="RAW",
+    schema="WAREHOUSE",
     table="CONTACTS",
     match_field="ID",
     use_stage=True,
