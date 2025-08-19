@@ -686,9 +686,10 @@ class IntelligentSync:
         
         logger.debug(f"🔍 Getting field descriptions for {sobject}")
         try:
-            query_string, df_fields = sobjects.describe(self.access_info, sobject, lmd_sf if last_modified_date else None)
+            query_string, df_fields, snowflake_fields = sobjects.describe(self.access_info, sobject, lmd_sf if last_modified_date else None)
             logger.debug(f"📋 Raw query string from sobjects.describe: {query_string}")
             logger.debug(f"📋 Field descriptions: {df_fields}")
+            logger.debug(f"📋 Snowflake field types: {snowflake_fields}")
             
             if not query_string or not df_fields:
                 error_msg = f"Failed to get field descriptions for {sobject}"
@@ -701,10 +702,11 @@ class IntelligentSync:
             raise Exception(error_msg)
         
         # Now execute the sync with iterative field removal
-        return self._execute_bulk_api_with_retry(sobject, schema, table, df_fields, last_modified_date, strategy)
+        return self._execute_bulk_api_with_retry(sobject, schema, table, df_fields, snowflake_fields, last_modified_date, strategy)
     
     def _execute_bulk_api_with_retry(self, sobject: str, schema: str, table: str, 
-                                   df_fields: Dict[str, str], last_modified_date: Optional[pd.Timestamp], 
+                                   df_fields: Dict[str, str], snowflake_fields: Dict[str, str], 
+                                   last_modified_date: Optional[pd.Timestamp], 
                                    strategy: Dict[str, Any]) -> Dict[str, Any]:
         """Execute Bulk API sync with automatic field removal on errors."""
         
@@ -774,7 +776,7 @@ class IntelligentSync:
                     print(f"🗑️ Removed {len(removed_fields)} problematic fields: {removed_fields}")
                 
                 # Now proceed with the actual sync using the working field set
-                result = self._execute_bulk_api_job(sobject, schema, table, current_fields, last_modified_date, strategy)
+                result = self._execute_bulk_api_job(sobject, schema, table, current_fields, snowflake_fields, last_modified_date, strategy)
                 
                 # If we get here, the job was successful
                 return result
@@ -827,7 +829,8 @@ class IntelligentSync:
         return list(set(problematic_fields))  # Remove duplicates
     
     def _execute_bulk_api_job(self, sobject: str, schema: str, table: str, 
-                             df_fields: Dict[str, str], last_modified_date: Optional[pd.Timestamp], 
+                             df_fields: Dict[str, str], snowflake_fields: Dict[str, str], 
+                             last_modified_date: Optional[pd.Timestamp], 
                              strategy: Dict[str, Any]) -> Dict[str, Any]:
         """Execute the actual Bulk API job after field filtering."""
         
@@ -915,7 +918,7 @@ class IntelligentSync:
         try:
             result = query_bapi20.get_bulk_results(
                 self.session, self.access_info, job_id, sobject, schema, table,
-                use_stage=use_stage, stage_name=stage_name
+                snowflake_fields=snowflake_fields, use_stage=use_stage, stage_name=stage_name
             )
             print(f"✅ Bulk API results retrieved successfully")
         except Exception as e:

@@ -23,6 +23,7 @@ def describe(access_info, sobject, lmd=None):
 	create_table_fields = ''
 	cfields = []
 	df_fields = {}
+	snowflake_fields = {}  # For table creation with proper Snowflake types
 
 	if results.status_code > 200:
 		print("you are not logged in")
@@ -44,7 +45,8 @@ def describe(access_info, sobject, lmd=None):
 			
 		query_fields += row['name']
 		df_fields[row['name']] = field_types.df_field_type(row)
+		snowflake_fields[row['name']] = field_types.salesforce_field_type(row)
 	query_string = "select+"+query_fields+"+from+{}".format(sobject)
 	if lmd is not None:
 		query_string = query_string + "+where+LastModifiedDate+>+{}".format(lmd)
-	return query_string, df_fields
+	return query_string, df_fields, snowflake_fields
