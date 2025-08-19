@@ -46,7 +46,15 @@ def describe(access_info, sobject, lmd=None):
 		query_fields += row['name']
 		df_fields[row['name']] = field_types.df_field_type(row)
 		snowflake_fields[row['name']] = field_types.salesforce_field_type(row)
+		print(f"🔍 DEBUG: Field '{row['name']}' -> df_type: '{field_types.df_field_type(row)}', snowflake_type: '{field_types.salesforce_field_type(row)}'")
 	query_string = "select+"+query_fields+"+from+{}".format(sobject)
 	if lmd is not None:
 		query_string = query_string + "+where+LastModifiedDate+>+{}".format(lmd)
+	
+	print(f"🔍 DEBUG: Returning from sobjects.describe:")
+	print(f"  - df_fields keys: {list(df_fields.keys())}")
+	print(f"  - df_fields values: {list(df_fields.values())}")
+	print(f"  - snowflake_fields keys: {list(snowflake_fields.keys())}")
+	print(f"  - snowflake_fields values: {list(snowflake_fields.values())}")
+	
 	return query_string, df_fields, snowflake_fields
