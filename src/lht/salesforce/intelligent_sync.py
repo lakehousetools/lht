@@ -995,7 +995,7 @@ class IntelligentSync:
                 logger.debug(f"📅 Using last modified date for incremental sync: {lmd_sf}")
         
         logger.debug(f"🔍 Getting field descriptions for {sobject}")
-        query_string, df_fields = sobjects.describe(self.access_info, sobject, lmd_sf if last_modified_date else None)
+        query_string, df_fields, snowflake_fields = sobjects.describe(self.access_info, sobject, lmd_sf if last_modified_date else None)
         logger.debug(f"📋 Raw query string from sobjects.describe: {query_string}")
         
         # Convert query string to proper SOQL
