@@ -3,7 +3,7 @@ import time
 import requests
 import numpy as np
 import logging
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Any, Tuple, List
 from . import query_bapi20, sobjects, sobject_query
 from lht.util import merge, field_types, data_writer
 
@@ -155,40 +155,51 @@ class IntelligentSync:
             }
         
         # Check if table exists and get sync status
-        logger.debug(f"🔍 Checking if table {schema}.{table} exists...")
-        print(f"🔍 Checking if table {schema}.{table} exists...")
+        #logger.debug(f"🔍 Checking if table {schema}.{table} exists...")
+        #print(f"🔍 Checking if table {schema}.{table} exists...")
         table_exists = self._table_exists(schema, table)
         print(f"📋 Table exists: {table_exists}")
         last_modified_date = None
         
         if table_exists and not force_full_sync:
-            logger.debug("🔍 Getting last modified date for incremental sync...")
-            print("🔍 Getting last modified date for incremental sync...")
+            #logger.debug("🔍 Getting last modified date for incremental sync...")
+            #print("🔍 Getting last modified date for incremental sync...")
             last_modified_date = self._get_last_modified_date(schema, table)
             print(f"📅 Last sync date: {last_modified_date}")
             
             # Debug: Check why incremental sync might be failing
-            if last_modified_date is None:
-                print(f"⚠️ WARNING: last_modified_date is None - this will force a FULL sync!")
-                print(f"⚠️ Check if the table has LASTMODIFIEDDATE field or if the query is failing")
-        else:
-            print(f"📋 Skipping last modified date check - table_exists: {table_exists}, force_full_sync: {force_full_sync}")
+            # if last_modified_date is None:
+            #     print(f"⚠️ WARNING: lastmodifieddate is None - this will force a FULL sync!")
+            #     print(f"⚠️ Check if the table has LASTMODIFIEDDATE field or if the query is failing")
+        # else:
+        #     print(f"📋 Skipping last modified date check - table_exists: {table_exists}, force_full_sync: {force_full_sync}")
         
         # Determine sync strategy
         logger.debug("🎯 Determining sync strategy...")
         print("🎯 Determining sync strategy...")
+        
+        # Get estimated record count first
+        estimated_records = self._estimate_record_count(sobject, last_modified_date)
+        print(f"📊 Estimated records: {estimated_records}")
+        
         sync_strategy = self._determine_sync_strategy(
-            sobject, table_exists, last_modified_date, use_stage, stage_name
+            sobject, table_exists, last_modified_date, use_stage, stage_name, estimated_records
         )
         
         logger.debug(f"🎯 Sync strategy determined: {sync_strategy}")
         print(f"🎯 Sync strategy: {sync_strategy['method']}")
-        print(f"📊 Estimated records: {sync_strategy['estimated_records']}")
         
         # Execute sync based on strategy
         start_time = time.time()
         result = self._execute_sync_strategy(sync_strategy, sobject, schema, table, match_field)
         end_time = time.time()
+        
+        # Debug: Check what result contains
+        print(f"🔍 DEBUG: Result from _execute_sync_strategy: {result}")
+        print(f"🔍 DEBUG: Result type: {type(result)}")
+        if result is None:
+            print(f"❌ ERROR: _execute_sync_strategy returned None!")
+            raise Exception("_execute_sync_strategy returned None - sync failed")
         
         # Compile results
         sync_result = {
@@ -212,22 +223,22 @@ class IntelligentSync:
         try:
             # First check if schema exists
             schema_query = f"SHOW SCHEMAS LIKE '{schema}'"
-            logger.debug(f"🔍 Checking if schema exists: {schema_query}")
-            print(f"🔍 Checking if schema exists: {schema_query}")
+            #logger.debug(f"🔍 Checking if schema exists: {schema_query}")
+            #print(f"🔍 Checking if schema exists: {schema_query}")
             schema_result = debug_sql_execution(self.session, schema_query, "schema_check")
-            print(f"📋 Schema result: {schema_result}")
+            #print(f"📋 Schema result: {schema_result}")
             if not schema_result or len(schema_result) == 0:
-                logger.debug(f"📋 Schema {schema} does not exist")
-                print(f"📋 Schema {schema} does not exist")
+                #logger.debug(f"📋 Schema {schema} does not exist")
+                #print(f"📋 Schema {schema} does not exist")
                 return False
             
             # Then check if table exists in schema - use more specific query
             current_db = self.session.sql('SELECT CURRENT_DATABASE()').collect()[0][0]
             query = f"SELECT COUNT(*) as table_count FROM information_schema.tables WHERE table_schema = '{schema}' AND table_name = '{table}' AND table_type = 'BASE TABLE'"
-            logger.debug(f"🔍 Executing table existence check: {query}")
-            print(f"🔍 Executing table existence check: {query}")
+            #logger.debug(f"🔍 Executing table existence check: {query}")
+            #print(f"🔍 Executing table existence check: {query}")
             result = debug_sql_execution(self.session, query, "table_check")
-            print(f"📋 Table result: {result}")
+            #print(f"📋 Table result: {result}")
             
             # More robust result checking
             if result is not None and len(result) > 0:
@@ -240,8 +251,8 @@ class IntelligentSync:
             else:
                 exists = False
                 
-            logger.debug(f"📋 Table {schema}.{table} exists: {exists}")
-            print(f"📋 Table {schema}.{table} exists: {exists}")
+            #logger.debug(f"📋 Table {schema}.{table} exists: {exists}")
+            #print(f"📋 Table {schema}.{table} exists: {exists}")
             return exists
         except Exception as e:
             logger.error(f"❌ Error checking table existence: {e}")
@@ -256,107 +267,26 @@ class IntelligentSync:
             schema_result = debug_sql_execution(self.session, schema_query, "schema_exists_check")
             
             if not schema_result or len(schema_result) == 0:
-                logger.debug(f"📋 Schema {schema} does not exist, creating it...")
+                #logger.debug(f"📋 Schema {schema} does not exist, creating it...")
                 create_schema_query = f"CREATE SCHEMA IF NOT EXISTS {schema}"
-                logger.debug(f"🔍 Creating schema: {create_schema_query}")
+                #logger.debug(f"🔍 Creating schema: {create_schema_query}")
                 debug_sql_execution(self.session, create_schema_query, "create_schema")
-                logger.debug(f"✅ Schema {schema} created successfully")
+                #logger.debug(f"✅ Schema {schema} created successfully")
                 return True
             else:
-                logger.debug(f"📋 Schema {schema} already exists")
+                #logger.debug(f"📋 Schema {schema} already exists")
                 return True
         except Exception as e:
             logger.error(f"❌ Error ensuring schema exists: {e}")
             return False
     
-    def _get_last_modified_date(self, schema: str, table: str) -> Optional[pd.Timestamp]:
-        """Get the most recent LastModifiedDate from the target table."""
-        try:
-            # Double-check that table exists before querying
-            if not self._table_exists(schema, table):
-                logger.debug(f"📋 Table {schema}.{table} does not exist, skipping last modified date check")
-                return None
-            
-            # Get current database for fully qualified table name
-            current_db = self.session.sql('SELECT CURRENT_DATABASE()').collect()[0][0]
-            
-            # Try a more robust approach to get the last modified date
-            try:
-                # First, try to get the last modified date with error handling
-                query = f"SELECT MAX(TRY_CAST(LASTMODIFIEDDATE AS TIMESTAMP_NTZ)) as LAST_MODIFIED FROM {current_db}.{schema}.{table}"
-                logger.debug(f"🔍 Executing last modified date query: {query}")
-                print(f"🔍 Executing SQL: {query}")
-                
-                result = debug_sql_execution(self.session, query, "last_modified_date")
-                logger.debug(f"📋 Query result: {result}")
-                
-                if result and result[0]['LAST_MODIFIED']:
-                    last_modified = pd.to_datetime(result[0]['LAST_MODIFIED'])
-                    logger.debug(f"📅 Last modified date: {last_modified}")
-                    return last_modified
-                    
-            except Exception as e:
-                logger.warning(f"⚠️ First attempt failed, trying alternative approach: {e}")
-                print(f"⚠️ First attempt failed, trying alternative approach: {e}")
-                
-                try:
-                    # Alternative: try to get the last modified date without casting
-                    query = f"SELECT MAX(LASTMODIFIEDDATE) as LAST_MODIFIED FROM {current_db}.{schema}.{table}"
-                    logger.debug(f"🔍 Executing alternative query: {query}")
-                    print(f"🔍 Executing alternative query: {query}")
-                    
-                    result = debug_sql_execution(self.session, query, "last_modified_date_alt")
-                    logger.debug(f"📋 Alternative query result: {result}")
-                    
-                    if result and result[0]['LAST_MODIFIED']:
-                        # Try to convert the raw value to datetime
-                        raw_value = result[0]['LAST_MODIFIED']
-                        logger.debug(f"📅 Raw LAST_MODIFIED value: {raw_value} (type: {type(raw_value)})")
-                        
-                        if isinstance(raw_value, str):
-                            # Handle Salesforce ISO 8601 format: 2023-09-08T02:00:39.000Z
-                            logger.debug(f"📅 Processing Salesforce timestamp: {raw_value}")
-                            
-                            try:
-                                # Let pandas handle the ISO 8601 format directly
-                                last_modified = pd.to_datetime(raw_value, errors='coerce')
-                                logger.debug(f"📅 Converted timestamp: {raw_value} -> {last_modified}")
-                            except Exception as e:
-                                logger.warning(f"⚠️ Failed to parse timestamp {raw_value}: {e}")
-                                last_modified = None
-                        else:
-                            # Handle numeric dates (Unix timestamps)
-                            # Try milliseconds first (Salesforce often uses millisecond timestamps)
-                            try:
-                                last_modified = pd.to_datetime(raw_value, unit='ms', errors='coerce')
-                                logger.debug(f"📅 Converted from milliseconds: {raw_value} -> {last_modified}")
-                            except:
-                                # Fallback to seconds
-                                last_modified = pd.to_datetime(raw_value, unit='s', errors='coerce')
-                                logger.debug(f"📅 Converted from seconds: {raw_value} -> {last_modified}")
-                        
-                        if pd.notna(last_modified):
-                            logger.debug(f"📅 Converted last modified date: {last_modified}")
-                            return last_modified
-                            
-                except Exception as e2:
-                    logger.warning(f"⚠️ Alternative approach also failed: {e2}")
-                    print(f"⚠️ Alternative approach also failed: {e2}")
-            
-            logger.debug("📅 No valid last modified date found (table empty, no LASTMODIFIEDDATE field, or conversion failed)")
-            print(f"📅 No valid last modified date found - will use full sync")
-            return None
-        except Exception as e:
-            logger.error(f"❌ Error getting last modified date: {e}")
-            print(f"❌ SQL Error in _get_last_modified_date: {e}")
-            return None
-    
     def _determine_sync_strategy(self, 
-                               sobject: str, 
+                               sobject: str,
                                table_exists: bool, 
                                last_modified_date: Optional[pd.Timestamp],
                                use_stage: bool,
-                               stage_name: Optional[str]) -> Dict[str, Any]:
+                               stage_name: Optional[str],
+                               estimated_records: int) -> Dict[str, Any]:
         """
         Determine the best synchronization strategy based on data volume and previous sync status.
         """
@@ -367,10 +297,6 @@ class IntelligentSync:
         logger.debug(f"📦 Use stage: {use_stage}")
         logger.debug(f"📦 Stage name: {stage_name}")
         logger.debug(f"📊 Thresholds - Bulk API: {self.BULK_API_THRESHOLD}, Stage: {self.STAGE_THRESHOLD}")
-        
-        # Get estimated record count
-        estimated_records = self._estimate_record_count(sobject, last_modified_date)
-        print(f"📊 Estimated records: {estimated_records}")
         
         # Determine sync method
         if not table_exists or last_modified_date is None:
@@ -433,6 +359,153 @@ class IntelligentSync:
         
         return strategy
     
+    def _get_last_modified_date(self, schema: str, table: str) -> Optional[pd.Timestamp]:
+        """Get the most recent LastModifiedDate from the target table."""
+        #print(f"🔍 DEBUG: _get_last_modified_date called with schema='{schema}', table='{table}'")
+        try:
+            # Double-check that table exists before querying
+            #print(f"🔍 DEBUG: Checking if table {schema}.{table} exists...")
+            if not self._table_exists(schema, table):
+                #logger.debug(f"📋 Table {schema}.{table} does not exist, skipping last modified date check")
+                #print(f"🔍 DEBUG: Table {schema}.{table} does not exist")
+                return None
+            else:
+                #print(f"🔍 DEBUG: Table {schema}.{table} exists, proceeding with query")
+                pass
+            
+            # Get current database for fully qualified table name
+            current_db = self.session.sql('SELECT CURRENT_DATABASE()').collect()[0][0]
+            
+            # Try a more robust approach to get the last modified date
+            try:
+                # First, try to get the last modified date with error handling
+                query = f"SELECT MAX(TRY_CAST(LASTMODIFIEDDATE AS TIMESTAMP_NTZ)) as LAST_MODIFIED FROM {current_db}.{schema}.{table}"
+                #logger.debug(f"🔍 Executing last modified date query: {query}")
+                #print(f"🔍 Executing SQL: {query}")
+                
+                result = debug_sql_execution(self.session, query, "last_modified_date")
+                #   logger.debug(f"📋 Query result: {result}")
+                #print(f"🔍 DEBUG: Query result type: {type(result)}")
+                #print(f"🔍 DEBUG: Query result length: {len(result) if result else 'None'}")
+                
+                if result and len(result) > 0:
+                    #   print(f"🔍 DEBUG: First result item type: {type(result[0])}")
+                    #print(f"🔍 DEBUG: First result item: {result[0]}")
+                    #print(f"🔍 DEBUG: First result item dir: {dir(result[0])}")
+                    
+                    # Handle Snowflake Row objects properly
+                    row = result[0]
+                    #print(f"🔍 DEBUG: Row object type: {type(row)}")
+                    #print(f"🔍 DEBUG: Row object attributes: {[attr for attr in dir(row) if not attr.startswith('_')]}")
+                    
+                    if hasattr(row, 'LAST_MODIFIED') and row.LAST_MODIFIED:
+                        #print(f"🔍 DEBUG: Found LAST_MODIFIED attribute: {row.LAST_MODIFIED}")
+                        last_modified = pd.to_datetime(row.LAST_MODIFIED)
+                        #logger.debug(f"📅 Last modified date: {last_modified}")
+                        return last_modified
+                    elif hasattr(row, '__getitem__'):
+                        #print(f"🔍 DEBUG: Row supports __getitem__, trying dictionary access")
+                        # Fallback to dictionary-style access
+                        try:
+                            last_modified_value = row['LAST_MODIFIED']
+                            #print(f"🔍 DEBUG: Dictionary access successful: {last_modified_value}")
+                            if last_modified_value:
+                                last_modified = pd.to_datetime(last_modified_value)
+                                #logger.debug(f"📅 Last modified date: {last_modified}")
+                                return last_modified
+                        except (KeyError, TypeError) as e:
+                            print(f"🔍 DEBUG: Dictionary access failed: {e}")
+                            pass
+                    
+                    #print(f"🔍 DEBUG: No valid LAST_MODIFIED found in row")
+                #else:
+                    #print(f"🔍 DEBUG: No results returned from query")
+                    
+            except Exception as e:
+                logger.warning(f"⚠️ First attempt failed, trying alternative approach: {e}")
+                print(f"⚠️ First attempt failed, trying alternative approach: {e}")
+                
+                try:
+                    # Alternative: try to get the last modified date without casting
+                    query = f"SELECT MAX(LASTMODIFIEDDATE) as LAST_MODIFIED FROM {current_db}.{schema}.{table}"
+                    #logger.debug(f"🔍 Executing alternative query: {query}")
+                    #print(f"🔍 Executing alternative query: {query}")
+                    
+                    result = debug_sql_execution(self.session, query, "last_modified_date_alt")
+                    #logger.debug(f"📋 Alternative query result: {result}")
+                    #print(f"🔍 DEBUG: Alternative query result type: {type(result)}")
+                    #print(f"🔍 DEBUG: Alternative query result length: {len(result) if result else 'None'}")
+                    
+                    if result and len(result) > 0:
+                        #print(f"🔍 DEBUG: Alternative first result item type: {type(result[0])}")
+                        #print(f"🔍 DEBUG: Alternative first result item: {result[0]}")
+                        
+                        # Handle Snowflake Row objects properly
+                        row = result[0]
+                        raw_value = None
+                        
+                        #print(f"🔍 DEBUG: Alternative row object type: {type(row)}")
+                        #print(f"🔍 DEBUG: Alternative row object attributes: {[attr for attr in dir(row) if not attr.startswith('_')]}")
+                        
+                        if hasattr(row, 'LAST_MODIFIED') and row.LAST_MODIFIED:
+                            raw_value = row.LAST_MODIFIED
+                            #print(f"🔍 DEBUG: Alternative found LAST_MODIFIED attribute: {raw_value}")
+                        elif hasattr(row, '__getitem__'):
+                            #print(f"🔍 DEBUG: Alternative row supports __getitem__, trying dictionary access")
+                            # Fallback to dictionary-style access
+                            try:
+                                raw_value = row['LAST_MODIFIED']
+                                #print(f"🔍 DEBUG: Alternative dictionary access successful: {raw_value}")
+                            except (KeyError, TypeError) as e:
+                                #print(f"🔍 DEBUG: Alternative dictionary access failed: {e}")
+                                pass
+                        
+                        # if raw_value:
+                        #     logger.debug(f"📅 Raw LAST_MODIFIED value: {raw_value} (type: {type(raw_value)})")
+                        # else:
+                        #     print(f"🔍 DEBUG: Alternative no valid LAST_MODIFIED found in row")
+                    else:
+                        #print(f"🔍 DEBUG: Alternative no results returned from query")
+                        
+                        if isinstance(raw_value, str):
+                            # Handle Salesforce ISO 8601 format: 2023-09-08T02:00:39.000Z
+                            #logger.debug(f"📅 Processing Salesforce timestamp: {raw_value}")
+                            
+                            try:
+                                # Let pandas handle the ISO 8601 format directly
+                                last_modified = pd.to_datetime(raw_value, errors='coerce')
+                                #logger.debug(f"📅 Converted timestamp: {raw_value} -> {last_modified}")
+                            except Exception as e:
+                                logger.warning(f"⚠️ Failed to parse timestamp {raw_value}: {e}")
+                                last_modified = None
+                        else:
+                            # Handle numeric dates (Unix timestamps)
+                            # Try milliseconds first (Salesforce often uses millisecond timestamps)
+                            try:
+                                last_modified = pd.to_datetime(raw_value, unit='ms', errors='coerce')
+                                #logger.debug(f"📅 Converted from milliseconds: {raw_value} -> {last_modified}")
+                            except:
+                                # Fallback to seconds
+                                last_modified = pd.to_datetime(raw_value, unit='s', errors='coerce')
+                                logger.debug(f"📅 Converted from seconds: {raw_value} -> {last_modified}")
+                        
+                        if pd.notna(last_modified):
+                            logger.debug(f"📅 Converted last modified date: {last_modified}")
+                            return last_modified
+                            
+                except Exception as e2:
+                    logger.warning(f"⚠️ Alternative approach also failed: {e2}")
+                    print(f"⚠️ Alternative approach also failed: {e2}")
+            
+            # logger.debug("📅 No valid last modified date found (table empty, no LASTMODIFIEDDATE field, or conversion failed)")
+            # print(f"📅 No valid last modified date found - will use full sync")
+            return None
+        except Exception as e:
+            logger.error(f"❌ Error getting last modified date: {e}")
+            print(f"❌ SQL Error in _get_last_modified_date: {e}")
+            return None
+
+    
     def _estimate_record_count(self, sobject: str, last_modified_date: Optional[pd.Timestamp]) -> int:
         """Estimate the number of records to be synced."""
         try:
@@ -461,13 +534,21 @@ class IntelligentSync:
             response.raise_for_status()
             
             result = response.json()
-            print(f"📊 Salesforce API response: {result}")
+            #print(f"📊 Salesforce API response: {result}")
+            #print(f"🔍 DEBUG: Response type: {type(result)}")
+            #print(f"🔍 DEBUG: Response keys: {list(result.keys()) if isinstance(result, dict) else 'Not a dict'}")
             
             # Handle different response structures for COUNT queries
             if isinstance(result, dict):
+                #print(f"🔍 DEBUG: Response is a dictionary")
                 # For COUNT queries, check records array first (totalSize is always 1 for COUNT queries)
                 if 'records' in result and len(result['records']) > 0:
+                    #print(f"🔍 DEBUG: Found records array with {len(result['records'])} items")
                     first_record = result['records'][0]
+                    #print(f"🔍 DEBUG: First record type: {type(first_record)}")
+                    #print(f"🔍 DEBUG: First record: {first_record}")
+                    #print(f"🔍 DEBUG: First record keys: {list(first_record.keys()) if isinstance(first_record, dict) else 'Not a dict'}")
+                    
                     # Try different possible field names for count
                     count_fields = ['expr0', 'count', 'COUNT', 'count__c', 'Id']
                     for field in count_fields:
@@ -483,20 +564,32 @@ class IntelligentSync:
                     print(f"📊 Available fields: {list(first_record.keys())}")
                 
                 # Fallback to totalSize (though this should not be used for COUNT queries)
-                if 'totalSize' in result and result['records'][0]['expr0'] > 0:
-                    count = result['records'][0]['expr0']
-                    logger.debug(f"📊 Estimated record count from totalSize: {count}")
-                    print(f"📊 Estimated record count from totalSize: {count}")
-                    return count
+                print(f"🔍 DEBUG: Checking totalSize fallback")
+                if 'totalSize' in result:
+                    print(f"🔍 DEBUG: totalSize found: {result['totalSize']}")
+                    if 'records' in result and len(result['records']) > 0:
+                        #print(f"🔍 DEBUG: Checking records[0]['expr0']")
+                        try:
+                            if result['records'][0]['expr0'] > 0:
+                                count = result['records'][0]['expr0']
+                                #logger.debug(f"📊 Estimated record count from totalSize: {count}")
+                                #print(f"📊 Estimated record count from totalSize: {count}")
+                                return count
+                        except (KeyError, IndexError, TypeError) as e:
+                            print(f"🔍 DEBUG: Error accessing records[0]['expr0']: {e}")
+                            print(f"🔍 DEBUG: records[0] type: {type(result['records'][0])}")
+                            print(f"🔍 DEBUG: records[0] content: {result['records'][0]}")
+                else:
+                    print(f"🔍 DEBUG: No totalSize found in response")
+            else:
+                logger.warning(f"📊 Unexpected response type: {type(result)}")
+                # print(f"📊 Unexpected response type: {type(result)}")
+                # print(f"📊 Response: {result}")
                 
                 # Log all available keys for debugging
                 logger.warning("📊 No count found in response, using conservative estimate")
-                print("📊 No count found in response, using conservative estimate")
-                print(f"📊 Response keys: {list(result.keys())}")
-            else:
-                logger.warning(f"📊 Unexpected response type: {type(result)}")
-                print(f"📊 Unexpected response type: {type(result)}")
-                print(f"📊 Response: {result}")
+                # print("📊 No count found in response, using conservative estimate")
+                # print(f"📊 Response keys: {list(result.keys()) if isinstance(result, dict) else 'Not a dict'}")
             
             return 1000 if last_modified_date else 100000
             
@@ -544,10 +637,14 @@ class IntelligentSync:
         try:
             if method.startswith('bulk_api'):
                 print(f"📦 Using Bulk API sync method: {method}")
-                return self._execute_bulk_api_sync(strategy, sobject, schema, table)
+                result = self._execute_bulk_api_sync(strategy, sobject, schema, table)
+                print(f"🔍 DEBUG: _execute_bulk_api_sync returned: {result}")
+                return result
             elif method.startswith('regular_api'):
                 print(f"📡 Using Regular API sync method: {method}")
-                return self._execute_regular_api_sync(strategy, sobject, schema, table, match_field)
+                result = self._execute_regular_api_sync(strategy, sobject, schema, table, match_field)
+                print(f"🔍 DEBUG: _execute_regular_api_sync returned: {result}")
+                return result
             else:
                 error_msg = f"Unknown sync method: {method}"
                 print(f"❌ {error_msg}")
@@ -556,6 +653,11 @@ class IntelligentSync:
         except Exception as e:
             error_msg = f"Error executing sync strategy: {str(e)}"
             print(f"❌ {error_msg}")
+            #print(f"🔍 DEBUG: Exception type: {type(e)}")
+            #print(f"🔍 DEBUG: Exception args: {e.args}")
+            import traceback
+            #print(f"🔍 DEBUG: Full traceback:")
+            traceback.print_exc()
             logger.error(f"❌ {error_msg}")
             return {
                 'success': False,
@@ -568,14 +670,15 @@ class IntelligentSync:
                               sobject: str, 
                               schema: str, 
                               table: str) -> Dict[str, Any]:
-        """Execute Bulk API 2.0 sync."""
+        """Execute Bulk API 2.0 sync with iterative field removal on errors."""
         
         logger.debug(f"🚀 Starting Bulk API sync for {sobject}")
         
         # Get query string and field descriptions
         last_modified_date = None
+        
+        # Get the last modified date from the existing table
         if strategy['is_incremental']:
-            # Get the last modified date from the existing table
             last_modified_date = self._get_last_modified_date(schema, table)
             if last_modified_date:
                 lmd_sf = str(last_modified_date)[:10] + 'T' + str(last_modified_date)[11:19] + '.000Z'
@@ -591,22 +694,187 @@ class IntelligentSync:
                 error_msg = f"Failed to get field descriptions for {sobject}"
                 logger.error(f"❌ {error_msg}")
                 raise Exception(error_msg)
+                    
         except Exception as e:
             error_msg = f"Error getting field descriptions for {sobject}: {str(e)}"
             logger.error(f"❌ {error_msg}")
             raise Exception(error_msg)
         
-        # Convert query string to proper SOQL
-        soql_query = query_string.replace('+', ' ').replace('select', 'SELECT').replace('from', 'FROM')
-        if last_modified_date:
-            soql_query = soql_query.replace('where', 'WHERE').replace('LastModifiedDate>', 'LastModifiedDate > ')
+        # Now execute the sync with iterative field removal
+        return self._execute_bulk_api_with_retry(sobject, schema, table, df_fields, last_modified_date, strategy)
+    
+    def _execute_bulk_api_with_retry(self, sobject: str, schema: str, table: str, 
+                                   df_fields: Dict[str, str], last_modified_date: Optional[pd.Timestamp], 
+                                   strategy: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute Bulk API sync with automatic field removal on errors."""
         
-        logger.debug(f"🔍 Final SOQL query: {soql_query}")
-        print(f"🔍 Executing Bulk API query: {soql_query}")
+        max_retries = 3
+        current_fields = df_fields.copy()
+        removed_fields = []
+        
+        for attempt in range(max_retries):
+            try:
+                print(f"🔄 Attempt {attempt + 1}/{max_retries} with {len(current_fields)} fields")
+                
+                # Build query string with current fields
+                if current_fields:
+                    query_string = f"SELECT {', '.join(current_fields.keys())} FROM {sobject}"
+                    if last_modified_date:
+                        lmd_sf = str(last_modified_date)[:10] + 'T' + str(last_modified_date)[11:19] + '.000Z'
+                        query_string += f" WHERE LastModifiedDate > {lmd_sf}"
+                else:
+                    raise Exception("No fields remaining to sync")
+                
+                # Try to create the Bulk API job
+                try:
+                    from . import query_bapi20
+                    job_response = query_bapi20.create_batch_query(self.access_info, query_string)
+                    
+                    # Check if job_response indicates an error
+                    if isinstance(job_response, list) and len(job_response) > 0:
+                        # This is an error response - extract field names from error message
+                        error_info = job_response[0]
+                        error_message = error_info.get('message', 'Unknown error')
+                        error_code = error_info.get('errorCode', 'UNKNOWN_ERROR')
+                        
+                        print(f"❌ Bulk API job creation failed (attempt {attempt + 1}):")
+                        print(f"  - Error Code: {error_code}")
+                        print(f"  - Error Message: {error_message}")
+                        
+                        # Extract field names from error message
+                        problematic_fields = self._extract_problematic_fields(error_message)
+                        if problematic_fields:
+                            print(f"🔍 Identified problematic fields: {problematic_fields}")
+                            
+                            # Remove problematic fields and retry
+                            for field in problematic_fields:
+                                if field in current_fields:
+                                    del current_fields[field]
+                                    removed_fields.append(field)
+                                    print(f"🗑️ Removed field: {field}")
+                            
+                            if not current_fields:
+                                raise Exception("No fields remaining after removing problematic fields")
+                            
+                            print(f"🔄 Retrying with {len(current_fields)} remaining fields...")
+                            continue
+                        else:
+                            # If we can't identify specific fields, remove some fields and retry
+                            print(f"⚠️ Could not identify specific problematic fields, removing some fields and retry...")
+                            fields_to_remove = list(current_fields.keys())[-5:]  # Remove last 5 fields
+                            for field in fields_to_remove:
+                                if field in current_fields:
+                                    del current_fields[field]
+                                    removed_fields.append(field)
+                                    print(f"🗑️ Removed field: {field}")
+                            
+                            if not current_fields:
+                                raise Exception("No fields remaining after removing fields")
+                            
+                            continue
+                    
+                    # If we get here, job creation was successful
+                    break
+                    
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        print(f"⚠️ Error on attempt {attempt + 1}: {e}")
+                        # Remove some fields and retry
+                        fields_to_remove = list(current_fields.keys())[-3:]  # Remove last 3 fields
+                        for field in fields_to_remove:
+                            if field in current_fields:
+                                del current_fields[field]
+                                removed_fields.append(field)
+                                print(f"🗑️ Removed field: {field}")
+                        
+                        if not current_fields:
+                            raise Exception("No fields remaining after removing fields")
+                        
+                        continue
+                    else:
+                        raise e
+                        
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    print(f"⚠️ Error on attempt {attempt + 1}: {e}")
+                    continue
+                else:
+                    raise e
+        
+        # If we get here, we have a successful job creation
+        print(f"✅ Successfully created Bulk API job with {len(current_fields)} fields")
+        if removed_fields:
+            print(f"🗑️ Removed {len(removed_fields)} problematic fields: {removed_fields}")
+        
+        # Now proceed with the actual sync using the working field set
+        return self._execute_bulk_api_job(sobject, schema, table, current_fields, last_modified_date, strategy)
+    
+    def _extract_problematic_fields(self, error_message: str) -> List[str]:
+        """Extract field names from Salesforce error messages."""
+        problematic_fields = []
+        
+        # Look for patterns like "No such column 'FieldName' on entity 'ObjectName'"
+        import re
+        
+        # Pattern 1: "No such column 'FieldName' on entity"
+        pattern1 = r"No such column '([^']+)' on entity"
+        matches1 = re.findall(pattern1, error_message)
+        problematic_fields.extend(matches1)
+        
+        # Pattern 2: "FieldName, FieldName2, FieldName3" (comma-separated list)
+        # This often appears in the error message after the main error
+        if '^' in error_message:
+            # Extract the part after the ^ which often contains field names
+            after_caret = error_message.split('^')[-1].strip()
+            # Look for field names in this section
+            field_pattern = r'\b[A-Za-z][A-Za-z0-9_]*\b'
+            potential_fields = re.findall(field_pattern, after_caret)
+            # Filter out common non-field words
+            exclude_words = {'ERROR', 'Row', 'Column', 'entity', 'If', 'you', 'are', 'attempting', 'to', 'use', 'custom', 'field', 'be', 'sure', 'append', 'after', 'entity', 'name', 'Please', 'reference', 'WSDL', 'describe', 'call', 'appropriate', 'names'}
+            for field in potential_fields:
+                if field not in exclude_words and len(field) > 2:
+                    problematic_fields.append(field)
+        
+        return list(set(problematic_fields))  # Remove duplicates
+    
+    def _execute_bulk_api_job(self, sobject: str, schema: str, table: str, 
+                             df_fields: Dict[str, str], last_modified_date: Optional[pd.Timestamp], 
+                             strategy: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute the actual Bulk API job after field filtering."""
+        
+        # Build the final query string with the working field set
+        query_string = f"SELECT {', '.join(df_fields.keys())} FROM {sobject}"
+        if last_modified_date:
+            lmd_sf = str(last_modified_date)[:10] + 'T' + str(last_modified_date)[11:19] + '.000Z'
+            query_string += f" WHERE LastModifiedDate > {lmd_sf}"
+        
+        logger.debug(f"🔍 Final SOQL query: {query_string}")
+        print(f"🔍 Executing Bulk API query: {query_string}")
         
         # Create bulk query job
         logger.debug("📋 Creating Bulk API job...")
-        job_response = query_bapi20.create_batch_query(self.access_info, soql_query)
+        from . import query_bapi20
+        job_response = query_bapi20.create_batch_query(self.access_info, query_string)
+        
+        # Check if job_response indicates an error
+        if isinstance(job_response, list) and len(job_response) > 0:
+            # This is an error response
+            error_info = job_response[0]
+            error_message = error_info.get('message', 'Unknown error')
+            error_code = error_info.get('errorCode', 'UNKNOWN_ERROR')
+            
+            print(f"❌ Bulk API job creation failed:")
+            print(f"  - Error Code: {error_code}")
+            print(f"  - Error Message: {error_message}")
+            
+            raise Exception(f"Bulk API job creation failed: {error_code} - {error_message}")
+        
+        # Check if job_response is a valid success response
+        if not isinstance(job_response, dict) or 'id' not in job_response:
+            print(f"❌ Unexpected job_response format: {type(job_response)}")
+            print(f"❌ Expected dict with 'id' key, got: {job_response}")
+            raise Exception(f"Invalid job_response format: expected dict with 'id' key, got {type(job_response)}")
+        
         job_id = job_response['id']
         
         logger.debug(f"📋 Created Bulk API job: {job_id}")
@@ -641,10 +909,16 @@ class IntelligentSync:
         logger.debug(f"📥 Getting results (optimized direct loading)")
         
         # Use optimized direct loading for all cases (stage parameters are deprecated)
-        result = query_bapi20.get_bulk_results(
-            self.session, self.access_info, job_id, sobject, schema, table,
-            use_stage=use_stage, stage_name=stage_name
-        )
+        try:
+            result = query_bapi20.get_bulk_results(
+                self.session, self.access_info, job_id, sobject, schema, table,
+                use_stage=use_stage, stage_name=stage_name
+            )
+            print(f"✅ Bulk API results retrieved successfully")
+        except Exception as e:
+            print(f"⚠️ Warning: Error getting bulk results: {e}")
+            # Continue with cleanup even if results retrieval failed
+            result = None
         
         # Clean up job
         try:

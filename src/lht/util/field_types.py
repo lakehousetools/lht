@@ -185,7 +185,7 @@ def format_sync_file(df, df_fields, force_datetime_to_string=False):
 				# CRITICAL: Force fields to their intended types BEFORE any data analysis
 				# This ensures write_pandas creates the correct table schema
 				if dtype == 'datetime64':
-					# Salesforce datetime fields (like CreatedDate) MUST be datetime
+					# Salesforce datetime fields (like CreatedDate, LastViewedDate) MUST be datetime
 					print(f"🔧 Processing datetime field: {col_upper}")
 					
 					# Show sample values and their types to help debug
@@ -193,6 +193,13 @@ def format_sync_file(df, df_fields, force_datetime_to_string=False):
 					sample_types = [type(x).__name__ for x in sample_values]
 					print(f"📅 Sample values for {col_upper}: {sample_values}")
 					print(f"📅 Sample value types: {sample_types}")
+					print(f"🔍 DataFrame column dtype for {col_upper}: {df[col_upper].dtype}")
+					
+					# Special handling for LastViewedDate which often comes as epoch time
+					if col_upper == 'LASTVIEWEDDATE':
+						print(f"🎯 Special handling for LASTVIEWEDDATE field")
+						print(f"🔍 Raw values: {df[col_upper].head(10).tolist()}")
+						print(f"🔍 Value range: {df[col_upper].min()} to {df[col_upper].max()}")
 					
 					# Option 1: Force all datetime fields to string (if flag is set)
 					if force_datetime_to_string:
@@ -202,7 +209,53 @@ def format_sync_file(df, df_fields, force_datetime_to_string=False):
 						df[col_upper] = df[col_upper].replace({'nan': None, 'None': None, '<NA>': None})
 						continue
 					
-					# Option 2: Auto-detect problematic Salesforce ISO 8601 format
+					# Option 2: Handle epoch time (Unix timestamps) - common in Salesforce
+					# Enhanced detection for epoch time in various formats
+					is_epoch_time = False
+					
+					# Check DataFrame dtype
+					if df[col_upper].dtype in ['int64', 'float64']:
+						is_epoch_time = True
+						print(f"🔍 {col_upper} DataFrame dtype is numeric: {df[col_upper].dtype}")
+					
+					# Check sample values for epoch time patterns
+					elif any(
+						isinstance(x, (int, float)) or 
+						(isinstance(x, str) and x.replace('.', '').replace('-', '').isdigit() and len(str(x)) > 10)  # Epoch timestamps are typically 10+ digits
+						for x in sample_values if pd.notna(x)
+					):
+						is_epoch_time = True
+						print(f"🔍 {col_upper} contains numeric values that look like epoch time")
+					
+					# Additional check: if all non-null values are large numbers (likely epoch time)
+					elif all(
+						isinstance(x, (int, float)) and x > 1000000000000  # Timestamps after year 2000
+						for x in sample_values if pd.notna(x)
+					):
+						is_epoch_time = True
+						print(f"🔍 {col_upper} contains large numbers that are likely epoch timestamps")
+					
+					if is_epoch_time:
+						print(f"🔧 {col_upper} contains epoch time - converting to datetime...")
+						try:
+							# Try milliseconds first (Salesforce often uses millisecond timestamps)
+							df[col_upper] = pd.to_datetime(df[col_upper], unit='ms', errors='coerce')
+							
+							# If that fails (all NaN), try seconds
+							if df[col_upper].isna().all():
+								print(f"🔧 Retrying {col_upper} with seconds unit...")
+								df[col_upper] = pd.to_datetime(df[col_upper], unit='s', errors='coerce')
+							
+							# Convert to timezone-naive timestamps for Snowflake compatibility
+							df[col_upper] = df[col_upper].dt.tz_localize(None)
+							print(f"✅ {col_upper} successfully converted from epoch time to datetime64")
+							continue
+							
+						except Exception as e:
+							print(f"⚠️ Warning: Could not convert {col_upper} from epoch time: {e}")
+							# Fall through to string conversion
+					
+					# Option 3: Auto-detect problematic Salesforce ISO 8601 format
 					if any(isinstance(x, str) and ('T' in str(x) or '.000Z' in str(x)) for x in sample_values):
 						print(f"⚠️  {col_upper} contains Salesforce ISO 8601 format - converting to string to avoid parsing issues")
 						df[col_upper] = df[col_upper].replace({pd.NA: None, pd.NaT: None})
@@ -210,7 +263,7 @@ def format_sync_file(df, df_fields, force_datetime_to_string=False):
 						df[col_upper] = df[col_upper].replace({'nan': None, 'None': None, '<NA>': None})
 						continue
 					
-					# Option 3: Try to convert to datetime (default behavior)
+					# Option 4: Try to convert to datetime (default behavior)
 					try:
 						df[col_upper] = pd.to_datetime(df[col_upper], errors='coerce')
 						# Convert to timezone-naive timestamps for Snowflake compatibility
@@ -219,6 +272,12 @@ def format_sync_file(df, df_fields, force_datetime_to_string=False):
 					except Exception as e:
 						print(f"⚠️ Warning: Could not convert {col_upper} to datetime64, treating as string: {e}")
 						df[col_upper] = df[col_upper].replace({pd.NA: None, pd.NaT: None})
+						df[col_upper] = df[col_upper].astype(str)
+						df[col_upper] = df[col_upper].replace({'nan': None, 'None': None, '<NA>': None})
+					
+					# Final safety check: if we still have numeric data in a datetime field, convert to string
+					if df[col_upper].dtype in ['int64', 'float64']:
+						print(f"⚠️ Safety check: {col_upper} is still numeric after datetime conversion, forcing to string")
 						df[col_upper] = df[col_upper].astype(str)
 						df[col_upper] = df[col_upper].replace({'nan': None, 'None': None, '<NA>': None})
 						
@@ -306,46 +365,7 @@ def format_sync_file(df, df_fields, force_datetime_to_string=False):
 							df[col_upper] = df[col_upper].astype(str)
 							df[col_upper] = df[col_upper].replace({'nan': None, 'None': None, '<NA>': None})
 							
-				elif dtype == 'datetime64':
-					# Handle Salesforce timestamps (could be ISO 8601 strings or epoch time integers)
-					try:
-						print(f"🔧 Processing {col_upper} for datetime conversion...")
-						
-						# Check if we have epoch time (large integers) or string timestamps
-						sample_values = df[col_upper].dropna().head(3)
-						print(f"🔍 Sample values in {col_upper}: {sample_values.tolist()}")
-						
-						if df[col_upper].dtype in ['int64', 'float64'] or (df[col_upper].dtype == 'object' and 
-						   any(isinstance(x, (int, float)) or (isinstance(x, str) and x.replace('.', '').replace('-', '').isdigit()) 
-						       for x in sample_values if pd.notna(x))):
-							# Handle epoch time (Unix timestamps)
-							print(f"🔧 Converting {col_upper} from epoch time to datetime...")
-							df[col_upper] = pd.to_datetime(df[col_upper], unit='ms', errors='coerce')  # Try milliseconds first
-							
-							# If that fails, try seconds
-							if df[col_upper].isna().all():
-								print(f"🔧 Retrying {col_upper} with seconds unit...")
-								df[col_upper] = pd.to_datetime(df[col_upper], unit='s', errors='coerce')
-						else:
-							# Handle string timestamps (ISO 8601 format)
-							print(f"🔧 Converting {col_upper} from string format to datetime...")
-							# Handle Salesforce format: 2023-09-08T02:00:39.000Z
-							if df[col_upper].dtype == 'object':
-								# Convert to pandas datetime first
-								df[col_upper] = pd.to_datetime(df[col_upper], errors='coerce')
-							
-							# Convert to datetime
-							df[col_upper] = pd.to_datetime(df[col_upper], errors='coerce')
-						
-						# Convert to timezone-naive timestamps for Snowflake compatibility
-						df[col_upper] = df[col_upper].dt.tz_localize(None)
-						
-						print(f"🔧 Successfully converted {col_upper} to datetime64")
-					except Exception as e:
-						print(f"⚠️ Warning: Could not convert {col_upper} to datetime64, treating as string: {e}")
-						df[col_upper] = df[col_upper].replace({pd.NA: None, pd.NaT: None})
-						df[col_upper] = df[col_upper].astype(str)
-						df[col_upper] = df[col_upper].replace({'nan': None, 'None': None, '<NA>': None})
+
 			else:
 				print(f"field not found '{col_upper}' in DataFrame columns: {list(df.columns)}")
 		except Exception as e:
