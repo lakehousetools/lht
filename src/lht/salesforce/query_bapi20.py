@@ -187,12 +187,8 @@ def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table
 		print('The job is not ready.  Retry in a few minutes')
 		return None
 	
-	# Use provided Snowflake field types if available, otherwise get them from describe
-	if snowflake_fields is None:
-		query_string, df_fields, snowflake_fields = sobjects.describe(access_info, sobject)
-	else:
-		# We already have the field types, just get the query string
-		query_string, df_fields, _ = sobjects.describe(access_info, sobject)
+	# Always get both field types from describe to ensure we have the correct information
+	query_string, df_fields, snowflake_fields = sobjects.describe(access_info, sobject)
 	
 	# Process first batch
 	csv_content = results.text
@@ -229,6 +225,10 @@ def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table
 				print(f"🔍 DEBUG: Table {schema}.{table} does not exist, creating it...")
 				# Create a filtered snowflake_fields dict with only the fields we're actually using
 				filtered_snowflake_fields = {k: snowflake_fields.get(k, 'VARCHAR(16777216)') for k in df_fields.keys()}
+				print(f"🔍 DEBUG: Field filtering:")
+				print(f"  - df_fields keys: {list(df_fields.keys())}")
+				print(f"  - snowflake_fields keys: {list(snowflake_fields.keys())}")
+				print(f"  - filtered_snowflake_fields: {filtered_snowflake_fields}")
 				create_table_sql = _build_create_table_sql(schema, table, filtered_snowflake_fields)
 				print(f"🔍 DEBUG: CREATE TABLE SQL: {create_table_sql}")
 				
@@ -250,27 +250,32 @@ def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table
 		
 		except Exception as table_check_error:
 			print(f"🔍 DEBUG: Error checking/creating table: {table_check_error}")
-			print(f"🔍 DEBUG: Falling back to auto_create_table=True")
-			# Fallback: let Snowflake create the table automatically
-			session.write_pandas(formatted_df, fully_qualified_table, quote_identifiers=False, auto_create_table=True, overwrite=False, use_logical_type=False, on_error="CONTINUE")
-			print(f"✅ Data loaded with auto-created table")
-			return results
+			print(f"🔍 DEBUG: Table creation failed - cannot proceed without proper schema")
+			raise Exception(f"Failed to create table {schema}.{table} with proper schema: {table_check_error}")
 		
-		# Now load data into existing table (no auto-create, no overwrite)
+		# Now load data into existing table using save_as_table for better schema control
 		print(f"🔍 DEBUG: Loading data into table {fully_qualified_table}")
-		session.write_pandas(formatted_df, fully_qualified_table, quote_identifiers=False, auto_create_table=False, overwrite=False, use_logical_type=False, on_error="CONTINUE")
-		print(f"✅ Data loaded successfully")
+		
+		# Get actual table schema to ensure column alignment
+		table_info = session.sql(f"DESCRIBE TABLE {schema}.{table}").collect()
+		table_columns = [row['name'] for row in table_info]
+		print(f"🔍 DEBUG: Table columns: {table_columns}")
+		print(f"🔍 DEBUG: DataFrame columns: {list(formatted_df.columns)}")
+		
+		# Ensure DataFrame has all table columns (fill missing ones with NULL)
+		for col in table_columns:
+			if col not in formatted_df.columns:
+				print(f"🔍 DEBUG: Adding missing column '{col}' with NULL values")
+				formatted_df[col] = None
+		
+		# Convert to Snowpark DataFrame and write using save_as_table
+		snowpark_df = session.create_dataframe(formatted_df)
+		snowpark_df.write.mode("append").save_as_table(f"{schema}.{table}")
+		print(f"✅ Data loaded successfully using save_as_table")
 		
 	except Exception as e:
 		print(f"❌ Failed to create table or load data: {e}")
-		print(f"🔍 DEBUG: Final fallback - trying auto_create_table=True")
-		try:
-			# Ultimate fallback: let Snowflake handle everything
-			session.write_pandas(formatted_df, fully_qualified_table, quote_identifiers=False, auto_create_table=True, overwrite=False, use_logical_type=False, on_error="CONTINUE")
-			print(f"✅ Data loaded with ultimate fallback")
-		except Exception as final_error:
-			print(f"❌ Ultimate fallback also failed: {final_error}")
-			raise final_error
+		raise Exception(f"Failed to load data into table {schema}.{table}: {e}")
 	
 	# Process remaining batches
 	counter = 2
@@ -297,8 +302,19 @@ def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table
 		fully_qualified_table = f"{schema}.{table}"
 		
 		try:
-			session.write_pandas(formatted_df, fully_qualified_table, quote_identifiers=False, auto_create_table=False, overwrite=False, use_logical_type=True, on_error="CONTINUE")
-			print(f"✅ Batch {counter} loaded successfully")
+			# Get actual table schema to ensure column alignment
+			table_info = session.sql(f"DESCRIBE TABLE {schema}.{table}").collect()
+			table_columns = [row['name'] for row in table_info]
+			
+			# Ensure DataFrame has all table columns (fill missing ones with NULL)
+			for col in table_columns:
+				if col not in formatted_df.columns:
+					formatted_df[col] = None
+			
+			# Convert to Snowpark DataFrame and write using save_as_table
+			snowpark_df = session.create_dataframe(formatted_df)
+			snowpark_df.write.mode("append").save_as_table(f"{schema}.{table}")
+			print(f"✅ Batch {counter} loaded successfully using save_as_table")
 		except Exception as e:
 			print(f"❌ Batch {counter} failed: {e}")
 			raise
