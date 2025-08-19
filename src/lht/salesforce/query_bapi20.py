@@ -151,7 +151,7 @@ def get_query_ids(access_info):
 
 	return jobs
 
-def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table, database=None):
+def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table, snowflake_fields=None, database=None):
 	# Auto-detect database if not provided
 	if database is None:
 		database = session.sql('SELECT CURRENT_DATABASE()').collect()[0][0]
@@ -187,8 +187,12 @@ def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table
 		print('The job is not ready.  Retry in a few minutes')
 		return None
 	
-	# Get field descriptions for formatting
-	query_string, df_fields = sobjects.describe(access_info, sobject)
+	# Use provided Snowflake field types if available, otherwise get them from describe
+	if snowflake_fields is None:
+		query_string, df_fields, snowflake_fields = sobjects.describe(access_info, sobject)
+	else:
+		# We already have the field types, just get the query string
+		query_string, df_fields, _ = sobjects.describe(access_info, sobject)
 	
 	# Process first batch
 	csv_content = results.text
@@ -223,7 +227,9 @@ def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table
 				print(f"🔍 DEBUG: Table {schema}.{table} already exists, skipping creation")
 			else:
 				print(f"🔍 DEBUG: Table {schema}.{table} does not exist, creating it...")
-				create_table_sql = _build_create_table_sql(schema, table, df_fields)
+				# Create a filtered snowflake_fields dict with only the fields we're actually using
+				filtered_snowflake_fields = {k: snowflake_fields.get(k, 'VARCHAR(16777216)') for k in df_fields.keys()}
+				create_table_sql = _build_create_table_sql(schema, table, filtered_snowflake_fields)
 				print(f"🔍 DEBUG: CREATE TABLE SQL: {create_table_sql}")
 				
 				# Execute CREATE TABLE statement
@@ -301,7 +307,7 @@ def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table
 	
 	return results
 
-def get_bulk_results(session, access_info, job_id, sobject, schema, table, use_stage=False, stage_name=None, database=None):
+def get_bulk_results(session, access_info, job_id, sobject, schema, table, snowflake_fields=None, use_stage=False, stage_name=None, database=None):
 	"""Fetches and processes bulk query results from Salesforce, loading them into a Snowflake table.
 	
 	This function now uses direct DataFrame-to-table loading for optimal performance.
@@ -326,7 +332,7 @@ def get_bulk_results(session, access_info, job_id, sobject, schema, table, use_s
 		pandas.errors.EmptyDataError: If the CSV data is empty or malformed.
 		snowflake.snowpark.exceptions.SnowparkSQLException: If Snowflake write operation fails.
 	"""
-	return get_bulk_results_direct(session, access_info, job_id, sobject, schema, table, database)
+	return get_bulk_results_direct(session, access_info, job_id, sobject, schema, table, snowflake_fields, database)
 
 def delete_query(access_info, job_id):
 	"""Deletes a Salesforce query job by ID using the Bulk Query API.
@@ -596,38 +602,25 @@ def delete_specific_job(access_info, job_id):
 			'error': str(e)
 		}
 
-def _build_create_table_sql(schema: str, table: str, df_fields: dict) -> str:
+def _build_create_table_sql(schema: str, table: str, snowflake_fields: dict) -> str:
 	"""
 	Build CREATE TABLE SQL statement based on Salesforce field definitions.
 	
 	Args:
 		schema: Snowflake schema name
 		table: Snowflake table name
-		df_fields: Dictionary mapping field names to pandas dtypes
+		snowflake_fields: Dictionary mapping field names to Snowflake types
 		
 	Returns:
 		str: CREATE TABLE SQL statement
 	"""
-	# Map pandas dtypes to Snowflake types
-	type_mapping = {
-		'object': 'VARCHAR(16777216)',      # String fields (including PO_Number__c)
-		'int64': 'NUMBER(38,0)',            # Integer fields
-		'float64': 'DOUBLE',                 # Float fields
-		'bool': 'BOOLEAN',                   # Boolean fields
-		'datetime64': 'TIMESTAMP_NTZ',       # Datetime fields
-		'datetime64[ns]': 'TIMESTAMP_NTZ',   # Datetime fields with nanoseconds
-	}
-	
 	# Build column definitions
 	columns = []
-	for field_name, dtype in df_fields.items():
+	for field_name, snowflake_type in snowflake_fields.items():
 		# Convert field name to uppercase to match DataFrame
 		field_upper = field_name.upper()
 		
-		# Map the dtype to Snowflake type
-		snowflake_type = type_mapping.get(dtype, 'VARCHAR(16777216)')  # Default to VARCHAR
-		
-		# Add column definition
+		# Use the Snowflake type directly (already mapped from Salesforce field types)
 		columns.append(f'"{field_upper}" {snowflake_type}')
 	
 	# Build CREATE TABLE statement
