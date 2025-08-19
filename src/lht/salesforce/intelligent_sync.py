@@ -774,7 +774,72 @@ class IntelligentSync:
                             continue
                     
                     # If we get here, job creation was successful
-                    break
+                    print(f"✅ Successfully created Bulk API job with {len(current_fields)} fields")
+                    if removed_fields:
+                        print(f"🗑️ Removed {len(removed_fields)} problematic fields: {removed_fields}")
+                    
+                    # Now proceed with the actual sync using the working field set
+                    try:
+                        result = self._execute_bulk_api_job(sobject, schema, table, current_fields, last_modified_date, strategy)
+                        
+                        # Check if the job execution failed and we need to retry with fewer fields
+                        if not result.get('success', True):
+                            error_message = result.get('error_message', result.get('error', 'Unknown error'))
+                            print(f"⚠️ Bulk API job execution failed: {error_message}")
+                            
+                            # Extract problematic fields from the error message
+                            problematic_fields = self._extract_problematic_fields(error_message)
+                            
+                            if problematic_fields:
+                                print(f"🔍 Identified problematic fields: {problematic_fields}")
+                                # Remove problematic fields and retry
+                                for field in problematic_fields:
+                                    if field in current_fields:
+                                        del current_fields[field]
+                                        removed_fields.append(field)
+                                        print(f"🗑️ Removed field: {field}")
+                                
+                                if not current_fields:
+                                    raise Exception("No fields remaining after removing problematic fields")
+                                
+                                print(f"🔄 Retrying with {len(current_fields)} remaining fields...")
+                                continue
+                            else:
+                                # If we can't identify specific fields, remove some fields and retry
+                                print(f"⚠️ Could not identify specific problematic fields, removing some fields and retry...")
+                                fields_to_remove = list(current_fields.keys())[-5:]  # Remove last 5 fields
+                                for field in fields_to_remove:
+                                    if field in current_fields:
+                                        del current_fields[field]
+                                        removed_fields.append(field)
+                                        print(f"🗑️ Removed field: {field}")
+                                
+                                if not current_fields:
+                                    raise Exception("No fields remaining after removing fields")
+                                
+                                print(f"🔄 Retrying with {len(current_fields)} remaining fields...")
+                                continue
+                        
+                        # If we get here, the job was successful
+                        return result
+                        
+                    except Exception as e:
+                        if attempt < max_retries - 1:
+                            print(f"⚠️ Error on attempt {attempt + 1}: {e}")
+                            # Remove some fields and retry
+                            fields_to_remove = list(current_fields.keys())[-3:]  # Remove last 3 fields
+                            for field in fields_to_remove:
+                                if field in current_fields:
+                                    del current_fields[field]
+                                    removed_fields.append(field)
+                                    print(f"🗑️ Removed field: {field}")
+                            
+                            if not current_fields:
+                                raise Exception("No fields remaining after removing fields")
+                            
+                            continue
+                        else:
+                            raise e
                     
                 except Exception as e:
                     if attempt < max_retries - 1:
@@ -801,13 +866,8 @@ class IntelligentSync:
                 else:
                     raise e
         
-        # If we get here, we have a successful job creation
-        print(f"✅ Successfully created Bulk API job with {len(current_fields)} fields")
-        if removed_fields:
-            print(f"🗑️ Removed {len(removed_fields)} problematic fields: {removed_fields}")
-        
-        # Now proceed with the actual sync using the working field set
-        return self._execute_bulk_api_job(sobject, schema, table, current_fields, last_modified_date, strategy)
+        # If we get here, we've exhausted all retries
+        raise Exception(f"Failed to sync after {max_retries} attempts with field removal")
     
     def _extract_problematic_fields(self, error_message: str) -> List[str]:
         """Extract field names from Salesforce error messages."""
@@ -867,13 +927,27 @@ class IntelligentSync:
             print(f"  - Error Code: {error_code}")
             print(f"  - Error Message: {error_message}")
             
-            raise Exception(f"Bulk API job creation failed: {error_code} - {error_message}")
+            # Return error info instead of raising exception so retry logic can handle it
+            return {
+                'success': False,
+                'error': f"Bulk API job creation failed: {error_code} - {error_message}",
+                'error_code': error_code,
+                'error_message': error_message,
+                'records_processed': 0
+            }
         
         # Check if job_response is a valid success response
         if not isinstance(job_response, dict) or 'id' not in job_response:
             print(f"❌ Unexpected job_response format: {type(job_response)}")
             print(f"❌ Expected dict with 'id' key, got: {job_response}")
-            raise Exception(f"Invalid job_response format: expected dict with 'id' key, got {type(job_response)}")
+            # Return error info instead of raising exception so retry logic can handle it
+            return {
+                'success': False,
+                'error': f"Invalid job_response format: expected dict with 'id' key, got {type(job_response)}",
+                'error_code': 'INVALID_FORMAT',
+                'error_message': f"Invalid job_response format: expected dict with 'id' key, got {type(job_response)}",
+                'records_processed': 0
+            }
         
         job_id = job_response['id']
         
