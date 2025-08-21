@@ -36,6 +36,10 @@ def create_salesforce_table(
         Exception: If table creation fails
     """
     try:
+        print(f"🔍 create_salesforce_table called with force_full_sync={force_full_sync}")
+        print(f"🔍 force_full_sync type: {type(force_full_sync)}")
+        print(f"🔍 force_full_sync value: {repr(force_full_sync)}")
+        
         # Auto-detect database if not provided
         if database is None:
             database = session.sql('SELECT CURRENT_DATABASE()').collect()[0][0]
