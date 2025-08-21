@@ -129,6 +129,14 @@ def write_dataframe_to_table(
                 logger.info(f"🔧 Formatting DataFrame using field_types.format_sync_file with {len(df_fields)} field definitions")
                 df = field_types.format_sync_file(df, df_fields)
                 logger.info(f"✅ DataFrame formatting completed")
+                
+                # VALIDATION: Ensure snowflake_fields is provided when df_fields is available
+                if snowflake_fields is None or len(snowflake_fields) == 0:
+                    logger.error(f"❌ CRITICAL: df_fields provided but snowflake_fields is missing!")
+                    logger.error(f"   This means sobjects.describe() failed or wasn't called")
+                    logger.error(f"   Cannot proceed without proper Salesforce field type definitions")
+                    raise Exception(f"Missing snowflake_fields when df_fields is provided for {schema}.{table}")
+                    
             except Exception as e:
                 logger.warning(f"⚠️ Failed to format DataFrame with field_types: {e}")
                 logger.warning(f"   Continuing with original DataFrame")
@@ -180,24 +188,13 @@ def write_dataframe_to_table(
                     logger.info(f"🔧 Using provided Salesforce field types for table creation")
                     logger.info(f"🔧 Field types: {snowflake_fields}")
                 else:
-                    # Fallback: infer types from DataFrame (less accurate)
-                    logger.warning(f"⚠️ No Salesforce field types provided, inferring from DataFrame (may cause type issues)")
-                    snowflake_fields = {}
-                    for col in df.columns:
-                        # Map pandas types to Snowflake types
-                        if df[col].dtype == 'object':
-                            snowflake_fields[col] = 'VARCHAR(16777216)'
-                        elif df[col].dtype in ['int64', 'int32']:
-                            snowflake_fields[col] = 'NUMBER(38,0)'
-                        elif df[col].dtype in ['float64', 'float32']:
-                            snowflake_fields[col] = 'FLOAT'
-                        elif df[col].dtype == 'bool':
-                            snowflake_fields[col] = 'BOOLEAN'
-                        elif df[col].dtype == 'datetime64[ns]':
-                            snowflake_fields[col] = 'TIMESTAMP_NTZ'
-                        else:
-                            snowflake_fields[col] = 'VARCHAR(16777216)'
+                    # No Salesforce field types provided - this should not happen in normal operation
+                    logger.error(f"❌ CRITICAL: No Salesforce field types provided for table creation!")
+                    logger.error(f"   This means sobjects.describe() failed or wasn't called")
+                    logger.error(f"   Cannot create table without proper field type definitions")
+                    raise Exception(f"No Salesforce field types provided for table {schema}.{table}")
                 
+
                 # Use centralized table creation
                 table_creator.ensure_table_exists_for_dataframe(
                     session=session,
@@ -210,44 +207,92 @@ def write_dataframe_to_table(
                 )
                 
                 # Now write to the existing table using the already-processed DataFrame
-                result = session.write_pandas(
-                    df, 
-                    full_table_name,
-                    quote_identifiers=False, 
-                    auto_create_table=False,  # Table already exists
-                    overwrite=overwrite, 
-                    use_logical_type=use_logical_type, 
-                    on_error=on_error
-                )
+                # DEBUG: Show DataFrame types before writing to Snowflake
+                logger.info(f"🔍 DEBUG: DataFrame types before Snowflake write:")
+                for col in df.columns:
+                    logger.info(f"   {col}: {df[col].dtype} - Sample: {df[col].dropna().head(1).tolist() if len(df[col].dropna()) > 0 else 'No data'}")
+                
+                # SIMPLE: Convert all datetime fields to timezone-naive
+                logger.info(f"🔧 Converting all datetime fields to timezone-naive for Snowflake compatibility...")
+                for col in df.columns:
+                    if col.upper() in ['CREATEDDATE', 'LASTMODIFIEDDATE', 'SYSTEMMODSTAMP', 'LASTACTIVITYDATE', 'LASTVIEWEDDATE', 'LASTREFERENCEDDATE']:
+                        if 'UTC' in str(df[col].dtype) or 'timezone' in str(df[col].dtype):
+                            try:
+                                df[col] = df[col].dt.tz_localize(None)
+                                logger.info(f"✅ {col} converted to timezone-naive: {df[col].dtype}")
+                            except Exception as e:
+                                logger.error(f"❌ Failed to convert {col} to timezone-naive: {e}")
+                print("@@@@DF TZ {}".format(df['CREATEDDATE'].head(10).tolist()))
+                df['CREATEDDATE'] = pd.to_datetime(df['CREATEDDATE'], errors='coerce')
+                # Convert to Snowpark DataFrame and use save_as_table instead of write_pandas
+                snowpark_df = session.create_dataframe(df)
+                snowpark_df.write.mode("overwrite" if overwrite else "append").save_as_table(full_table_name)
+                result = True  # save_as_table doesn't return a result object like write_pandas
             except Exception as table_error:
                 logger.warning(f"Centralized table creation failed, falling back to auto-create: {table_error}")
-                # Fallback to original behavior
-                result = session.write_pandas(
-                    df, 
-                    full_table_name,
-                    quote_identifiers=False, 
-                    auto_create_table=auto_create,
-                    overwrite=overwrite, 
-                    use_logical_type=use_logical_type, 
-                    on_error=on_error
-                )
+                # CRITICAL FIX: Use the processed DataFrame for fallback, not the original
+                logger.info(f"🔧 Using processed DataFrame for fallback write...")
+                try:
+                    from lht.util import field_types
+                    df_fallback = field_types.format_sync_file(df, df_fields)
+                    logger.info(f"✅ DataFrame processing completed for fallback write")
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to process DataFrame with field_types for fallback: {e}")
+                    df_fallback = df
+                
+                # TEST: Keeping all datetime fields for debugging (fallback path)
+                logger.info(f"🧪 TEST: Keeping all datetime fields to debug the issue (fallback path)")
+                logger.info(f"✅ TEST: All columns preserved in fallback: {list(df_fallback.columns)}")
+                
+                # SIMPLE: Convert all datetime fields to timezone-naive
+                logger.info(f"🔧 Converting all datetime fields to timezone-naive for Snowflake compatibility...")
+                for col in df_fallback.columns:
+                    if col.upper() in ['CREATEDDATE', 'LASTMODIFIEDDATE', 'SYSTEMMODSTAMP', 'LASTACTIVITYDATE', 'LASTVIEWEDDATE', 'LASTREFERENCEDDATE']:
+                        if 'UTC' in str(df_fallback[col].dtype) or 'timezone' in str(df_fallback[col].dtype):
+                            try:
+                                df_fallback[col] = df_fallback[col].dt.tz_localize(None)
+                                logger.info(f"✅ {col} converted to timezone-naive: {df_fallback[col].dtype}")
+                            except Exception as e:
+                                logger.error(f"❌ Failed to convert {col} to timezone-naive: {e}")
+                
+                # Convert to Snowpark DataFrame and use save_as_table instead of write_pandas
+                snowpark_df = session.create_dataframe(df_fallback)
+                snowpark_df.write.mode("overwrite" if overwrite else "append").save_as_table(full_table_name)
+                result = True  # save_as_table doesn't return a result object like write_pandas
         else:
-            # Use original behavior, but still try to parse datetime fields if possible
+            # Use original behavior, but ensure DataFrame is properly processed
             if df_fields is not None and len(df_fields) > 0:
-                logger.info(f"🔧 Parsing Salesforce datetime fields for fallback write...")
-                df_processed = parse_salesforce_datetime_fields(df, df_fields)
+                logger.info(f"🔧 Processing DataFrame with field_types for fallback write...")
+                try:
+                    from lht.util import field_types
+                    df_processed = field_types.format_sync_file(df, df_fields)
+                    logger.info(f"✅ DataFrame processing completed for fallback write")
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to process DataFrame with field_types: {e}")
+                    df_processed = df
             else:
                 df_processed = df
             
-            result = session.write_pandas(
-                df_processed, 
-                full_table_name,
-                quote_identifiers=False, 
-                auto_create_table=auto_create,
-                overwrite=overwrite, 
-                use_logical_type=use_logical_type, 
-                on_error=on_error
-            )
+            # DEBUG: Show DataFrame types before writing to Snowflake (fallback path)
+            logger.info(f"🔍 DEBUG: DataFrame types before Snowflake write (fallback path):")
+            for col in df_processed.columns:
+                logger.info(f"   {col}: {df_processed[col].dtype} - Sample: {df_processed[col].dropna().head(1).tolist() if len(df_processed[col].dropna()) > 0 else 'No data'}")
+            
+            # SIMPLE: Convert all datetime fields to timezone-naive
+            logger.info(f"🔧 Converting all datetime fields to timezone-naive for Snowflake compatibility...")
+            for col in df_processed.columns:
+                if col.upper() in ['CREATEDDATE', 'LASTMODIFIEDDATE', 'SYSTEMMODSTAMP', 'LASTACTIVITYDATE', 'LASTVIEWEDDATE', 'LASTREFERENCEDDATE']:
+                    if 'UTC' in str(df_processed[col].dtype) or 'timezone' in str(df_processed[col].dtype):
+                        try:
+                            df_processed[col] = df_processed[col].dt.tz_localize(None)
+                            logger.info(f"✅ {col} converted to timezone-naive: {df_processed[col].dtype}")
+                        except Exception as e:
+                            logger.error(f"❌ Failed to convert {col} to timezone-naive: {e}")
+            
+            # Convert to Snowpark DataFrame and use save_as_table instead of write_pandas
+            snowpark_df = session.create_dataframe(df_processed)
+            snowpark_df.write.mode("overwrite" if overwrite else "append").save_as_table(full_table_name)
+            result = True  # save_as_table doesn't return a result object like write_pandas
         
         logger.debug(f"✅ Successfully wrote {len(df)} records to {full_table_name}")
         return True

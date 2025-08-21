@@ -50,7 +50,7 @@ def describe(access_info, sobject, lmd=None):
 	if lmd is not None:
 		query_string = query_string + "+where+LastModifiedDate+>+{}".format(lmd)
 	
-	print(f"🔍 DEBUG: Returning from sobjects.describe:")
+	# Returning field descriptions from Salesforce
 	print(f"  - df_fields keys: {list(df_fields.keys())}")
 	print(f"  - df_fields values: {list(df_fields.values())}")
 	print(f"  - snowflake_fields keys: {list(snowflake_fields.keys())}")

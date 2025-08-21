@@ -72,10 +72,18 @@ def put_dataframe_to_stage(session, stage_name, df, filename=None, schema=None):
         full_temp_table_name = f"{current_db}.{temp_table_name}"
     
     try:
-        # Write DataFrame to a temporary table
-        session.write_pandas(df, full_temp_table_name, quote_identifiers=False, 
-                           auto_create_table=True, overwrite=True, 
-                           use_logical_type=True, on_error="CONTINUE")
+        # Write DataFrame to a temporary table using centralized data_writer
+        from . import data_writer
+        data_writer.write_dataframe_to_table(
+            session=session,
+            df=df,
+            schema=schema if schema else "PUBLIC",
+            table=temp_table_name,
+            auto_create=True,
+            overwrite=True,
+            use_logical_type=True,
+            on_error="CONTINUE"
+        )
         
         # Copy from temporary table to stage
         copy_command = f"""

@@ -47,11 +47,31 @@ def log_results(session, access_info, job_id, schema):
         
         successes = successful_results(access_info, job_id)
         if len(successes) > 0:
-            session.write_pandas(successes, f'{current_db}.{schema}.RETL_RESULTS', quote_identifiers=False, auto_create_table=False, overwrite=False,use_logical_type=True)
+            from . import data_writer
+            data_writer.write_dataframe_to_table(
+                session=session,
+                df=successes,
+                schema=schema,
+                table='RETL_RESULTS',
+                auto_create=False,
+                overwrite=False,
+                use_logical_type=True,
+                on_error="CONTINUE"
+            )
 
         failures = failed_results(access_info, job_id)
         if len(failures) > 0:
-            session.write_pandas(failures, f'{current_db}.{schema}.RETL_FAILURES', quote_identifiers=False, auto_create_table=True, overwrite=False,use_logical_type=True)
+            from . import data_writer
+            data_writer.write_dataframe_to_table(
+                session=session,
+                df=failures,
+                schema=schema,
+                table='RETL_FAILURES',
+                auto_create=True,
+                overwrite=False,
+                use_logical_type=True,
+                on_error="CONTINUE"
+            )
 
     return None
 

@@ -47,20 +47,11 @@ def create_salesforce_table(
         
         # Check if table already exists
         try:
-            print(f"🔍 DEBUG: Checking if table {schema}.{table} exists...")
-            print(f"🔍 DEBUG: force_full_sync parameter = {force_full_sync}")
-            print(f"🔍 DEBUG: force_full_sync type = {type(force_full_sync)}")
-            
             table_check = session.sql(f'SHOW TABLES IN SCHEMA "{schema}"').collect()
             table_names = [row['name'] for row in table_check]
-            print(f"🔍 DEBUG: Tables in schema: {table_names}")
-            print(f"🔍 DEBUG: Looking for table: {table}")
-            print(f"🔍 DEBUG: Table exists: {table in table_names}")
             
             if table in table_names:
-                print(f"🔍 DEBUG: Table {table} EXISTS in schema {schema}")
                 if force_full_sync:
-                    print(f"🔍 DEBUG: force_full_sync is TRUE - will recreate table")
                     logger.info(f"Table {schema}.{table} exists and force_full_sync=True, recreating it...")
                     # Drop existing table first
                     print(f"🗑️ Dropping existing table {schema}.{table}...")
@@ -68,11 +59,10 @@ def create_salesforce_table(
                     print(f"✅ Dropped existing table {schema}.{table}")
                     logger.info(f"Dropped existing table {schema}.{table}")
                 else:
-                    print(f"🔍 DEBUG: force_full_sync is FALSE - skipping table creation")
                     logger.info(f"Table {schema}.{table} already exists, skipping creation")
                     return True
             else:
-                print(f"🔍 DEBUG: Table {table} does NOT exist in schema {schema}")
+                pass
             
             # Create table with correct schema (either new or after dropping)
             logger.info(f"Creating table {schema}.{table}...")
@@ -104,15 +94,16 @@ def create_salesforce_table(
                 import pandas as pd
                 temp_df = pd.DataFrame({field: [] for field in snowflake_fields.keys()})
                 
-                # Create table with auto_create_table=True
-                fully_qualified_table = f"{schema}.{table}"
-                session.write_pandas(
-                    temp_df, 
-                    fully_qualified_table, 
-                    quote_identifiers=False, 
-                    auto_create_table=True, 
-                    overwrite=False, 
-                    use_logical_type=False, 
+                # Create table with auto_create_table=True using centralized data_writer
+                from . import data_writer
+                data_writer.write_dataframe_to_table(
+                    session=session,
+                    df=temp_df,
+                    schema=schema,
+                    table=table,
+                    auto_create=True,
+                    overwrite=False,
+                    use_logical_type=False,
                     on_error="CONTINUE"
                 )
                 logger.info(f"Auto-created table {schema}.{table}")
@@ -214,11 +205,7 @@ def ensure_table_exists_for_dataframe(
         Exception: If table creation fails
     """
     try:
-        print(f"🔍 DEBUG: ensure_table_exists_for_dataframe called with:")
-        print(f"🔍 DEBUG:   schema = {schema}")
-        print(f"🔍 DEBUG:   table = {table}")
-        print(f"🔍 DEBUG:   force_full_sync = {force_full_sync}")
-        print(f"🔍 DEBUG:   force_full_sync type = {type(force_full_sync)}")
+        # Ensure table exists for DataFrame
         
         # Filter snowflake_fields to only include fields we're actually using
         missing_in_snowflake = [k for k in df_fields.keys() if k not in snowflake_fields]
