@@ -156,7 +156,6 @@ def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table
 	# Auto-detect database if not provided
 	if database is None:
 		database = session.sql('SELECT CURRENT_DATABASE()').collect()[0][0]
-		print(f"🔍 DEBUG: Auto-detected database: {database}")
 	"""Fetches and processes bulk query results from Salesforce, loading them directly into a Snowflake table.
 
 	Args:
@@ -196,7 +195,10 @@ def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table
 	print(f"\n\nPROCESSING BATCH 1")
 	
 	# Load and process data directly (no stage upload needed)
-	df = pd.read_csv(io.StringIO(csv_content))
+	# CRITICAL: Force string reading to prevent pandas from converting numeric strings to floats
+	# This prevents "20" from becoming 20.0 and then "20.0"
+	df = pd.read_csv(io.StringIO(csv_content), dtype=str)
+	
 	formatted_df = field_types.format_sync_file(df, df_fields)
 	formatted_df = formatted_df.replace(np.nan, None)
 	
@@ -209,13 +211,7 @@ def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table
 	
 	# Use centralized table creation utility
 	try:
-		print(f"🔍 DEBUG: About to create table {schema}.{table}")
-		print(f"🔍 DEBUG: df_fields contains {len(df_fields)} fields: {list(df_fields.keys())}")
-		print(f"🔍 DEBUG: force_full_sync = {force_full_sync}")
-		print(f"🔍 DEBUG: snowflake_fields contains {len(snowflake_fields)} fields: {list(snowflake_fields.keys())}")
-		
-		# Use centralized table creation utility
-		print(f"🚀 Calling table_creator.ensure_table_exists_for_dataframe...")
+		print(f"🚀 Creating table {schema}.{table}...")
 		table_creator.ensure_table_exists_for_dataframe(
 			session=session,
 			schema=schema,
@@ -261,7 +257,10 @@ def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table
 		csv_content = results.text
 		print(f"\n\nPROCESSING BATCH {counter}")
 		
-		df = pd.read_csv(io.StringIO(csv_content))
+		# CRITICAL: Force string reading to prevent pandas from converting numeric strings to floats
+		# This prevents "20" from becoming 20.0 and then "20.0"
+		df = pd.read_csv(io.StringIO(csv_content), dtype=str)
+		
 		formatted_df = field_types.format_sync_file(df, df_fields)
 		formatted_df = formatted_df.replace(np.nan, None)
 	
@@ -398,49 +397,10 @@ def test_snowflake_permissions(session, schema, table, database=None):
 	# Auto-detect database if not provided
 	if database is None:
 		database = session.sql('SELECT CURRENT_DATABASE()').collect()[0][0]
-		print(f"🔍 DEBUG: Auto-detected database: {database}")
 	
-	print(f"\n🔍 DEBUG: Testing Snowflake permissions and context")
-	print(f"🔍 DEBUG: Target schema: {schema}")
-	print(f"🔍 DEBUG: Target table: {table}")
-	print(f"🔍 DEBUG: Target database: {database}")
-	
-	# Check current context
-	current_db = session.sql('SELECT CURRENT_DATABASE()').collect()[0][0]
-	current_schema = session.sql('SELECT CURRENT_SCHEMA()').collect()[0][0]
-	current_role = session.sql('SELECT CURRENT_ROLE()').collect()[0][0]
-	
-	print(f"🔍 DEBUG: Current database: {current_db}")
-	print(f"🔍 DEBUG: Current schema: {current_schema}")
-	print(f"🔍 DEBUG: Current role: {current_role}")
-	
-	# Test database permissions
-	try:
-		print(f"🔍 DEBUG: Testing database access: {database}")
-		session.sql(f"SHOW SCHEMAS IN DATABASE {database}").collect()
-		print(f"✅ DEBUG: Database access successful")
-	except Exception as e:
-		print(f"❌ DEBUG: Database access failed: {e}")
-	
-	# Test schema permissions
-	try:
-		print(f"🔍 DEBUG: Testing schema access: {database}.{schema}")
-		session.sql(f"SHOW TABLES IN SCHEMA {database}.{schema}").collect()
-		print(f"✅ DEBUG: Schema access successful")
-	except Exception as e:
-		print(f"❌ DEBUG: Schema access failed: {e}")
-	
-	# Test table creation permissions
-	try:
-		print(f"🔍 DEBUG: Testing table creation in schema: {database}.{schema}")
-		test_table = f"{database}.{schema}.TEST_PERMISSIONS_TEMP"
-		session.sql(f"CREATE OR REPLACE TEMPORARY TABLE {test_table} (test_col STRING)").collect()
-		session.sql(f"DROP TABLE {test_table}").collect()
-		print(f"✅ DEBUG: Table creation test successful")
-	except Exception as e:
-		print(f"❌ DEBUG: Table creation test failed: {e}")
-	
-	print(f"🔍 DEBUG: Permission test completed\n")
+	# Set the current database and schema context
+	session.sql(f"USE DATABASE {database}").collect()
+	session.sql(f"USE SCHEMA {schema}").collect()
 
 def cleanup_completed_jobs(access_info, max_age_hours=24):
 	"""Deletes completed Salesforce Bulk API 2.0 jobs that are older than the specified age.

@@ -187,9 +187,7 @@ class IntelligentSync:
         result = self._execute_sync_strategy(sync_strategy, sobject, schema, table, match_field)
         end_time = time.time()
         
-        # Debug: Check what result contains
-        print(f"🔍 DEBUG: Result from _execute_sync_strategy: {result}")
-        print(f"🔍 DEBUG: Result type: {type(result)}")
+        # Check result validity
         if result is None:
             print(f"❌ ERROR: _execute_sync_strategy returned None!")
             raise Exception("_execute_sync_strategy returned None - sync failed")
@@ -543,23 +541,16 @@ class IntelligentSync:
                     print(f"📊 Available fields: {list(first_record.keys())}")
                 
                 # Fallback to totalSize (though this should not be used for COUNT queries)
-                print(f"🔍 DEBUG: Checking totalSize fallback")
                 if 'totalSize' in result:
-                    print(f"🔍 DEBUG: totalSize found: {result['totalSize']}")
                     if 'records' in result and len(result['records']) > 0:
-                        #print(f"🔍 DEBUG: Checking records[0]['expr0']")
                         try:
                             if result['records'][0]['expr0'] > 0:
                                 count = result['records'][0]['expr0']
-                                #logger.debug(f"📊 Estimated record count from totalSize: {count}")
-                                #print(f"📊 Estimated record count from totalSize: {count}")
                                 return count
                         except (KeyError, IndexError, TypeError) as e:
-                            print(f"🔍 DEBUG: Error accessing records[0]['expr0']: {e}")
-                            print(f"🔍 DEBUG: records[0] type: {type(result['records'][0])}")
-                            print(f"🔍 DEBUG: records[0] content: {result['records'][0]}")
+                            print(f"⚠️ Warning: Could not determine record count: {e}")
                 else:
-                    print(f"🔍 DEBUG: No totalSize found in response")
+                    pass
             else:
                 logger.warning(f"📊 Unexpected response type: {type(result)}")
                 # print(f"📊 Unexpected response type: {type(result)}")
@@ -567,8 +558,6 @@ class IntelligentSync:
                 
                 # Log all available keys for debugging
                 logger.warning("📊 No count found in response, using conservative estimate")
-                # print("📊 No count found in response, using conservative estimate")
-                # print(f"📊 Response keys: {list(result.keys()) if isinstance(result, dict) else 'Not a dict'}")
             
             return 1000 if last_modified_date else 100000
             
@@ -617,12 +606,12 @@ class IntelligentSync:
             if method.startswith('bulk_api'):
                 print(f"📦 Using Bulk API sync method: {method}")
                 result = self._execute_bulk_api_sync(strategy, sobject, schema, table)
-                print(f"🔍 DEBUG: _execute_bulk_api_sync returned: {result}")
+                # Bulk API sync completed
                 return result
             elif method.startswith('regular_api'):
                 print(f"📡 Using Regular API sync method: {method}")
                 result = self._execute_regular_api_sync(strategy, sobject, schema, table, match_field)
-                print(f"🔍 DEBUG: _execute_regular_api_sync returned: {result}")
+                # Regular API sync completed
                 return result
             else:
                 error_msg = f"Unknown sync method: {method}"
@@ -632,10 +621,7 @@ class IntelligentSync:
         except Exception as e:
             error_msg = f"Error executing sync strategy: {str(e)}"
             print(f"❌ {error_msg}")
-            #print(f"🔍 DEBUG: Exception type: {type(e)}")
-            #print(f"🔍 DEBUG: Exception args: {e.args}")
             import traceback
-            #print(f"🔍 DEBUG: Full traceback:")
             traceback.print_exc()
             logger.error(f"❌ {error_msg}")
             return {
@@ -964,7 +950,7 @@ class IntelligentSync:
         """Execute regular API sync using sobject_query."""
         
         logger.debug(f"🚀 Starting regular API sync for {sobject}")
-        
+        print("@@@HERE")
         # Get query string and field descriptions
         last_modified_date = None
         if strategy['is_incremental']:

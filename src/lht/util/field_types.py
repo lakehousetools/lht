@@ -12,7 +12,7 @@ def salesforce_field_type(field_type):
 	elif field_type['type'] == 'reference':
 		return 'string({})'.format(field_type['length'])
 	elif field_type['type'] == 'string':
-		return 'string({})'.format(field_type['length'])
+		return 'string' #'string({})'.format(field_type['length']) -- modified this because mixed types calls strings that look like numbers to overflow, ie '20' becomes 20.0 even when it's converted back to a string
 	elif field_type['type'] == 'email':
 		return 'string({})'.format(field_type['length'])
 	elif field_type['type'] == 'picklist':
@@ -166,160 +166,37 @@ def format_sync_file(df, df_fields, force_datetime_to_string=False):
 	# First, convert all column names to uppercase to match Salesforce API response
 	df.columns = df.columns.str.upper()
 	
-	print(f"🔍 DEBUG: DataFrame columns after uppercase: {list(df.columns)}")
-	print(f"🔍 DEBUG: df_fields keys: {list(df_fields.keys())}")
-	
 	if force_datetime_to_string:
 		print("⚠️  FORCE_DATETIME_TO_STRING is enabled - all datetime fields will be converted to strings")
 	
 	for col, dtype in df_fields.items():
 		# Convert field name to uppercase to match DataFrame columns
 		col_upper = col.upper()
-		print(f"🔍 DEBUG: Processing field '{col}' -> '{col_upper}', dtype: '{dtype}'")
 		try:
 			if col_upper in df.columns:
 				# CRITICAL: Force fields to their intended types BEFORE any data analysis
 				# This ensures write_pandas creates the correct table schema
-				if dtype == 'datetime64':
-					# Salesforce datetime fields (like CreatedDate, LastViewedDate) MUST be datetime
-					print(f"🔧 Processing datetime field: {col_upper}")
+				if dtype == 'datetime64' or dtype == 'datetime64[ns]':
+					# Salesforce datetime/date fields (like CreatedDate, LastViewedDate, LastActivityDate) MUST be datetime
+					df[col_upper] = pd.to_datetime(df[col_upper], errors='coerce', utc=True)
 					
-					# Show sample values and their types to help debug
-					sample_values = df[col_upper].dropna().head(5).tolist()
-					sample_types = [type(x).__name__ for x in sample_values]
-					print(f"📅 Sample values for {col_upper}: {sample_values}")
-					print(f"📅 Sample value types: {sample_types}")
-					print(f"🔍 DataFrame column dtype for {col_upper}: {df[col_upper].dtype}")
-					
-					# Special handling for LastViewedDate which often comes as epoch time
-					if col_upper == 'LASTVIEWEDDATE':
-						print(f"🎯 Special handling for LASTVIEWEDDATE field")
-						print(f"🔍 Raw values: {df[col_upper].head(10).tolist()}")
-						print(f"🔍 Value range: {df[col_upper].min()} to {df[col_upper].max()}")
-					
-					# Option 1: Force all datetime fields to string (if flag is set)
-					if force_datetime_to_string:
-						print(f"⚠️  FORCE_DATETIME_TO_STRING enabled - converting {col_upper} to string")
-						df[col_upper] = df[col_upper].replace({pd.NA: None, pd.NaT: None})
-						df[col_upper] = df[col_upper].astype(str)
-						df[col_upper] = df[col_upper].replace({'nan': None, 'None': None, '<NA>': None})
-						continue
-					
-					# Option 2: Handle epoch time (Unix timestamps) - common in Salesforce
-					# Enhanced detection for epoch time in various formats
-					is_epoch_time = False
-					
-					# Check DataFrame dtype
-					if df[col_upper].dtype in ['int64', 'float64']:
-						is_epoch_time = True
-						print(f"🔍 {col_upper} DataFrame dtype is numeric: {df[col_upper].dtype}")
-					
-					# Check sample values for epoch time patterns
-					elif any(
-						isinstance(x, (int, float)) or 
-						(isinstance(x, str) and x.replace('.', '').replace('-', '').isdigit() and len(str(x)) > 10)  # Epoch timestamps are typically 10+ digits
-						for x in sample_values if pd.notna(x)
-					):
-						is_epoch_time = True
-						print(f"🔍 {col_upper} contains numeric values that look like epoch time")
-					
-					# Additional check: if all non-null values are large numbers (likely epoch time)
-					elif all(
-						isinstance(x, (int, float)) and x > 1000000000000  # Timestamps after year 2000
-						for x in sample_values if pd.notna(x)
-					):
-						is_epoch_time = True
-						print(f"🔍 {col_upper} contains large numbers that are likely epoch timestamps")
-					
-					if is_epoch_time:
-						print(f"🔧 {col_upper} contains epoch time - converting to datetime...")
-						try:
-							# Try milliseconds first (Salesforce often uses millisecond timestamps)
-							df[col_upper] = pd.to_datetime(df[col_upper], unit='ms', errors='coerce')
-							
-							# If that fails (all NaN), try seconds
-							if df[col_upper].isna().all():
-								print(f"🔧 Retrying {col_upper} with seconds unit...")
-								df[col_upper] = pd.to_datetime(df[col_upper], unit='s', errors='coerce')
-							
-							# Convert to timezone-naive timestamps for Snowflake compatibility
+					# Check if we have timezone-aware datetimes and convert to timezone-naive
+					if hasattr(df[col_upper], 'dt') and hasattr(df[col_upper].dt, 'tz'):
+						tz_info = df[col_upper].dt.tz
+						if tz_info is not None:
 							df[col_upper] = df[col_upper].dt.tz_localize(None)
-							print(f"✅ {col_upper} successfully converted from epoch time to datetime64")
-							continue
-							
-						except Exception as e:
-							print(f"⚠️ Warning: Could not convert {col_upper} from epoch time: {e}")
-							# Fall through to string conversion
 					
-					# Option 3: Handle Salesforce ISO 8601 format by converting to Snowflake-compatible timestamp format
-					if any(isinstance(x, str) and ('T' in str(x) or '.000Z' in str(x) or '+0000' in str(x)) for x in sample_values):
-						print(f"🔧 {col_upper} contains Salesforce ISO 8601 format - converting to Snowflake TIMESTAMP_NTZ format...")
-						try:
-							# Use pandas to_datetime with mixed format detection for better ISO8601 handling
-							df[col_upper] = pd.to_datetime(df[col_upper], format='mixed', errors='coerce')
-							
-							# Check if conversion was successful
-							valid_dates = df[col_upper].notna().sum()
-							total_values = len(df[col_upper])
-							
-							if valid_dates > 0:
-								# Convert to timezone-naive for Snowflake TIMESTAMP_NTZ compatibility
-								df[col_upper] = df[col_upper].dt.tz_localize(None)
-								print(f"✅ {col_upper} successfully converted from ISO8601 to datetime64: {valid_dates}/{total_values} valid dates")
-								
-								# Show sample of converted values
-								sample_converted = df[col_upper].dropna().head(3)
-								if len(sample_converted) > 0:
-									print(f"📅 Sample converted values: {sample_converted.tolist()}")
-									print(f"🔍 Final dtype: {df[col_upper].dtype}")
-									print(f"🔍 Column type after ISO8601 conversion: {type(df[col_upper])}")
-									print(f"🔍 Sample value types: {[type(x) for x in sample_converted]}")
-								continue
-							else:
-								print(f"⚠️ No valid dates found after ISO8601 conversion, falling back to string")
-								raise Exception("No valid dates after conversion")
-								
-						except Exception as e:
-							print(f"⚠️ Warning: Could not convert {col_upper} from ISO8601 format: {e}")
-							print(f"🔧 Falling back to string conversion...")
-							# Fall through to string conversion as last resort
-							df[col_upper] = df[col_upper].replace({pd.NA: None, pd.NaT: None})
-							df[col_upper] = df[col_upper].astype(str)
-							df[col_upper] = df[col_upper].replace({'nan': None, 'None': None, '<NA>': None})
-							continue
-					
-					# Option 4: Try to convert to datetime (default behavior)
-					try:
-						df[col_upper] = pd.to_datetime(df[col_upper], errors='coerce')
-						# Convert to timezone-naive timestamps for Snowflake compatibility
-						df[col_upper] = df[col_upper].dt.tz_localize(None)
-						print(f"✅ {col_upper} successfully converted to datetime64")
-					except Exception as e:
-						print(f"⚠️ Warning: Could not convert {col_upper} to datetime64, treating as string: {e}")
-						df[col_upper] = df[col_upper].replace({pd.NA: None, pd.NaT: None})
-						df[col_upper] = df[col_upper].astype(str)
-						df[col_upper] = df[col_upper].replace({'nan': None, 'None': None, '<NA>': None})
-					
-					# Final safety check: if we still have numeric data in a datetime field, convert to string
+					# Check if we still have numeric data after datetime conversion
 					if df[col_upper].dtype in ['int64', 'float64']:
-						print(f"⚠️ Safety check: {col_upper} is still numeric after datetime conversion, forcing to string")
-						print(f"🔍 Before safety conversion - dtype: {df[col_upper].dtype}, sample: {df[col_upper].dropna().head(3).tolist()}")
 						df[col_upper] = df[col_upper].astype(str)
 						df[col_upper] = df[col_upper].replace({'nan': None, 'None': None, '<NA>': None})
-						print(f"🔍 After safety conversion - dtype: {df[col_upper].dtype}")
-					
-					# Final verification: show what we ended up with
-					print(f"🔍 FINAL RESULT for {col_upper}: dtype={df[col_upper].dtype}, sample={df[col_upper].dropna().head(3).tolist()}")
 						
 				elif dtype == 'object':
 					# Salesforce string fields (including PO_Number__c) MUST be strings
 					# Convert to string immediately, regardless of content
-					#print(f"🔧 Forcing {col_upper} to string type (Salesforce field type: {dtype})")
-					#print(f"🔍 DEBUG: Before conversion - {col_upper} dtype: {df[col_upper].dtype}")
 					df[col_upper] = df[col_upper].replace({pd.NA: None, pd.NaT: None})
 					df[col_upper] = df[col_upper].astype(str)
 					df[col_upper] = df[col_upper].replace({'nan': None, 'None': None, '<NA>': None})
-					#print(f"🔍 DEBUG: After conversion - {col_upper} dtype: {df[col_upper].dtype}")
 					
 				elif dtype == 'int64':
 					# Check if ANY value is non-numeric - if so, convert entire column to string
@@ -331,7 +208,6 @@ def format_sync_file(df, df_fields, force_datetime_to_string=False):
 					
 					if has_non_numeric:
 						# Convert entire column to string - no mixed types allowed in Snowflake
-						#print(f"⚠️ Column {col_upper} contains non-numeric values, converting entire column to string")
 						df[col_upper] = df[col_upper].replace({pd.NA: None, pd.NaT: None})
 						df[col_upper] = df[col_upper].astype(str)
 						df[col_upper] = df[col_upper].replace({'nan': None, 'None': None, '<NA>': None})
@@ -346,30 +222,53 @@ def format_sync_file(df, df_fields, force_datetime_to_string=False):
 							df[col_upper] = df[col_upper].replace({'nan': None, 'None': None, '<NA>': None})
 							
 				elif dtype == 'float64':
-					# Similar logic for float fields - check for non-float values
-					has_non_float = False
-					for value in df[col_upper].dropna():
-						if isinstance(value, str):
-							try:
-								float(value)
-							except ValueError:
-								has_non_float = True
-								break
+					# For float fields (like latitude/longitude), handle empty strings properly
+					print(f"🔧 Processing float field: {col_upper}")
 					
-					if has_non_float:
-						# Convert entire column to string
-						#print(f"⚠️ Column {col_upper} contains non-float values, converting entire column to string")
+					# Show initial state - including ALL values, not just non-null
+					all_values = df[col_upper].head(10).tolist()
+					all_types = [type(x).__name__ for x in all_values]
+					print(f"📊 First 10 values for {col_upper}: {all_values}")
+					print(f"📊 Value types: {all_types}")
+					print(f"🔍 Initial dtype: {df[col_upper].dtype}")
+					
+					# Count empty strings and other problematic values
+					empty_strings = (df[col_upper] == '').sum()
+					nan_values = df[col_upper].isna().sum()
+					total_values = len(df[col_upper])
+					print(f"📊 Value counts: {empty_strings} empty strings, {nan_values} NaN/None, {total_values} total")
+					
+					# First, replace empty strings with None (which pandas can handle)
+					df[col_upper] = df[col_upper].replace({'': None, 'nan': None, 'None': None, '<NA>': None})
+					
+					# Show state after replacing empty strings
+					after_replace = df[col_upper].head(10).tolist()
+					print(f"📊 After replacing empty strings: {after_replace}")
+					
+					# Now convert to float64 - this will convert None to NaN, which is fine
+					try:
+						df[col_upper] = pd.to_numeric(df[col_upper], errors='coerce').astype('float64')
+						print(f"✅ {col_upper} successfully converted to float64: {df[col_upper].dtype}")
+						
+						# Show final state
+						final_sample = df[col_upper].head(10).tolist()
+						final_nan_count = df[col_upper].isna().sum()
+						print(f"📊 Final values (first 10): {final_sample}")
+						print(f"📊 Final NaN count: {final_nan_count}")
+						
+						# Show non-null values if any exist
+						non_null_values = df[col_upper].dropna().head(3).tolist()
+						if len(non_null_values) > 0:
+							print(f"📊 Non-null float values: {non_null_values}")
+						else:
+							print(f"⚠️ {col_upper} has no non-null values after conversion")
+							
+					except Exception as e:
+						print(f"❌ Failed to convert {col_upper} to float64: {e}")
+						# Fallback: convert to string but preserve None values
 						df[col_upper] = df[col_upper].replace({pd.NA: None, pd.NaT: None})
 						df[col_upper] = df[col_upper].astype(str)
 						df[col_upper] = df[col_upper].replace({'nan': None, 'None': None, '<NA>': None})
-					else:
-						# All values are float, safe to convert
-						try:
-							df[col_upper] = pd.to_numeric(df[col_upper], errors='coerce').astype('float64')
-						except Exception as e:
-							print(f"⚠️ Warning: Could not convert {col_upper} to float64, treating as string: {e}")
-							df[col_upper] = df[col_upper].replace({pd.NA: None, pd.NaT: None})
-							df[col_upper] = df[col_upper].replace({'nan': None, 'None': None, '<NA>': None})
 							
 				elif dtype == 'bool':
 					# Check for non-boolean values

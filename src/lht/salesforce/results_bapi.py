@@ -183,7 +183,7 @@ def get_failed_results(access_info: dict, job_id: str) -> list:
             
             # 🔍 DEBUG: Show sample of failed results structure
             if results:
-                print(f"🔍 DEBUG: Sample failed result structure:")
+                		print(f"📋 Sample failed result structure:")
                 print(f"   Keys: {list(results[0].keys())}")
                 print(f"   Sample record: {results[0]}")
                 print(f"   Total records: {len(results)}")
@@ -287,7 +287,7 @@ def insert_job_info(session: Session, job_data: dict, job_id: str):
         
     except Exception as e:
         print(f"❌ Error inserting job info: {e}")
-        print(f"🔍 DEBUG: SQL that failed: {insert_sql}")
+        		print(f"📋 SQL that failed: {insert_sql}")
 
 def insert_success_records(session: Session, job_id: str, success_data: list):
     """Insert successful records into the SUCCESS table."""
@@ -332,11 +332,11 @@ def insert_failure_records(session: Session, job_id: str, failure_data: list):
         print("ℹ️ No failed records to insert")
         return
     
-    print(f"🔍 DEBUG: Starting to insert {len(failure_data)} failed records for job {job_id}")
+    		print(f"📋 Starting to insert {len(failure_data)} failed records for job {job_id}")
     
     try:
         for i, record in enumerate(failure_data):
-            print(f"🔍 DEBUG: Processing failed record {i+1}/{len(failure_data)}")
+            		print(f"📋 Processing failed record {i+1}/{len(failure_data)}")
             print(f"   Raw record: {record}")
             print(f"   Record keys: {list(record.keys())}")
             
@@ -374,7 +374,7 @@ def insert_failure_records(session: Session, job_id: str, failure_data: list):
         
     except Exception as e:
         print(f"❌ Error inserting failure records: {e}")
-        print(f"🔍 DEBUG: Last processed record index: {i if 'i' in locals() else 'N/A'}")
+        		print(f"📋 Last processed record index: {i if 'i' in locals() else 'N/A'}")
         raise
 
 def process_bulk_api_results(session: Session, access_info: dict, job_id: str):
@@ -414,7 +414,7 @@ def process_bulk_api_results(session: Session, access_info: dict, job_id: str):
         print("📉 Retrieving failed results...")
         failure_results = get_failed_results(access_info, job_id)
         
-        print(f"🔍 DEBUG: Failure results summary:")
+        		print(f"📋 Failure results summary:")
         print(f"   Type: {type(failure_results)}")
         print(f"   Length: {len(failure_results) if failure_results else 0}")
         print(f"   Is empty: {not failure_results}")
