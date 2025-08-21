@@ -153,6 +153,10 @@ def get_query_ids(access_info):
 	return jobs
 
 def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table, snowflake_fields=None, database=None, force_full_sync=False):
+	print(f"🔍 get_bulk_results_direct called with force_full_sync={force_full_sync}")
+	print(f"🔍 force_full_sync type: {type(force_full_sync)}")
+	print(f"🔍 force_full_sync value: {repr(force_full_sync)}")
+	
 	# Auto-detect database if not provided
 	if database is None:
 		database = session.sql('SELECT CURRENT_DATABASE()').collect()[0][0]
@@ -318,6 +322,9 @@ def get_bulk_results(session, access_info, job_id, sobject, schema, table, snowf
 		pandas.errors.EmptyDataError: If the CSV data is empty or malformed.
 		snowflake.snowpark.exceptions.SnowparkSQLException: If Snowflake write operation fails.
 	"""
+	print(f"🔍 get_bulk_results called with force_full_sync={force_full_sync}")
+	print(f"🔍 force_full_sync type: {type(force_full_sync)}")
+	print(f"🔍 force_full_sync value: {repr(force_full_sync)}")
 	return get_bulk_results_direct(session, access_info, job_id, sobject, schema, table, snowflake_fields, database, force_full_sync)
 
 def delete_query(access_info, job_id):

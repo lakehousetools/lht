@@ -140,6 +140,8 @@ class IntelligentSync:
         self.force_full_sync = force_full_sync
         logger.debug(f"🔧 Force full sync: {self.force_full_sync}")
         print(f"🔧 Force full sync: {self.force_full_sync}")
+        print(f"🔧 Force full sync type: {type(self.force_full_sync)}")
+        print(f"🔧 Force full sync value: {repr(self.force_full_sync)}")
         
         # Ensure schema exists before proceeding
         logger.debug(f"🔍 Ensuring schema {schema} exists...")
@@ -880,10 +882,14 @@ class IntelligentSync:
         logger.debug(f"📥 Getting results (optimized direct loading)")
         
         # Use optimized direct loading for all cases (stage parameters are deprecated)
+        print(f"🔍 About to call get_bulk_results with force_full_sync={self.force_full_sync}")
+        print(f"🔍 force_full_sync type: {type(self.force_full_sync)}")
+        print(f"🔍 force_full_sync value: {repr(self.force_full_sync)}")
         try:
             result = query_bapi20.get_bulk_results(
                 self.session, self.access_info, job_id, sobject, schema, table,
-                snowflake_fields=snowflake_fields, use_stage=use_stage, stage_name=stage_name
+                snowflake_fields=snowflake_fields, use_stage=use_stage, stage_name=stage_name,
+                force_full_sync=self.force_full_sync  # Pass the force_full_sync parameter
             )
             print(f"✅ Bulk API results retrieved successfully")
         except Exception as e:
