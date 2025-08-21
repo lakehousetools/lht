@@ -126,9 +126,7 @@ def write_dataframe_to_table(
         if df_fields is not None:
             try:
                 from lht.util import field_types
-                logger.info(f"🔧 Formatting DataFrame using field_types.format_sync_file with {len(df_fields)} field definitions")
                 df = field_types.format_sync_file(df, df_fields)
-                logger.info(f"✅ DataFrame formatting completed")
                 
                 # VALIDATION: Ensure snowflake_fields is provided when df_fields is available
                 if snowflake_fields is None or len(snowflake_fields) == 0:
@@ -180,13 +178,11 @@ def write_dataframe_to_table(
             try:
                 # The DataFrame has already been processed by field_types.format_sync_file above
                 # No need to process it again - use the already-processed DataFrame
-                logger.info(f"🔧 Using DataFrame already processed by field_types.format_sync_file")
                 
                 # Use provided snowflake_fields if available, otherwise infer from DataFrame
                 if snowflake_fields is not None and len(snowflake_fields) > 0:
                     # Use the Salesforce field types directly (correct approach)
-                    logger.info(f"🔧 Using provided Salesforce field types for table creation")
-                    logger.info(f"🔧 Field types: {snowflake_fields}")
+                    pass
                 else:
                     # No Salesforce field types provided - this should not happen in normal operation
                     logger.error(f"❌ CRITICAL: No Salesforce field types provided for table creation!")
@@ -196,6 +192,7 @@ def write_dataframe_to_table(
                 
 
                 # Use centralized table creation
+                print(f"🔍 About to call table_creator.ensure_table_exists_for_dataframe with force_full_sync={force_full_sync}")
                 table_creator.ensure_table_exists_for_dataframe(
                     session=session,
                     schema=schema,
@@ -205,28 +202,25 @@ def write_dataframe_to_table(
                     force_full_sync=force_full_sync,  # Pass through the force_full_sync parameter
                     database=current_db
                 )
+                print(f"✅ Table creation completed, now writing data with overwrite={overwrite}")
                 
                 # Now write to the existing table using the already-processed DataFrame
-                # DEBUG: Show DataFrame types before writing to Snowflake
-                logger.info(f"🔍 DEBUG: DataFrame types before Snowflake write:")
-                for col in df.columns:
-                    logger.info(f"   {col}: {df[col].dtype} - Sample: {df[col].dropna().head(1).tolist() if len(df[col].dropna()) > 0 else 'No data'}")
-                
-                # SIMPLE: Convert all datetime fields to timezone-naive
-                logger.info(f"🔧 Converting all datetime fields to timezone-naive for Snowflake compatibility...")
+                # Convert all datetime fields to timezone-naive for Snowflake compatibility
                 for col in df.columns:
                     if col.upper() in ['CREATEDDATE', 'LASTMODIFIEDDATE', 'SYSTEMMODSTAMP', 'LASTACTIVITYDATE', 'LASTVIEWEDDATE', 'LASTREFERENCEDDATE']:
                         if 'UTC' in str(df[col].dtype) or 'timezone' in str(df[col].dtype):
                             try:
                                 df[col] = df[col].dt.tz_localize(None)
-                                logger.info(f"✅ {col} converted to timezone-naive: {df[col].dtype}")
                             except Exception as e:
                                 logger.error(f"❌ Failed to convert {col} to timezone-naive: {e}")
                 print("@@@@DF TZ {}".format(df['CREATEDDATE'].head(10).tolist()))
                 df['CREATEDDATE'] = pd.to_datetime(df['CREATEDDATE'], errors='coerce')
                 # Convert to Snowpark DataFrame and use save_as_table instead of write_pandas
+                print(f"🔍 Writing data with mode: {'overwrite' if overwrite else 'append'}")
+                print(f"🔍 Target table: {full_table_name}")
                 snowpark_df = session.create_dataframe(df)
                 snowpark_df.write.mode("overwrite" if overwrite else "append").save_as_table(full_table_name)
+                print(f"✅ Data written successfully with mode: {'overwrite' if overwrite else 'append'}")
                 result = True  # save_as_table doesn't return a result object like write_pandas
             except Exception as table_error:
                 logger.warning(f"Centralized table creation failed, falling back to auto-create: {table_error}")
@@ -244,54 +238,49 @@ def write_dataframe_to_table(
                 logger.info(f"🧪 TEST: Keeping all datetime fields to debug the issue (fallback path)")
                 logger.info(f"✅ TEST: All columns preserved in fallback: {list(df_fallback.columns)}")
                 
-                # SIMPLE: Convert all datetime fields to timezone-naive
-                logger.info(f"🔧 Converting all datetime fields to timezone-naive for Snowflake compatibility...")
+                # Convert all datetime fields to timezone-naive for Snowflake compatibility
                 for col in df_fallback.columns:
                     if col.upper() in ['CREATEDDATE', 'LASTMODIFIEDDATE', 'SYSTEMMODSTAMP', 'LASTACTIVITYDATE', 'LASTVIEWEDDATE', 'LASTREFERENCEDDATE']:
                         if 'UTC' in str(df_fallback[col].dtype) or 'timezone' in str(df_fallback[col].dtype):
                             try:
                                 df_fallback[col] = df_fallback[col].dt.tz_localize(None)
-                                logger.info(f"✅ {col} converted to timezone-naive: {df_fallback[col].dtype}")
                             except Exception as e:
                                 logger.error(f"❌ Failed to convert {col} to timezone-naive: {e}")
                 
                 # Convert to Snowpark DataFrame and use save_as_table instead of write_pandas
+                print(f"🔍 Writing fallback data with mode: {'overwrite' if overwrite else 'append'}")
+                print(f"🔍 Target table: {full_table_name}")
                 snowpark_df = session.create_dataframe(df_fallback)
                 snowpark_df.write.mode("overwrite" if overwrite else "append").save_as_table(full_table_name)
+                print(f"✅ Fallback data written successfully with mode: {'overwrite' if overwrite else 'append'}")
                 result = True  # save_as_table doesn't return a result object like write_pandas
         else:
             # Use original behavior, but ensure DataFrame is properly processed
             if df_fields is not None and len(df_fields) > 0:
-                logger.info(f"🔧 Processing DataFrame with field_types for fallback write...")
                 try:
                     from lht.util import field_types
                     df_processed = field_types.format_sync_file(df, df_fields)
-                    logger.info(f"✅ DataFrame processing completed for fallback write")
                 except Exception as e:
                     logger.warning(f"⚠️ Failed to process DataFrame with field_types: {e}")
                     df_processed = df
             else:
                 df_processed = df
             
-            # DEBUG: Show DataFrame types before writing to Snowflake (fallback path)
-            logger.info(f"🔍 DEBUG: DataFrame types before Snowflake write (fallback path):")
-            for col in df_processed.columns:
-                logger.info(f"   {col}: {df_processed[col].dtype} - Sample: {df_processed[col].dropna().head(1).tolist() if len(df_processed[col].dropna()) > 0 else 'No data'}")
-            
-            # SIMPLE: Convert all datetime fields to timezone-naive
-            logger.info(f"🔧 Converting all datetime fields to timezone-naive for Snowflake compatibility...")
+            # Convert all datetime fields to timezone-naive for Snowflake compatibility
             for col in df_processed.columns:
                 if col.upper() in ['CREATEDDATE', 'LASTMODIFIEDDATE', 'SYSTEMMODSTAMP', 'LASTACTIVITYDATE', 'LASTVIEWEDDATE', 'LASTREFERENCEDDATE']:
                     if 'UTC' in str(df_processed[col].dtype) or 'timezone' in str(df_processed[col].dtype):
                         try:
                             df_processed[col] = df_processed[col].dt.tz_localize(None)
-                            logger.info(f"✅ {col} converted to timezone-naive: {df_processed[col].dtype}")
                         except Exception as e:
                             logger.error(f"❌ Failed to convert {col} to timezone-naive: {e}")
             
             # Convert to Snowpark DataFrame and use save_as_table instead of write_pandas
+            print(f"🔍 Writing processed data with mode: {'overwrite' if overwrite else 'append'}")
+            print(f"🔍 Target table: {full_table_name}")
             snowpark_df = session.create_dataframe(df_processed)
             snowpark_df.write.mode("overwrite" if overwrite else "append").save_as_table(full_table_name)
+            print(f"✅ Processed data written successfully with mode: {'overwrite' if overwrite else 'append'}")
             result = True  # save_as_table doesn't return a result object like write_pandas
         
         logger.debug(f"✅ Successfully wrote {len(df)} records to {full_table_name}")
@@ -334,16 +323,13 @@ def standardize_dataframe_types(df: pd.DataFrame, type_strategy: str = "auto") -
         if type_strategy == "string":
             # Convert everything to string
             df_standardized[column] = col_data.astype(str)
-            logger.debug(f"   Column '{column}': {original_dtype} → string")
             
         elif type_strategy == "numeric":
             # Try to convert to numeric where possible, string otherwise
             try:
                 df_standardized[column] = pd.to_numeric(col_data, errors='coerce')
-                logger.debug(f"   Column '{column}': {original_dtype} → numeric")
             except (ValueError, TypeError):
                 df_standardized[column] = col_data.astype(str)
-                logger.debug(f"   Column '{column}': {original_dtype} → string (numeric conversion failed)")
                 
         elif type_strategy == "lenient":
             # More intelligent type conversion
@@ -369,13 +355,10 @@ def standardize_dataframe_types(df: pd.DataFrame, type_strategy: str = "auto") -
                     if numeric_count / total_count > 0.8:
                         try:
                             df_standardized[column] = pd.to_numeric(col_data, errors='coerce')
-                            logger.debug(f"   Column '{column}': {original_dtype} → numeric (80%+ numeric values)")
                         except (ValueError, TypeError):
                             df_standardized[column] = col_data.astype(str)
-                            logger.debug(f"   Column '{column}': {original_dtype} → string (numeric conversion failed)")
                     else:
                         df_standardized[column] = col_data.astype(str)
-                        logger.debug(f"   Column '{column}': {original_dtype} → string (mixed types)")
                         
         else:  # "auto" strategy
             # Smart type inference
@@ -400,17 +383,13 @@ def standardize_dataframe_types(df: pd.DataFrame, type_strategy: str = "auto") -
                     if all_numeric:
                         try:
                             df_standardized[column] = pd.to_numeric(col_data, errors='coerce')
-                            logger.debug(f"   Column '{column}': {original_dtype} → numeric (all values numeric)")
                         except (ValueError, TypeError):
                             df_standardized[column] = col_data.astype(str)
-                            logger.debug(f"   Column '{column}': {original_dtype} → string (numeric conversion failed)")
                     elif all_strings:
                         df_standardized[column] = col_data.astype(str)
-                        logger.debug(f"   Column '{column}': {original_dtype} → string (all values strings)")
                     else:
                         # Mixed types - convert to string to be safe
                         df_standardized[column] = col_data.astype(str)
-                        logger.debug(f"   Column '{column}': {original_dtype} → string (mixed types detected)")
     
     logger.info(f"✅ DataFrame type standardization completed")
     return df_standardized
@@ -552,10 +531,21 @@ def write_batch_to_main_table(
     Returns:
         bool: True if successful
     """
-    # CRITICAL FIX: Never use overwrite=True for first batch
-    # This prevents write_pandas from inferring wrong column types
-    overwrite = False  # Always append, never overwrite
-    logger.debug(f"💾 Writing batch to main table: {schema}.{table} (overwrite={overwrite}, is_first_batch={is_first_batch})")
+    # Handle overwrite logic based on force_full_sync and batch type
+    if force_full_sync and is_first_batch:
+        # Force full sync: drop and recreate table, then overwrite first batch
+        overwrite = True
+        print(f"💾 Force full sync: overwriting first batch to recreate table")
+    elif is_first_batch:
+        # Regular first batch: append to existing or new table
+        overwrite = False
+        print(f"💾 Regular first batch: appending to table")
+    else:
+        # Subsequent batches: always append
+        overwrite = False
+        print(f"💾 Subsequent batch: appending to table")
+    
+    print(f"💾 Writing batch to main table: {schema}.{table} (overwrite={overwrite}, is_first_batch={is_first_batch}, force_full_sync={force_full_sync})")
     
     return write_dataframe_to_table(
         session=session,

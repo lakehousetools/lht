@@ -223,46 +223,12 @@ def format_sync_file(df, df_fields, force_datetime_to_string=False):
 							
 				elif dtype == 'float64':
 					# For float fields (like latitude/longitude), handle empty strings properly
-					print(f"🔧 Processing float field: {col_upper}")
-					
-					# Show initial state - including ALL values, not just non-null
-					all_values = df[col_upper].head(10).tolist()
-					all_types = [type(x).__name__ for x in all_values]
-					print(f"📊 First 10 values for {col_upper}: {all_values}")
-					print(f"📊 Value types: {all_types}")
-					print(f"🔍 Initial dtype: {df[col_upper].dtype}")
-					
-					# Count empty strings and other problematic values
-					empty_strings = (df[col_upper] == '').sum()
-					nan_values = df[col_upper].isna().sum()
-					total_values = len(df[col_upper])
-					print(f"📊 Value counts: {empty_strings} empty strings, {nan_values} NaN/None, {total_values} total")
-					
 					# First, replace empty strings with None (which pandas can handle)
 					df[col_upper] = df[col_upper].replace({'': None, 'nan': None, 'None': None, '<NA>': None})
-					
-					# Show state after replacing empty strings
-					after_replace = df[col_upper].head(10).tolist()
-					print(f"📊 After replacing empty strings: {after_replace}")
 					
 					# Now convert to float64 - this will convert None to NaN, which is fine
 					try:
 						df[col_upper] = pd.to_numeric(df[col_upper], errors='coerce').astype('float64')
-						print(f"✅ {col_upper} successfully converted to float64: {df[col_upper].dtype}")
-						
-						# Show final state
-						final_sample = df[col_upper].head(10).tolist()
-						final_nan_count = df[col_upper].isna().sum()
-						print(f"📊 Final values (first 10): {final_sample}")
-						print(f"📊 Final NaN count: {final_nan_count}")
-						
-						# Show non-null values if any exist
-						non_null_values = df[col_upper].dropna().head(3).tolist()
-						if len(non_null_values) > 0:
-							print(f"📊 Non-null float values: {non_null_values}")
-						else:
-							print(f"⚠️ {col_upper} has no non-null values after conversion")
-							
 					except Exception as e:
 						print(f"❌ Failed to convert {col_upper} to float64: {e}")
 						# Fallback: convert to string but preserve None values
