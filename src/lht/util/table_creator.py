@@ -47,11 +47,23 @@ def create_salesforce_table(
         
         # Check if table already exists
         try:
+            print(f"🔍 Checking if table {schema}.{table} exists...")
+            print(f"🔍 force_full_sync parameter = {force_full_sync}")
+            print(f"🔍 force_full_sync type = {type(force_full_sync)}")
+            
             table_check = session.sql(f'SHOW TABLES IN SCHEMA "{schema}"').collect()
+            print(f"🔍 Raw table_check result: {table_check}")
             table_names = [row['name'] for row in table_check]
+            print(f"🔍 Tables in schema: {table_names}")
+            print(f"🔍 Looking for table: {table}")
+            print(f"🔍 Table exists: {table in table_names}")
+            print(f"🔍 Table names types: {[type(name).__name__ for name in table_names]}")
+            print(f"🔍 Target table type: {type(table).__name__}")
             
             if table in table_names:
+                print(f"🔍 Table {table} EXISTS in schema {schema}")
                 if force_full_sync:
+                    print(f"🔍 force_full_sync is TRUE - will recreate table")
                     logger.info(f"Table {schema}.{table} exists and force_full_sync=True, recreating it...")
                     # Drop existing table first
                     print(f"🗑️ Dropping existing table {schema}.{table}...")
@@ -59,10 +71,11 @@ def create_salesforce_table(
                     print(f"✅ Dropped existing table {schema}.{table}")
                     logger.info(f"Dropped existing table {schema}.{table}")
                 else:
+                    print(f"🔍 force_full_sync is FALSE - skipping table creation")
                     logger.info(f"Table {schema}.{table} already exists, skipping creation")
                     return True
             else:
-                pass
+                print(f"🔍 Table {table} does NOT exist in schema {schema}")
             
             # Create table with correct schema (either new or after dropping)
             logger.info(f"Creating table {schema}.{table}...")
@@ -163,12 +176,8 @@ def _build_create_table_sql(schema: str, table: str, snowflake_fields: Dict[str,
     
     # Build CREATE TABLE statement
     column_defs = ',\n\t'.join(columns)
-    if force_full_sync:
-        create_sql = f"""CREATE OR REPLACE TABLE "{schema}"."{table}" (
-	{column_defs}
-)"""
-    else:
-        create_sql = f"""CREATE TABLE IF NOT EXISTS "{schema}"."{table}" (
+    # Always use CREATE TABLE (not CREATE OR REPLACE) since we handle DROP separately
+    create_sql = f"""CREATE TABLE "{schema}"."{table}" (
 	{column_defs}
 )"""
     

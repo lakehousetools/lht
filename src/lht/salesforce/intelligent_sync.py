@@ -1089,7 +1089,9 @@ class IntelligentSync:
                                 self.session, df_standardized, schema, table, is_first_batch,
                                 validate_types=False,
                                 use_logical_type=False,
-                                df_fields=df_fields  # Pass field definitions for proper formatting
+                                df_fields=df_fields,  # Pass field definitions for proper formatting
+                                snowflake_fields=snowflake_fields,  # Pass Salesforce field types for proper table creation
+                                force_full_sync=self.force_full_sync  # Pass force_full_sync parameter
                             )
                         else:
                             logger.error(f"❌ Non-casting error: {error_msg}")
