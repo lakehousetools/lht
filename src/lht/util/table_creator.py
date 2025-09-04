@@ -89,15 +89,9 @@ def create_salesforce_table(
             print(f"\n{'='*80}")
             print(f"🔧 CREATING TABLE: {schema}.{table}")
             print(f"🔧 FORCE_FULL_SYNC: {force_full_sync}")
-            print(f"🔧 CREATE TABLE SQL:")
-            print(f"{'='*80}")
-            print(f"{create_table_sql}")
             print(f"{'='*80}")
             
-            # Execute CREATE TABLE statement
-            print(f"🚀 Executing CREATE TABLE statement...")
             result = session.sql(create_table_sql).collect()
-            print(f"✅ CREATE TABLE executed successfully")
             logger.info(f"Table created successfully with correct schema")
             return True
                 
@@ -134,16 +128,11 @@ def create_salesforce_table(
                 
                 # Make CREATE TABLE SQL highly visible (fallback path)
                 print(f"\n{'='*80}")
-                print(f"🔧 CREATING TABLE (FALLBACK): {schema}.{table}")
                 print(f"🔧 FORCE_FULL_SYNC: {force_full_sync}")
-                print(f"🔧 CREATE TABLE SQL:")
                 print(f"{'='*80}")
-                print(f"{create_table_sql}")
                 print(f"{'='*80}")
                 
-                print(f"🚀 Executing CREATE TABLE statement (fallback)...")
                 result = session.sql(create_table_sql).collect()
-                print(f"✅ CREATE TABLE executed successfully (fallback)")
                 logger.info(f"Table recreated with correct schema")
                 return True
                 

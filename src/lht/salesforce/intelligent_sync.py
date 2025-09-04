@@ -4,8 +4,8 @@ import requests
 import numpy as np
 import logging
 from typing import Optional, Dict, Any, Tuple, List
-from . import query_bapi20, sobjects, sobject_query
-from lht.util import merge, field_types, data_writer
+from . import sobjects, sobject_query, sobject_sync
+from lht.util import merge, data_writer
 
 # Set up logging for debugging
 logging.basicConfig(level=logging.DEBUG)
@@ -117,7 +117,10 @@ class IntelligentSync:
                     match_field: str = 'ID',
                     use_stage: bool = False,
                     stage_name: Optional[str] = None,
-                    force_full_sync: bool = False) -> Dict[str, Any]:
+                    force_full_sync: bool = False,
+                    force_bulk_api: bool = False,
+                    existing_job_id: Optional[str] = None,
+                    delete_job: bool = True) -> Dict[str, Any]:
         """
         Intelligently sync a Salesforce SObject to Snowflake.
         
@@ -129,6 +132,9 @@ class IntelligentSync:
             use_stage: Whether to use Snowflake stage for large datasets
             stage_name: Snowflake stage name (required if use_stage=True)
             force_full_sync: Force a full sync regardless of previous sync status
+            force_bulk_api: Force use of Bulk API 2.0 instead of regular API (useful for long query strings)
+            existing_job_id: Optional existing Bulk API job ID to use instead of creating a new query
+            delete_job: Whether to delete the Bulk API job after completion (default: True)
             
         Returns:
             Dictionary containing sync results and metadata
@@ -136,12 +142,22 @@ class IntelligentSync:
         logger.debug(f"🔄 Starting intelligent sync for {sobject} -> {schema}.{table}")
         print(f"🔄 Starting intelligent sync for {sobject} -> {schema}.{table}")
         
-        # Store force_full_sync as instance attribute for use in other methods
+        # Store force_full_sync, force_bulk_api, existing_job_id, and delete_job as instance attributes for use in other methods
         self.force_full_sync = force_full_sync
+        self.force_bulk_api = force_bulk_api
+        self.existing_job_id = existing_job_id
+        self.delete_job = delete_job
         logger.debug(f"🔧 Force full sync: {self.force_full_sync}")
         print(f"🔧 Force full sync: {self.force_full_sync}")
-        print(f"🔧 Force full sync type: {type(self.force_full_sync)}")
-        print(f"🔧 Force full sync value: {repr(self.force_full_sync)}")
+        logger.debug(f"🔧 Force bulk API: {self.force_bulk_api}")
+        print(f"🔧 Force bulk API: {self.force_bulk_api}")
+
+        if existing_job_id:
+            logger.debug(f"🔧 Using existing job ID: {existing_job_id}")
+            print(f"🔧 Using existing job ID: {existing_job_id}")
+        
+        logger.debug(f"🧹 Delete job after completion: {self.delete_job}")
+        print(f"🧹 Delete job after completion: {self.delete_job}")
         
         # Ensure schema exists before proceeding
         logger.debug(f"🔍 Ensuring schema {schema} exists...")
@@ -161,11 +177,8 @@ class IntelligentSync:
                 'error': error_msg
             }
         
-        # Check if table exists and get sync status
-        #logger.debug(f"🔍 Checking if table {schema}.{table} exists...")
-        #print(f"🔍 Checking if table {schema}.{table} exists...")
         table_exists = self._table_exists(schema, table)
-        print(f"📋 Table exists: {table_exists}")
+        
         last_modified_date = None
         
         if table_exists and not force_full_sync:
@@ -290,36 +303,48 @@ class IntelligentSync:
         logger.debug(f"📦 Use stage: {use_stage}")
         logger.debug(f"📦 Stage name: {stage_name}")
         logger.debug(f"📊 Thresholds - Bulk API: {self.BULK_API_THRESHOLD}, Stage: {self.STAGE_THRESHOLD}")
+        logger.debug(f"🔧 Force bulk API: {self.force_bulk_api}")
         
-        # Determine sync method
-        if not table_exists or last_modified_date is None:
-            # First-time sync
-            logger.debug("🆕 First-time sync detected")
-            print("🆕 First-time sync detected")
-            logger.debug(f"📊 Record count: {estimated_records}, Bulk API threshold: {self.BULK_API_THRESHOLD}")
-            print(f"📊 Record count: {estimated_records}, Bulk API threshold: {self.BULK_API_THRESHOLD}")
-            
-            # Force Bulk API for large datasets (1M+ records)
-            if estimated_records >= 1000000:
+        # Check if force_bulk_api is set - if so, use Bulk API regardless of record count
+        if self.force_bulk_api:
+            logger.debug("🔧 Force bulk API is enabled - using Bulk API regardless of record count")
+            print("🔧 Force bulk API is enabled - using Bulk API regardless of record count")
+            if not table_exists or last_modified_date is None:
+                # First-time sync with forced bulk API
                 method = "bulk_api_stage_full" if use_stage and stage_name else "bulk_api_full"
-            elif estimated_records >= self.BULK_API_THRESHOLD:
-                method = "bulk_api_full"
-                if use_stage and stage_name and estimated_records >= self.STAGE_THRESHOLD:
-                    method = "bulk_api_stage_full"
             else:
-                method = "regular_api_full"
-        else:            
-            # For incremental syncs, prefer REST API unless there are a very large number of changes
-            if estimated_records >= 100000:  # Only use Bulk API for very large incremental changes
-                method = "bulk_api_incremental"
-                logger.debug(f"📊 Using bulk API incremental (large changes: {estimated_records} >= 100,000)")
-                print(f"📊 Using bulk API incremental (large changes: {estimated_records} >= 100,000)")
-                if use_stage and stage_name and estimated_records >= self.STAGE_THRESHOLD:
-                    method = "bulk_api_stage_incremental"
-                    logger.debug(f"📦 Using stage-based bulk API incremental (records: {estimated_records} >= {self.STAGE_THRESHOLD})")
-                    print(f"📦 Using stage-based bulk API incremental (records: {estimated_records} >= {self.STAGE_THRESHOLD})")
-            else:
-                method = "regular_api_incremental"
+                # Incremental sync with forced bulk API
+                method = "bulk_api_stage_incremental" if use_stage and stage_name and estimated_records >= self.STAGE_THRESHOLD else "bulk_api_incremental"
+        else:
+            # Determine sync method based on record count thresholds
+            if not table_exists or last_modified_date is None:
+                # First-time sync
+                logger.debug("🆕 First-time sync detected")
+                print("🆕 First-time sync detected")
+                logger.debug(f"📊 Record count: {estimated_records}, Bulk API threshold: {self.BULK_API_THRESHOLD}")
+                print(f"📊 Record count: {estimated_records}, Bulk API threshold: {self.BULK_API_THRESHOLD}")
+                
+                # Force Bulk API for large datasets (1M+ records)
+                if estimated_records >= 1000000:
+                    method = "bulk_api_stage_full" if use_stage and stage_name else "bulk_api_full"
+                elif estimated_records >= self.BULK_API_THRESHOLD:
+                    method = "bulk_api_full"
+                    if use_stage and stage_name and estimated_records >= self.STAGE_THRESHOLD:
+                        method = "bulk_api_stage_full"
+                else:
+                    method = "regular_api_full"
+            else:            
+                # For incremental syncs, prefer REST API unless there are a very large number of changes
+                if estimated_records >= 100000:  # Only use Bulk API for very large incremental changes
+                    method = "bulk_api_incremental"
+                    logger.debug(f"📊 Using bulk API incremental (large changes: {estimated_records} >= 100,000)")
+                    print(f"📊 Using bulk API incremental (large changes: {estimated_records} >= 100,000)")
+                    if use_stage and stage_name and estimated_records >= self.STAGE_THRESHOLD:
+                        method = "bulk_api_stage_incremental"
+                        logger.debug(f"📦 Using stage-based bulk API incremental (records: {estimated_records} >= {self.STAGE_THRESHOLD})")
+                        print(f"📦 Using stage-based bulk API incremental (records: {estimated_records} >= {self.STAGE_THRESHOLD})")
+                else:
+                    method = "regular_api_incremental"
         
         strategy = {
             'method': method,
@@ -358,7 +383,7 @@ class IntelligentSync:
             # Try a more robust approach to get the last modified date
             try:
                 # First, try to get the last modified date with error handling
-                query = f"SELECT MAX(TRY_CAST(LASTMODIFIEDDATE AS TIMESTAMP_NTZ)) as LAST_MODIFIED FROM {current_db}.{schema}.{table}"
+                query = f"SELECT MAX(LASTMODIFIEDDATE) as LAST_MODIFIED FROM {current_db}.{schema}.{table}"
                 #logger.debug(f"🔍 Executing last modified date query: {query}")
                 #print(f"🔍 Executing SQL: {query}")
                 
@@ -607,7 +632,11 @@ class IntelligentSync:
         try:
             if method.startswith('bulk_api'):
                 print(f"📦 Using Bulk API sync method: {method}")
-                result = self._execute_bulk_api_sync(strategy, sobject, schema, table)
+                if self.existing_job_id:
+                    print(f"🚀 Using existing job ID: {self.existing_job_id} - skipping query creation")
+                    result = self._execute_bulk_api_with_existing_job(sobject, schema, table, strategy)
+                else:
+                    result = self._execute_bulk_api_sync(strategy, sobject, schema, table)
                 # Bulk API sync completed
                 return result
             elif method.startswith('regular_api'):
@@ -631,6 +660,37 @@ class IntelligentSync:
                 'error': str(e),
                 'records_processed': 0
             }
+    
+    def _execute_bulk_api_with_existing_job(self, 
+                                          sobject: str, 
+                                          schema: str, 
+                                          table: str, 
+                                          strategy: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute Bulk API sync using an existing job ID, skipping query creation."""
+        
+        logger.debug(f"🚀 Starting Bulk API sync with existing job ID: {self.existing_job_id}")
+        print(f"🚀 Starting Bulk API sync with existing job ID: {self.existing_job_id}")
+        
+        # Get field descriptions for table creation (but don't create query)
+        logger.debug(f"🔍 Getting field descriptions for {sobject}")
+        try:
+            query_string, df_fields, snowflake_fields = sobjects.describe(self.access_info, sobject, None)
+            logger.debug(f"📋 Field descriptions: {df_fields}")
+            logger.debug(f"📋 Snowflake field types: {snowflake_fields}")
+            
+            if not df_fields or not snowflake_fields:
+                error_msg = f"Failed to get field descriptions for {sobject}"
+                logger.error(f"❌ {error_msg}")
+                raise Exception(error_msg)
+                    
+        except Exception as e:
+            error_msg = f"Error getting field descriptions for {sobject}: {str(e)}"
+            logger.error(f"❌ {error_msg}")
+            raise Exception(error_msg)
+        
+        # Skip query creation and go straight to job execution
+        print(f"⏭️ Skipping query creation - using existing job ID: {self.existing_job_id}")
+        return self._execute_bulk_api_job_with_id(sobject, schema, table, df_fields, snowflake_fields, strategy)
     
     def _execute_bulk_api_sync(self, 
                               strategy: Dict[str, Any], 
@@ -795,11 +855,134 @@ class IntelligentSync:
         
         return list(set(problematic_fields))  # Remove duplicates
     
+    def _execute_bulk_api_job_with_id(self, sobject: str, schema: str, table: str, 
+                                     df_fields: Dict[str, str], snowflake_fields: Dict[str, str], 
+                                     strategy: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute Bulk API sync using an existing job ID."""
+        
+        # FIRST INSTANCE - _execute_bulk_api_job_with_id method
+        job_id = self.existing_job_id
+        logger.debug(f"📋 Using existing Bulk API job: {job_id}")
+        print(f"📋 Using existing Bulk API job: {job_id}")
+        
+        # Validate that the job ID exists and is accessible
+        logger.debug("🔍 Validating existing job ID...")
+        from . import query_bapi20
+        
+        try:
+            # Check if the job exists by querying its status
+            status_response = query_bapi20.query_status(self.access_info, 'QueryAll', job_id)
+            
+            # Check if the response indicates the job doesn't exist
+            if isinstance(status_response, list) and len(status_response) > 0:
+                if 'errorCode' in status_response[0]:
+                    error_code = status_response[0]['errorCode']
+                    error_message = status_response[0].get('message', 'Unknown error')
+                    
+                    if 'NOT_FOUND' in error_code or 'NOT_FOUND' in error_message.upper():
+                        error_msg = f"Job ID '{job_id}' not found. The job may have been deleted or never existed."
+                        logger.error(f"❌ {error_msg}")
+                        print(f"❌ {error_msg}")
+                        raise Exception(error_msg)
+                    
+                    # Check for other common error codes
+                    if 'INVALID_ID' in error_code or 'INVALID_ID' in error_message.upper():
+                        error_msg = f"Job ID '{job_id}' is invalid or malformed."
+                        logger.error(f"❌ {error_msg}")
+                        print(f"❌ {error_msg}")
+                        raise Exception(error_msg)
+                    
+                    # If there's any other error, raise it
+                    error_msg = f"Error accessing job '{job_id}': {error_message} (Code: {error_code})"
+                    logger.error(f"❌ {error_msg}")
+                    print(f"❌ {error_msg}")
+                    raise Exception(error_msg)
+            
+            print(f"✅ Job ID '{job_id}' validated successfully")
+            
+        except Exception as e:
+            # Re-raise the exception if it's our custom error
+            if "Job ID" in str(e):
+                raise
+            # Otherwise, provide a generic error message
+            error_msg = f"Failed to validate job ID '{job_id}': {str(e)}"
+            logger.error(f"❌ {error_msg}")
+            print(f"❌ {error_msg}")
+            raise Exception(error_msg)
+        
+        # Monitor job status
+        logger.debug("📊 Monitoring job status...")
+        while True:
+            status_response = query_bapi20.query_status(self.access_info, 'QueryAll', job_id)
+            if isinstance(status_response, list) and len(status_response) > 0:
+                job_status = status_response[0]
+            else:
+                job_status = status_response
+            
+            state = job_status['state']
+            logger.debug(f"📊 Job status: {state}")
+            print(f"📊 Job status: {state}")
+            
+            if state == 'JobComplete':
+                break
+            elif state in ['Failed', 'Aborted']:
+                error_msg = f"Bulk API job failed with state: {state}"
+                logger.error(f"❌ {error_msg}")
+                raise Exception(error_msg)
+            
+            time.sleep(10)
+        
+        # Get results
+        use_stage = strategy.get('use_stage', False)
+        stage_name = strategy.get('stage_name')
+        
+        logger.debug(f"📥 Getting results (optimized direct loading)")
+        
+        # Use optimized direct loading for all cases (stage parameters are deprecated)
+        print(f"🔍 About to call get_bulk_results with force_full_sync={self.force_full_sync}")
+        print(f"🔍 force_full_sync type: {type(self.force_full_sync)}")
+        print(f"🔍 force_full_sync value: {repr(self.force_full_sync)}")
+        try:
+            result = query_bapi20.get_bulk_results(
+                self.session, self.access_info, job_id, sobject, schema, table,
+                snowflake_fields=snowflake_fields, use_stage=use_stage, stage_name=stage_name,
+                force_full_sync=self.force_full_sync  # Pass the force_full_sync parameter
+            )
+            print(f"✅ Bulk API results retrieved successfully")
+        except Exception as e:
+            print(f"⚠️ Warning: Error getting bulk results: {e}")
+            # Continue with cleanup even if results retrieval failed
+            result = None
+        
+        # Clean up job - FIRST INSTANCE (_execute_bulk_api_job_with_id method)
+        if self.delete_job:
+            try:
+                logger.debug(f"🧹 Cleaning up job: {job_id}")
+                cleanup_result = query_bapi20.delete_specific_job(self.access_info, job_id)
+                if cleanup_result.get('success'):
+                    print(f"🧹 Cleaned up job: {job_id}")
+                else:
+                    logger.warning(f"⚠️ Warning: Could not clean up job {job_id}: {cleanup_result.get('error', 'Unknown error')}")
+                    print(f"⚠️ Warning: Could not clean up job {job_id}: {cleanup_result.get('error', 'Unknown error')}")
+            except Exception as e:
+                logger.warning(f"⚠️ Warning: Could not clean up job {job_id}: {e}")
+                print(f"⚠️ Warning: Could not clean up job {job_id}: {e}")
+        else:
+            print(f"🧹 Skipping job cleanup (delete_job=False) - job {job_id} will remain in Salesforce")
+        
+        return {
+            'success': True,
+            'records_processed': strategy['estimated_records'],
+            'job_id': job_id
+        }
+    
     def _execute_bulk_api_job(self, sobject: str, schema: str, table: str, 
                              df_fields: Dict[str, str], snowflake_fields: Dict[str, str], 
                              last_modified_date: Optional[pd.Timestamp], 
                              strategy: Dict[str, Any]) -> Dict[str, Any]:
         """Execute the actual Bulk API job after field filtering."""
+        
+        # SECOND INSTANCE - _execute_bulk_api_job method
         
         # Build the final query string with the working field set
         query_string = f"SELECT {', '.join(df_fields.keys())} FROM {sobject}"
@@ -897,18 +1080,21 @@ class IntelligentSync:
             # Continue with cleanup even if results retrieval failed
             result = None
         
-        # Clean up job
-        try:
-            logger.debug(f"🧹 Cleaning up job: {job_id}")
-            cleanup_result = query_bapi20.delete_specific_job(self.access_info, job_id)
-            if cleanup_result.get('success'):
-                print(f"🧹 Cleaned up job: {job_id}")
-            else:
-                logger.warning(f"⚠️ Warning: Could not clean up job {job_id}: {cleanup_result.get('error', 'Unknown error')}")
-                print(f"⚠️ Warning: Could not clean up job {job_id}: {cleanup_result.get('error', 'Unknown error')}")
-        except Exception as e:
-            logger.warning(f"⚠️ Warning: Could not clean up job {job_id}: {e}")
-            print(f"⚠️ Warning: Could not clean up job {job_id}: {e}")
+        # Clean up job - SECOND INSTANCE (_execute_bulk_api_job method)
+        if self.delete_job:
+            try:
+                logger.debug(f"🧹 Cleaning up job: {job_id}")
+                cleanup_result = query_bapi20.delete_specific_job(self.access_info, job_id)
+                if cleanup_result.get('success'):
+                    print(f"🧹 Cleaned up job: {job_id}")
+                else:
+                    logger.warning(f"⚠️ Warning: Could not clean up job {job_id}: {cleanup_result.get('error', 'Unknown error')}")
+                    print(f"⚠️ Warning: Could not clean up job {job_id}: {cleanup_result.get('error', 'Unknown error')}")
+            except Exception as e:
+                logger.warning(f"⚠️ Warning: Could not clean up job {job_id}: {e}")
+                print(f"⚠️ Warning: Could not clean up job {job_id}: {e}")
+        else:
+            print(f"🧹 Skipping job cleanup (delete_job=False) - job {job_id} will remain in Salesforce")
         
         return {
             'success': True,
@@ -956,7 +1142,6 @@ class IntelligentSync:
         """Execute regular API sync using sobject_query."""
         
         logger.debug(f"🚀 Starting regular API sync for {sobject}")
-        print("@@@HERE")
         # Get query string and field descriptions
         last_modified_date = None
         if strategy['is_incremental']:
@@ -990,76 +1175,77 @@ class IntelligentSync:
             
             # Get current database for fully qualified table names
             current_db = self.session.sql('SELECT CURRENT_DATABASE()').collect()[0][0]
+            sobject_sync.new_changed_records(self.session, self.access_info, sobject, table, match_field)
             
-            tmp_table = f"TMP_{table}"
-            create_temp_query = f"CREATE OR REPLACE TEMPORARY TABLE {current_db}.{schema}.{tmp_table} LIKE {current_db}.{schema}.{table}"
-            logger.debug(f"🔍 Creating temp table: {create_temp_query}")
-            debug_sql_execution(self.session, create_temp_query, "create_temp_table")
+            # tmp_table = f"TMP_{table}"
+            # create_temp_query = f"CREATE OR REPLACE TEMPORARY TABLE {current_db}.{schema}.{tmp_table} LIKE {current_db}.{schema}.{table}"
+            # logger.debug(f"🔍 Creating temp table: {create_temp_query}")
+            # debug_sql_execution(self.session, create_temp_query, "create_temp_table")
             
-            # Use the existing df_fields from Salesforce describe - no need to query temp table
-            table_fields = df_fields
-            logger.debug(f"📋 Using existing table fields: {len(table_fields)} fields")
+            # # Use the existing df_fields from Salesforce describe - no need to query temp table
+            # table_fields = df_fields
+            # logger.debug(f"📋 Using existing table fields: {len(table_fields)} fields")
             
-            # Query and load to temp table
-            logger.debug("📥 Processing batches for incremental sync...")
-            print(f"📥 Processing batches for incremental sync...")
-            for batch_num, batch_df in enumerate(sobject_query.query_records(self.access_info, soql_query), 1):
-                if batch_df is not None and not batch_df.empty:
-                    logger.debug(f"📦 Processing batch {batch_num}: {len(batch_df)} records")
-                    print(f"📦 Processing batch {batch_num}: {len(batch_df)} records")
-                    # Let data_writer handle all formatting - no duplicate calls
-                    formatted_df = batch_df.replace(np.nan, None)
+            # # Query and load to temp table
+            # logger.debug("📥 Processing batches for incremental sync...")
+            # print(f"📥 Processing batches for incremental sync...")
+            # for batch_num, batch_df in enumerate(sobject_query.query_records(self.access_info, soql_query), 1):
+            #     if batch_df is not None and not batch_df.empty:
+            #         logger.debug(f"📦 Processing batch {batch_num}: {len(batch_df)} records")
+            #         print(f"📦 Processing batch {batch_num}: {len(batch_df)} records")
+            #         # Let data_writer handle all formatting - no duplicate calls
+            #         formatted_df = batch_df.replace(np.nan, None)
                     
-                    # Write to temp table using centralized data writer with type handling
-                    logger.debug(f"💾 Writing batch {batch_num} to temp table {schema}.{tmp_table}")
-                    print(f"💾 Writing batch {batch_num} to temp table {schema}.{tmp_table}")
+            #         # Write to temp table using centralized data writer with type handling
+            #         logger.debug(f"💾 Writing batch {batch_num} to temp table {schema}.{tmp_table}")
+            #         print(f"💾 Writing batch {batch_num} to temp table {schema}.{tmp_table}")
                     
-                    # Use type handling to prevent casting errors
-                    try:
-                        data_writer.write_batch_to_temp_table(
-                            self.session, formatted_df, schema, tmp_table, df_fields,
-                            validate_types=True
-                        )
-                    except Exception as e:
-                        error_msg = str(e)
-                        if any(phrase in error_msg for phrase in ["Failed to cast", "cast", "variant", "FIXED"]):
-                            logger.warning(f"⚠️ Casting error detected: {error_msg[:100]}...")
-                            logger.warning(f"⚠️ Retrying with type standardization...")
-                            # Standardize types and retry
-                            df_standardized = data_writer.standardize_dataframe_types(formatted_df, "string")
-                            data_writer.write_batch_to_temp_table(
-                                self.session, df_standardized, schema, tmp_table, df_fields,
-                                validate_types=False
-                            )
-                        else:
-                            logger.error(f"❌ Non-casting error: {error_msg}")
-                            raise
+            #         # Use type handling to prevent casting errors
+            #         try:
+            #             data_writer.write_batch_to_temp_table(
+            #                 self.session, formatted_df, schema, tmp_table, df_fields,
+            #                 validate_types=True
+            #             )
+            #         except Exception as e:
+            #             error_msg = str(e)
+            #             if any(phrase in error_msg for phrase in ["Failed to cast", "cast", "variant", "FIXED"]):
+            #                 logger.warning(f"⚠️ Casting error detected: {error_msg[:100]}...")
+            #                 logger.warning(f"⚠️ Retrying with type standardization...")
+            #                 # Standardize types and retry
+            #                 df_standardized = data_writer.standardize_dataframe_types(formatted_df, "string")
+            #                 data_writer.write_batch_to_temp_table(
+            #                     self.session, df_standardized, schema, tmp_table, df_fields,
+            #                     validate_types=False
+            #                 )
+            #             else:
+            #                 logger.error(f"❌ Non-casting error: {error_msg}")
+            #                 raise
                     
-                    records_processed += len(batch_df)
+            #         records_processed += len(batch_df)
             
-            # Merge temp table with main table
-            if records_processed > 0:
-                logger.debug(f"🔄 Merging {records_processed} records from temp table to main table")
-                print(f"🔄 Merging {records_processed} records from temp table to main table")
-                try:
-                    print(f"📋 About to call merge.format_filter_condition")
-                    print(f"📋 Parameters: session={type(self.session)}, src_table={schema}.{tmp_table}, tgt_table={schema}.{table}, match_field={match_field}")
+            # # Merge temp table with main table
+            # if records_processed > 0:
+            #     logger.debug(f"🔄 Merging {records_processed} records from temp table to main table")
+            #     print(f"🔄 Merging {records_processed} records from temp table to main table")
+            #     try:
+            #         print(f"📋 About to call merge.format_filter_condition")
+            #         print(f"📋 Parameters: session={type(self.session)}, src_table={schema}.{tmp_table}, tgt_table={schema}.{table}, match_field={match_field}")
                     
-                    # Get current database for schema context
-                    current_db = self.session.sql('SELECT CURRENT_DATABASE()').collect()[0][0]
+            #         # Get current database for schema context
+            #         current_db = self.session.sql('SELECT CURRENT_DATABASE()').collect()[0][0]
                     
-                    # Set the correct schema context for the merge operation
-                    self.session.sql(f"USE SCHEMA {current_db}.{schema}").collect()
+            #         # Set the correct schema context for the merge operation
+            #         self.session.sql(f"USE SCHEMA {current_db}.{schema}").collect()
                     
-                    # Call merge with just table names (not fully qualified) since we set the schema context
-                    merge_result = merge.format_filter_condition(self.session, tmp_table, table, match_field, match_field)
-                    print(f"✅ Merge completed: {merge_result}")
-                except Exception as e:
-                    print(f"❌ Error during merge: {e}")
-                    print(f"❌ Error type: {type(e).__name__}")
-                    import traceback
-                    print(f"❌ Full merge error traceback: {traceback.format_exc()}")
-                    raise
+            #         # Call merge with just table names (not fully qualified) since we set the schema context
+            #         merge_result = merge.format_filter_condition(self.session, tmp_table, table, match_field, match_field)
+            #         print(f"✅ Merge completed: {merge_result}")
+            #     except Exception as e:
+            #         print(f"❌ Error during merge: {e}")
+            #         print(f"❌ Error type: {type(e).__name__}")
+            #         import traceback
+            #         print(f"❌ Full merge error traceback: {traceback.format_exc()}")
+            #         raise
             
         else:
             # Full sync - overwrite table
@@ -1120,7 +1306,10 @@ def sync_sobject_intelligent(session,
                            match_field: str = 'ID',
                            use_stage: bool = False,
                            stage_name: Optional[str] = None,
-                           force_full_sync: bool = False) -> Dict[str, Any]:
+                           force_full_sync: bool = False,
+                           force_bulk_api: bool = False,
+                           existing_job_id: Optional[str] = None,
+                           delete_job: bool = True) -> Dict[str, Any]:
     """
     Convenience function for intelligent SObject synchronization.
     
@@ -1134,13 +1323,16 @@ def sync_sobject_intelligent(session,
         use_stage: Whether to use Snowflake stage for large datasets
         stage_name: Snowflake stage name (required if use_stage=True)
         force_full_sync: Force a full sync regardless of previous sync status
+        force_bulk_api: Force use of Bulk API 2.0 instead of regular API (useful for long query strings)
+        existing_job_id: Optional existing Bulk API job ID to use instead of creating a new query
+        delete_job: Whether to delete the Bulk API job after completion (default: True)
         
     Returns:
         Dictionary containing sync results and metadata
     """
     sync_system = IntelligentSync(session, access_info)
     return sync_system.sync_sobject(
-        sobject, schema, table, match_field, use_stage, stage_name, force_full_sync
+        sobject, schema, table, match_field, use_stage, stage_name, force_full_sync, force_bulk_api, existing_job_id, delete_job
     )
 
 
@@ -1148,6 +1340,10 @@ def sync_with_debug(session, access_info, sobject, schema, table, **kwargs):
     """
     Simple debug wrapper that prints everything to stdout.
     Use this in Snowflake notebooks to see exactly what's happening.
+    
+    Example with existing job ID:
+        result = sync_with_debug(session, access_info, "Account", "SALESFORCE", "ACCOUNT", 
+                                existing_job_id="750U700000IN4oaIAD", delete_job=False)
     """
     print("\n" + "="*100)
     print("🚀 STARTING SYNC WITH DEBUG OUTPUT")
@@ -1157,6 +1353,8 @@ def sync_with_debug(session, access_info, sobject, schema, table, **kwargs):
     print(f"   - Schema: {schema}")
     print(f"   - Table: {table}")
     print(f"   - Additional args: {kwargs}")
+    if 'existing_job_id' in kwargs:
+        print(f"   - Using existing job ID: {kwargs['existing_job_id']}")
     print("="*100)
     
     try:
