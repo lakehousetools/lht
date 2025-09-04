@@ -8,6 +8,8 @@ from lht.util import field_types
 from lht.util import stage
 from lht.util import table_creator
 import os
+from lht.util import merge
+
 
 def create_batch_query(access_info, query):
 	"""Creates a batch query job in Salesforce using the Bulk Query API.
@@ -75,6 +77,7 @@ def query_status(access_info, job_type, job_id):
 			query_statuses.append(results.json())
 			break
 		if results.status_code > 200:
+			print(results.status_code)
 			print("not logged in")
 			exit(0)
 		records = len(results.json()['records'])
@@ -203,15 +206,9 @@ def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table
 	# This prevents "20" from becoming 20.0 and then "20.0"
 	df = pd.read_csv(io.StringIO(csv_content), dtype=str)
 	
-	formatted_df = field_types.format_sync_file(df, df_fields)
-	formatted_df = formatted_df.replace(np.nan, None)
-	
 	# Set the current database and schema context
 	session.sql(f"USE DATABASE {database}").collect()
 	session.sql(f"USE SCHEMA {schema}").collect()
-	
-	# Use fully qualified table name for write_pandas
-	fully_qualified_table = f"{schema}.{table}"
 	
 	# Use centralized table creation utility
 	try:
@@ -226,29 +223,21 @@ def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table
 			database=database
 		)
 		print(f"✅ Table creation completed successfully")
-		
-		# Now load data into existing table using save_as_table for better schema control
-		print(f"📊 Loading data into table {fully_qualified_table}")
-		
-		# Get actual table schema to ensure column alignment
-		table_info = session.sql(f"DESCRIBE TABLE {schema}.{table}").collect()
-		table_columns = [row['name'] for row in table_info]
-		
-		# Ensure DataFrame has all table columns (fill missing ones with NULL)
-		for col in table_columns:
-			if col not in formatted_df.columns:
-				formatted_df[col] = None
-		
-		# Convert to Snowpark DataFrame and write using save_as_table
-		snowpark_df = session.create_dataframe(formatted_df)
-		snowpark_df.write.mode("append").save_as_table(f"{schema}.{table}")
-		print(f"✅ Data loaded successfully using save_as_table")
-		
+				
+		df_str = df.astype(str)
+		df = None
+		print(f"📊 Processing first batch of data")
+		session.write_pandas(df_str, schema=schema, table_name="tmp_"+table, auto_create_table=True, overwrite=True, quote_identifiers=False, table_type="temporary")
+		df_str = None
+		transformed_data = merge.transform_and_match_datatypes(session, "tmp_"+table, table)
+		session.sql(f"Insert into {table} select {transformed_data} from tmp_{table}").collect()
+		print(f"✅ First batch loaded successfully")
 	except Exception as e:
 		print(f"❌ Failed to create table or load data: {e}")
 		raise Exception(f"Failed to load data into table {schema}.{table}: {e}")
 	
 	# Process remaining batches
+
 	counter = 2
 	while True:
 		if 'Sforce-Locator' not in results.headers:			
@@ -265,34 +254,15 @@ def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table
 		# This prevents "20" from becoming 20.0 and then "20.0"
 		df = pd.read_csv(io.StringIO(csv_content), dtype=str)
 		
-		formatted_df = field_types.format_sync_file(df, df_fields)
-		formatted_df = formatted_df.replace(np.nan, None)
-	
-		# Set the current database and schema context
-		session.sql(f"USE DATABASE {database}").collect()
-		session.sql(f"USE SCHEMA {schema}").collect()
-		
-		# Use fully qualified table name for write_pandas
-		fully_qualified_table = f"{schema}.{table}"
-		
-		try:
-			# Get actual table schema to ensure column alignment
-			table_info = session.sql(f"DESCRIBE TABLE {schema}.{table}").collect()
-			table_columns = [row['name'] for row in table_info]
-			
-			# Ensure DataFrame has all table columns (fill missing ones with NULL)
-			for col in table_columns:
-				if col not in formatted_df.columns:
-					formatted_df[col] = None
-			
-			# Convert to Snowpark DataFrame and write using save_as_table
-			snowpark_df = session.create_dataframe(formatted_df)
-			snowpark_df.write.mode("append").save_as_table(f"{schema}.{table}")
-			print(f"✅ Batch {counter} loaded successfully using save_as_table")
-		except Exception as e:
-			print(f"❌ Batch {counter} failed: {e}")
-			raise
-		
+
+		df_str = df.astype(str)
+		df = None
+		print(f"📊 Processing batch {counter}")
+		session.write_pandas(df_str, schema=schema, table_name="tmp_"+table, auto_create_table=True, overwrite=True, quote_identifiers=False, table_type="temporary")
+		transformed_data = merge.transform_and_match_datatypes(session, "tmp_"+table, table)
+		session.sql(f"Insert into {table} select {transformed_data} from tmp_{table}").collect()
+		print(f"✅ Batch {counter} loaded successfully using save_as_table")
+		df_str = None
 		counter += 1
 	
 	return results

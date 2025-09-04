@@ -36,7 +36,16 @@ def describe(access_info, sobject, lmd=None):
 		# Skip compound fields
 		if row['name'] in cfields:
 			continue
-
+		
+		# Skip fields the user doesn't have access to
+		if not row.get('accessible', True):
+			print(f"⚠️ Skipping inaccessible field: {row['name']}")
+			continue
+		
+		# Skip fields that can't be retrieved
+		if not row.get('retrieveable', True):
+			print(f"⚠️ Skipping non-retrievable field: {row['name']}")
+			continue
 		
 		if len(query_fields) == 0:
 			pass

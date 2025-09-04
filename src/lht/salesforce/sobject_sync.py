@@ -1,6 +1,6 @@
 import pandas as pd
 from . import sobjects as sobj, sobject_query as sobj_query
-from lht.util import merge
+from lht.util import merge, data_writer as dw
 
 def new_changed_records(session, access_info, sobject, local_table, match_field, lmd=None):
 
@@ -30,10 +30,20 @@ def new_changed_records(session, access_info, sobject, local_table, match_field,
             continue
  
     #method returns the salesforce sobject query and the fields from the sobject
-    query, df_fields = sobj.describe(session, access_info, sobject, lmd_sf)
+    query, df_fields, snowflake_fields = sobj.describe(access_info, sobject, lmd_sf)
 
-    sobj_query.query_records(session, access_info, query, local_table, df_fields, table_fields)
+    sobject_data = sobj_query.query_records(access_info, query)
+    data_list = list(sobject_data)  # Convert generator to list
+    print(f"OBJECT DATA: Got {len(data_list)} batches")
+    for i, batch_df in enumerate(data_list):
+        df_str = batch_df.astype(str)
+        batch_df = None
+        print(f"📊 Processing first batch of data")
+        session.write_pandas(df_str, table_name="tmp_"+local_table, auto_create_table=True, overwrite=True, table_type="temporary", quote_identifiers=False)
+        df_str = None
+        transformed_data = merge.transform_and_match_datatypes(session, "tmp_"+local_table, local_table)
+        
+        session.sql(f"Insert into {local_table} select {transformed_data} from tmp_{local_table}").collect()
 
-    merge.format_filter_condition(session, tmp_table, local_table,match_field, match_field)
+    #merge.format_filter_condition(session, tmp_table, local_table,match_field, match_field)
     return query
-

@@ -214,7 +214,7 @@ def write_dataframe_to_table(
                             except Exception as e:
                                 logger.error(f"❌ Failed to convert {col} to timezone-naive: {e}")
                 print("@@@@DF TZ {}".format(df['CREATEDDATE'].head(10).tolist()))
-                df['CREATEDDATE'] = pd.to_datetime(df['CREATEDDATE'], errors='coerce')
+                #df['CREATEDDATE'] = pd.to_datetime(df['CREATEDDATE'], errors='coerce')
                 # Convert to Snowpark DataFrame and use save_as_table instead of write_pandas
                 print(f"🔍 Writing data with mode: {'overwrite' if overwrite else 'append'}")
                 print(f"🔍 Target table: {full_table_name}")
@@ -239,13 +239,13 @@ def write_dataframe_to_table(
                 logger.info(f"✅ TEST: All columns preserved in fallback: {list(df_fallback.columns)}")
                 
                 # Convert all datetime fields to timezone-naive for Snowflake compatibility
-                for col in df_fallback.columns:
-                    if col.upper() in ['CREATEDDATE', 'LASTMODIFIEDDATE', 'SYSTEMMODSTAMP', 'LASTACTIVITYDATE', 'LASTVIEWEDDATE', 'LASTREFERENCEDDATE']:
-                        if 'UTC' in str(df_fallback[col].dtype) or 'timezone' in str(df_fallback[col].dtype):
-                            try:
-                                df_fallback[col] = df_fallback[col].dt.tz_localize(None)
-                            except Exception as e:
-                                logger.error(f"❌ Failed to convert {col} to timezone-naive: {e}")
+                # for col in df_fallback.columns:
+                #     if col.upper() in ['CREATEDDATE', 'LASTMODIFIEDDATE', 'SYSTEMMODSTAMP', 'LASTACTIVITYDATE', 'LASTVIEWEDDATE', 'LASTREFERENCEDDATE']:
+                #         if 'UTC' in str(df_fallback[col].dtype) or 'timezone' in str(df_fallback[col].dtype):
+                #             try:
+                #                 df_fallback[col] = df_fallback[col].dt.tz_localize(None)
+                #             except Exception as e:
+                #                 logger.error(f"❌ Failed to convert {col} to timezone-naive: {e}")
                 
                 # Convert to Snowpark DataFrame and use save_as_table instead of write_pandas
                 print(f"🔍 Writing fallback data with mode: {'overwrite' if overwrite else 'append'}")
