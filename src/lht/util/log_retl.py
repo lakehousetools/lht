@@ -39,39 +39,14 @@ def failed_results(access_info, job_id):
     return results
 
 def log_results(session, access_info, job_id, schema):   
-    if check_log(session, job_id) > 0:
-        return "see existing logs"
-    else:
-        # Get current database for fully qualified table names
-        current_db = session.sql('SELECT CURRENT_DATABASE()').collect()[0][0]
-        
-        successes = successful_results(access_info, job_id)
-        if len(successes) > 0:
-            from . import data_writer
-            data_writer.write_dataframe_to_table(
-                session=session,
-                df=successes,
-                schema=schema,
-                table='RETL_RESULTS',
-                auto_create=False,
-                overwrite=False,
-                use_logical_type=True,
-                on_error="CONTINUE"
-            )
 
-        failures = failed_results(access_info, job_id)
-        if len(failures) > 0:
-            from . import data_writer
-            data_writer.write_dataframe_to_table(
-                session=session,
-                df=failures,
-                schema=schema,
-                table='RETL_FAILURES',
-                auto_create=True,
-                overwrite=False,
-                use_logical_type=True,
-                on_error="CONTINUE"
-            )
+    successes = successful_results(access_info, job_id)
+    if len(successes) > 0:
+        session.write_pandas(successes, 'RETL_RESULTS', schema=schema, quote_identifiers=False, auto_create_table=False, overwrite=False,use_logical_type=True)
+
+    failures = failed_results(access_info, job_id)
+    if len(failures) > 0:
+        session.write_pandas(failures, 'RETL_FAILURES', schema=schema, quote_identifiers=False, auto_create_table=False, overwrite=False,use_logical_type=True)
 
     return None
 

@@ -1,7 +1,8 @@
 
 import requests
 import json
-from lht.util import csv, log_retl
+from lht.util import csv
+from lht.sflake import query as q
 from lht.salesforce import ingest_bapi20 as ingest
 import time
 
@@ -48,6 +49,12 @@ def upsert(session, access_info, sobject, query, field):
         
         print("🔍 STEP 2: Converting records to CSV format...")
         data = csv.json_to_csv(records)
+        try:
+            print(f"📄 CSV data length: {len(data)} characters")
+            print(f"📄 CSV preview (first 200 chars): {data[:200]}...")
+        except Exception as e:
+            print("Empty set of records")
+            return None
         print(f"📄 CSV data length: {len(data)} characters")
         print(f"📄 CSV preview (first 200 chars): {data[:200]}...")
 
@@ -139,7 +146,19 @@ def upsert(session, access_info, sobject, query, field):
 def update(session, access_info, sobject, query):
     access_token = access_info['access_token']
 
-    records = q.get_records(session, query)
+    #records = q.get_records(session, query)
+    results = session.sql(query).collect()
+    # Convert results to the expected format
+    records = []
+    for result in results:
+        record = {}
+        for key, value in result.asDict().items():
+            if value is None:
+                record[key] = ''
+            else:
+                record[key] = value
+        records.append(record)
+
     data = csv.json_to_csv(records)
 
     bulk_api_url = access_info['instance_url']+ f"/services/data/v62.0/jobs/ingest"
@@ -247,7 +266,17 @@ def delete(session, access_info, sobject, query, field):
 
     access_token = access_info['access_token']
 
-    records = q.get_records(session, query)
+    results = session.sql(query).collect()
+    # Convert results to the expected format
+    records = []
+    for result in results:
+        record = {}
+        for key, value in result.asDict().items():
+            if value is None:
+                record[key] = ''
+            else:
+                record[key] = value
+        records.append(record)
     data = csv.json_to_csv(records)
 
     bulk_api_url = access_info['instance_url']+ f"/services/data/v62.0/jobs/ingest"

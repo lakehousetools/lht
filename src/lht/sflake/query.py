@@ -1,10 +1,7 @@
-from snowflake.snowpark import Session
-from lht.util import file
+def get_records(session, query):
+    
 
-def get_records(session, query_file):
-    sql = file.read_sql_from_file(query_file)
-
-    results = session.sql(sql).collect()
+    results = session.sql(query).collect()
     
     record = {}
     records = []

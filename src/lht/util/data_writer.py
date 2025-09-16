@@ -213,7 +213,7 @@ def write_dataframe_to_table(
                                 df[col] = df[col].dt.tz_localize(None)
                             except Exception as e:
                                 logger.error(f"❌ Failed to convert {col} to timezone-naive: {e}")
-                print("@@@@DF TZ {}".format(df['CREATEDDATE'].head(10).tolist()))
+                
                 #df['CREATEDDATE'] = pd.to_datetime(df['CREATEDDATE'], errors='coerce')
                 # Convert to Snowpark DataFrame and use save_as_table instead of write_pandas
                 print(f"🔍 Writing data with mode: {'overwrite' if overwrite else 'append'}")
