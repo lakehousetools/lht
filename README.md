@@ -1,3 +1,7 @@
+rm -rf dist/ build/ src/lht.egg-info/ && python -m build
+python -m twine upload --repository testpypi dist/*
+python -m twine upload --repository pypi dist/*
+
 # Lake House Tools (LHT) - Salesforce & Snowflake Integration
 
 Bring Salesforce into the fold of your data cloud. LHT is a robust Python library that makes it really easy to extract data from Salesforce and reverse-extract your updates and transformations back into Salesforce.

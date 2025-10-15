@@ -1,6 +1,9 @@
 import pandas as pd
+import logging
 from . import sobjects as sobj, sobject_query as sobj_query
 from lht.util import merge, data_writer as dw
+
+logger = logging.getLogger(__name__)
 
 def new_changed_records(session, access_info, sobject, local_table, match_field, lmd=None):
 
@@ -26,7 +29,7 @@ def new_changed_records(session, access_info, sobject, local_table, match_field,
         try:
             table_fields.append(field[2]) 
         except:
-            print("field {} not present.  Skipping".format(field[2]))
+            logger.warning("field {} not present.  Skipping".format(field[2]))
             continue
  
     #method returns the salesforce sobject query and the fields from the sobject
@@ -34,11 +37,11 @@ def new_changed_records(session, access_info, sobject, local_table, match_field,
 
     sobject_data = sobj_query.query_records(access_info, query)
     data_list = list(sobject_data)  # Convert generator to list
-    print(f"OBJECT DATA: Got {len(data_list)} batches")
+    logger.info(f"Processing {len(data_list)} batches")
     for i, batch_df in enumerate(data_list):
         df_str = batch_df.astype(str)
         batch_df = None
-        print(f"📊 Processing first batch of data")
+        logger.debug(f"📊 Processing first batch of data")
         session.write_pandas(df_str, table_name="tmp_"+local_table, auto_create_table=True, overwrite=True, table_type="temporary", quote_identifiers=False)
         df_str = None
         transformed_data = merge.transform_and_match_datatypes(session, "tmp_"+local_table, local_table)

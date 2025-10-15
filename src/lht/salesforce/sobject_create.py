@@ -1,6 +1,9 @@
 import requests
+import logging
 from . import sobjects as sobj
 from lht.util import field_types
+
+logger = logging.getLogger(__name__)
 
 def create(session, access_info, sobject, local_table):
 	headers = {
@@ -11,7 +14,7 @@ def create(session, access_info, sobject, local_table):
 	try:
 		url = access_info['instance_url'] + "/services/data/v58.0/sobjects/{}/describe".format(sobject)
 	except Exception as e:
-		print(e)
+		logger.error(e)
 		return None
 	sobject_data = requests.get(url, headers=headers)
 
@@ -25,7 +28,7 @@ def create(session, access_info, sobject, local_table):
 
 
 	query = "CREATE OR REPLACE TABLE {} ({})".format(local_table, fields[:-1])
-	print(query)
+	logger.debug(f"Query: {query}")
 
 	results = session.sql(query).collect()
 	return results[0]['status']

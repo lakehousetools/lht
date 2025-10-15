@@ -2,6 +2,9 @@ import csv
 import json
 import io
 import pandas as pd
+import logging
+
+logger = logging.getLogger(__name__)
 
 def json_to_csv(json_data):
     if isinstance(json_data, str):
@@ -14,7 +17,7 @@ def json_to_csv(json_data):
     try:
         writer.writerow(json_data[0].keys())
     except:
-        print("no data to process")
+        logger.warning("no data to process")
         return None
     for item in json_data:
         writer.writerow(item.values())
@@ -34,7 +37,7 @@ def success_upserts(data, job_id):
     
     if header:
         row_count = 1  # If header exists, count it as a row
-        print("@@@{}\n".format(header))
+        logger.debug(f"Header: {header}")
     for row in csv_reader:
         record['HISTORY_ID'] = job_id
         record['SF_ID'] = row[0]
@@ -56,7 +59,7 @@ def fail_upserts(data, job_id):
     
     if header:
         row_count = 1  # If header exists, count it as a row
-        print("@@@{}\n".format(header))
+        logger.debug(f"Header: {header}")
     for row in csv_reader:
         record['HISTORY_ID'] = job_id
         record['SF_ID'] = row[0]

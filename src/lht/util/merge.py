@@ -1,5 +1,8 @@
 from snowflake.snowpark import Session
 from snowflake.snowpark import functions as F
+import logging
+
+logger = logging.getLogger(__name__)
 
 def format_filter_condition(snowpark_session, src_table, tgt_table,src_filter, tgt_filter):
   filter_cond = list()
@@ -29,7 +32,7 @@ def format_filter_condition(snowpark_session, src_table, tgt_table,src_filter, t
     s_final_result = "Number of Rows Inserted: {0} Updated:{1}".format(str(src_table_col[0][0]), str(src_table_col[0][1]))
     
   else:
-    print("error")
+    logger.error("error")
     s_final_result = "Error"
   
   return s_final_result;

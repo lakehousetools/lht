@@ -192,7 +192,6 @@ def write_dataframe_to_table(
                 
 
                 # Use centralized table creation
-                print(f"🔍 About to call table_creator.ensure_table_exists_for_dataframe with force_full_sync={force_full_sync}")
                 table_creator.ensure_table_exists_for_dataframe(
                     session=session,
                     schema=schema,
@@ -202,7 +201,7 @@ def write_dataframe_to_table(
                     force_full_sync=force_full_sync,  # Pass through the force_full_sync parameter
                     database=current_db
                 )
-                print(f"✅ Table creation completed, now writing data with overwrite={overwrite}")
+                logger.info(f"✅ Table creation completed, now writing data with overwrite={overwrite}")
                 
                 # Now write to the existing table using the already-processed DataFrame
                 # Convert all datetime fields to timezone-naive for Snowflake compatibility
@@ -216,11 +215,11 @@ def write_dataframe_to_table(
                 
                 #df['CREATEDDATE'] = pd.to_datetime(df['CREATEDDATE'], errors='coerce')
                 # Convert to Snowpark DataFrame and use save_as_table instead of write_pandas
-                print(f"🔍 Writing data with mode: {'overwrite' if overwrite else 'append'}")
-                print(f"🔍 Target table: {full_table_name}")
                 snowpark_df = session.create_dataframe(df)
+                df = None
                 snowpark_df.write.mode("overwrite" if overwrite else "append").save_as_table(full_table_name)
-                print(f"✅ Data written successfully with mode: {'overwrite' if overwrite else 'append'}")
+                snowpark_df = None
+                logger.info(f"✅ Data written successfully with mode: {'overwrite' if overwrite else 'append'}")
                 result = True  # save_as_table doesn't return a result object like write_pandas
             except Exception as table_error:
                 logger.warning(f"Centralized table creation failed, falling back to auto-create: {table_error}")
@@ -248,11 +247,11 @@ def write_dataframe_to_table(
                 #                 logger.error(f"❌ Failed to convert {col} to timezone-naive: {e}")
                 
                 # Convert to Snowpark DataFrame and use save_as_table instead of write_pandas
-                print(f"🔍 Writing fallback data with mode: {'overwrite' if overwrite else 'append'}")
-                print(f"🔍 Target table: {full_table_name}")
                 snowpark_df = session.create_dataframe(df_fallback)
+                df_fallback = None
                 snowpark_df.write.mode("overwrite" if overwrite else "append").save_as_table(full_table_name)
-                print(f"✅ Fallback data written successfully with mode: {'overwrite' if overwrite else 'append'}")
+                snowpark_df = None
+                logger.info(f"✅ Fallback data written successfully with mode: {'overwrite' if overwrite else 'append'}")
                 result = True  # save_as_table doesn't return a result object like write_pandas
         else:
             # Use original behavior, but ensure DataFrame is properly processed
@@ -276,11 +275,11 @@ def write_dataframe_to_table(
                             logger.error(f"❌ Failed to convert {col} to timezone-naive: {e}")
             
             # Convert to Snowpark DataFrame and use save_as_table instead of write_pandas
-            print(f"🔍 Writing processed data with mode: {'overwrite' if overwrite else 'append'}")
-            print(f"🔍 Target table: {full_table_name}")
             snowpark_df = session.create_dataframe(df_processed)
+            df_processed = None
             snowpark_df.write.mode("overwrite" if overwrite else "append").save_as_table(full_table_name)
-            print(f"✅ Processed data written successfully with mode: {'overwrite' if overwrite else 'append'}")
+            snowpark_df = None
+            logger.info(f"✅ Processed data written successfully with mode: {'overwrite' if overwrite else 'append'}")
             result = True  # save_as_table doesn't return a result object like write_pandas
         
         logger.debug(f"✅ Successfully wrote {len(df)} records to {full_table_name}")
@@ -535,17 +534,17 @@ def write_batch_to_main_table(
     if force_full_sync and is_first_batch:
         # Force full sync: drop and recreate table, then overwrite first batch
         overwrite = True
-        print(f"💾 Force full sync: overwriting first batch to recreate table")
+        logger.debug(f"💾 Force full sync: overwriting first batch to recreate table")
     elif is_first_batch:
         # Regular first batch: append to existing or new table
         overwrite = False
-        print(f"💾 Regular first batch: appending to table")
+        logger.debug(f"💾 Regular first batch: appending to table")
     else:
         # Subsequent batches: always append
         overwrite = False
-        print(f"💾 Subsequent batch: appending to table")
+        logger.debug(f"💾 Subsequent batch: appending to table")
     
-    print(f"💾 Writing batch to main table: {schema}.{table} (overwrite={overwrite}, is_first_batch={is_first_batch}, force_full_sync={force_full_sync})")
+    logger.debug(f"💾 Writing batch to main table: {schema}.{table} (overwrite={overwrite}, is_first_batch={is_first_batch}, force_full_sync={force_full_sync})")
     
     return write_dataframe_to_table(
         session=session,
