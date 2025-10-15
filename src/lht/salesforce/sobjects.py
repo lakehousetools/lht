@@ -1,5 +1,8 @@
 import requests
-from lht.util import field_types 
+import logging
+from lht.util import field_types
+
+logger = logging.getLogger(__name__) 
 
 def describe(access_info, sobject, lmd=None):
 	headers = {
@@ -12,7 +15,7 @@ def describe(access_info, sobject, lmd=None):
 	try:
 		url = access_info['instance_url'] + "/services/data/v62.0/sobjects/{}/describe".format(sobject)
 	except Exception as e:
-		print(e)
+		logger.error(e)
 		return None
 	results = requests.get(url, headers=headers)
 	if results.json()['retrieveable'] is False:
@@ -26,7 +29,7 @@ def describe(access_info, sobject, lmd=None):
 	snowflake_fields = {}  # For table creation with proper Snowflake types
 
 	if results.status_code > 200:
-		print("you are not logged in")
+		logger.error("you are not logged in")
 		exit(0)
 	for field in results.json()['fields']:
 		
@@ -39,12 +42,12 @@ def describe(access_info, sobject, lmd=None):
 		
 		# Skip fields the user doesn't have access to
 		if not row.get('accessible', True):
-			print(f"⚠️ Skipping inaccessible field: {row['name']}")
+			logger.warning(f"⚠️ Skipping inaccessible field: {row['name']}")
 			continue
 		
 		# Skip fields that can't be retrieved
 		if not row.get('retrieveable', True):
-			print(f"⚠️ Skipping non-retrievable field: {row['name']}")
+			logger.warning(f"⚠️ Skipping non-retrievable field: {row['name']}")
 			continue
 		
 		if len(query_fields) == 0:
@@ -60,9 +63,9 @@ def describe(access_info, sobject, lmd=None):
 		query_string = query_string + "+where+LastModifiedDate+>+{}".format(lmd)
 	
 	# Returning field descriptions from Salesforce
-	print(f"  - df_fields keys: {list(df_fields.keys())}")
-	print(f"  - df_fields values: {list(df_fields.values())}")
-	print(f"  - snowflake_fields keys: {list(snowflake_fields.keys())}")
-	print(f"  - snowflake_fields values: {list(snowflake_fields.values())}")
+	logger.debug(f"  - df_fields keys: {list(df_fields.keys())}")
+	logger.debug(f"  - df_fields values: {list(df_fields.values())}")
+	logger.debug(f"  - snowflake_fields keys: {list(snowflake_fields.keys())}")
+	logger.debug(f"  - snowflake_fields values: {list(snowflake_fields.values())}")
 	
 	return query_string, df_fields, snowflake_fields

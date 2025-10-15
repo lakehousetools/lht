@@ -2,16 +2,19 @@ import requests
 import json
 import csv as csv_module
 import io
+import logging
 from snowflake.snowpark import Session
 from snowflake.snowpark.exceptions import SnowparkSQLException
+
+logger = logging.getLogger(__name__)
 
 def create_logs_schema_if_not_exists(session: Session):
     """Create the logs schema if it doesn't exist."""
     try:
         session.sql("CREATE SCHEMA IF NOT EXISTS LOGS").collect()
-        print("✅ LOGS schema created/verified successfully")
+        logger.info("✅ LOGS schema created/verified successfully")
     except Exception as e:
-        print(f"⚠️ Warning: Could not create LOGS schema: {e}")
+        logger.warning(f"⚠️ Warning: Could not create LOGS schema: {e}")
 
 def create_job_info_table(session: Session):
     """Create the job_info table based on Salesforce API documentation."""
@@ -46,9 +49,9 @@ def create_job_info_table(session: Session):
     """
     try:
         session.sql(create_table_sql).collect()
-        print("✅ JOB_INFO table created/verified successfully")
+        logger.info("✅ JOB_INFO table created/verified successfully")
     except Exception as e:
-        print(f"⚠️ Warning: Could not create JOB_INFO table: {e}")
+        logger.warning(f"⚠️ Warning: Could not create JOB_INFO table: {e}")
 
 def create_success_table(session: Session):
     """Create the success table based on Salesforce API documentation."""
@@ -65,9 +68,9 @@ def create_success_table(session: Session):
     """
     try:
         session.sql(create_table_sql).collect()
-        print("✅ SUCCESS table created/verified successfully")
+        logger.info("✅ SUCCESS table created/verified successfully")
     except Exception as e:
-        print(f"⚠️ Warning: Could not create SUCCESS table: {e}")
+        logger.warning(f"⚠️ Warning: Could not create SUCCESS table: {e}")
 
 def create_failure_table(session: Session):
     """Create the failure table based on Salesforce API documentation."""
@@ -82,9 +85,9 @@ def create_failure_table(session: Session):
     """
     try:
         session.sql(create_table_sql).collect()
-        print("✅ FAILURE table created/verified successfully")
+        logger.info("✅ FAILURE table created/verified successfully")
     except Exception as e:
-        print(f"⚠️ Warning: Could not create FAILURE table: {e}")
+        logger.warning(f"⚠️ Warning: Could not create FAILURE table: {e}")
 
 def get_job_info(access_info: dict, job_id: str) -> dict:
     """Retrieve job information from Salesforce Bulk API 2.0."""
@@ -107,7 +110,7 @@ def get_job_info(access_info: dict, job_id: str) -> dict:
             'error_message': str(e),
             'state': 'Failed'
         }
-        print(f"❌ Error retrieving job info: {error_info}")
+        logger.error(f"❌ Error retrieving job info: {error_info}")
         return error_info
 
 def get_successful_results(access_info: dict, job_id: str) -> list:
@@ -127,7 +130,7 @@ def get_successful_results(access_info: dict, job_id: str) -> list:
         # Parse CSV response
         csv_content = response.text
         if not csv_content.strip():
-            print("ℹ️ No CSV content received for successful results")
+            logger.info("ℹ️ No CSV content received for successful results")
             return []
             
         # Parse CSV and convert to list of dictionaries
@@ -137,19 +140,19 @@ def get_successful_results(access_info: dict, job_id: str) -> list:
             for row in csv_reader:
                 results.append(row)
             
-            print(f"✅ Successfully parsed {len(results)} successful records from CSV")
+            logger.info(f"✅ Successfully parsed {len(results)} successful records from CSV")
             return results
             
         except Exception as csv_error:
-            print(f"⚠️ Warning: CSV parsing error for successful results: {csv_error}")
-            print(f"📄 CSV content preview: {csv_content[:200]}...")
+            logger.warning(f"⚠️ Warning: CSV parsing error for successful results: {csv_error}")
+            logger.debug(f"📄 CSV content preview: {csv_content[:200]}...")
             return []
         
     except requests.exceptions.RequestException as e:
-        print(f"❌ Error retrieving successful results: {e}")
+        logger.error(f"❌ Error retrieving successful results: {e}")
         return []
     except Exception as e:
-        print(f"❌ Error parsing successful results CSV: {e}")
+        logger.error(f"❌ Error parsing successful results CSV: {e}")
         return []
 
 def get_failed_results(access_info: dict, job_id: str) -> list:
@@ -169,7 +172,7 @@ def get_failed_results(access_info: dict, job_id: str) -> list:
         # Parse CSV response
         csv_content = response.text
         if not csv_content.strip():
-            print("ℹ️ No CSV content received for failed results")
+            logger.info("ℹ️ No CSV content received for failed results")
             return []
             
         # Parse CSV and convert to list of dictionaries
@@ -179,27 +182,27 @@ def get_failed_results(access_info: dict, job_id: str) -> list:
             for row in csv_reader:
                 results.append(row)
             
-            print(f"✅ Successfully parsed {len(results)} failed records from CSV")
+            logger.info(f"✅ Successfully parsed {len(results)} failed records from CSV")
             
             # 🔍 DEBUG: Show sample of failed results structure
             if results:
-                		print(f"📋 Sample failed result structure:")
-                print(f"   Keys: {list(results[0].keys())}")
-                print(f"   Sample record: {results[0]}")
-                print(f"   Total records: {len(results)}")
+			logger.debug(f"📋 Sample failed result structure:")
+                logger.debug(f"   Keys: {list(results[0].keys())}")
+                logger.debug(f"   Sample record: {results[0]}")
+                logger.debug(f"   Total records: {len(results)}")
             
             return results
             
         except Exception as csv_error:
-            print(f"⚠️ Warning: CSV parsing error for failed results: {csv_error}")
-            print(f"📄 CSV content preview: {csv_content[:200]}...")
+            logger.warning(f"⚠️ Warning: CSV parsing error for failed results: {csv_error}")
+            logger.debug(f"📄 CSV content preview: {csv_content[:200]}...")
             return []
         
     except requests.exceptions.RequestException as e:
-        print(f"❌ Error retrieving failed results: {e}")
+        logger.error(f"❌ Error retrieving failed results: {e}")
         return []
     except Exception as e:
-        print(f"❌ Error parsing failed results CSV: {e}")
+        logger.error(f"❌ Error parsing failed results CSV: {e}")
         return []
 
 def insert_job_info(session: Session, job_data: dict, job_id: str):
@@ -283,16 +286,16 @@ def insert_job_info(session: Session, job_data: dict, job_id: str):
 
         
         session.sql(insert_sql).collect()
-        print(f"✅ Job info inserted for job {job_id}")
+        logger.info(f"✅ Job info inserted for job {job_id}")
         
     except Exception as e:
-        print(f"❌ Error inserting job info: {e}")
-        		print(f"📋 SQL that failed: {insert_sql}")
+        logger.error(f"❌ Error inserting job info: {e}")
+        		logger.error(f"📋 SQL that failed: {insert_sql}")
 
 def insert_success_records(session: Session, job_id: str, success_data: list):
     """Insert successful records into the SUCCESS table."""
     if not success_data:
-        print("ℹ️ No successful records to insert")
+        logger.info("ℹ️ No successful records to insert")
         return
     
     try:
@@ -321,24 +324,24 @@ def insert_success_records(session: Session, job_id: str, success_data: list):
             
             session.sql(insert_sql).collect()
         
-        print(f"✅ Inserted {len(success_data)} successful records for job {job_id}")
+        logger.info(f"✅ Inserted {len(success_data)} successful records for job {job_id}")
         
     except Exception as e:
-        print(f"❌ Error inserting success records: {e}")
+        logger.error(f"❌ Error inserting success records: {e}")
 
 def insert_failure_records(session: Session, job_id: str, failure_data: list):
     """Insert failed records into the FAILURE table."""
     if not failure_data:
-        print("ℹ️ No failed records to insert")
+        logger.info("ℹ️ No failed records to insert")
         return
     
-    		print(f"📋 Starting to insert {len(failure_data)} failed records for job {job_id}")
+    		logger.info(f"📋 Starting to insert {len(failure_data)} failed records for job {job_id}")
     
     try:
         for i, record in enumerate(failure_data):
-            		print(f"📋 Processing failed record {i+1}/{len(failure_data)}")
-            print(f"   Raw record: {record}")
-            print(f"   Record keys: {list(record.keys())}")
+			logger.debug(f"📋 Processing failed record {i+1}/{len(failure_data)}")
+            logger.debug(f"   Raw record: {record}")
+            logger.debug(f"   Record keys: {list(record.keys())}")
             
             # Safely escape string values and handle NULLs properly
             sf_id = f"'{str(record.get('sf__Id', '')).replace(chr(39), chr(39)+chr(39))}'" if record.get('sf__Id') else 'NULL'
@@ -346,9 +349,9 @@ def insert_failure_records(session: Session, job_id: str, failure_data: list):
             # Get error information
             sf_error = f"'{str(record.get('sf__Error', '')).replace(chr(39), chr(39)+chr(39))}'" if record.get('sf__Error') else 'NULL'
             
-            print(f"   Processed values:")
-            print(f"     sf_id: {sf_id}")
-            print(f"     sf_error: {sf_error}")
+            logger.debug(f"   Processed values:")
+            logger.debug(f"     sf_id: {sf_id}")
+            logger.debug(f"     sf_error: {sf_error}")
             
             insert_sql = f"""
             INSERT INTO LOGS.FAILURE (
@@ -360,21 +363,21 @@ def insert_failure_records(session: Session, job_id: str, failure_data: list):
             )
             """
             
-            print(f"   Generated SQL: {insert_sql}")
+            logger.debug(f"   Generated SQL: {insert_sql}")
             
             try:
                 result = session.sql(insert_sql).collect()
-                print(f"   ✅ SQL execution successful: {result}")
+                logger.debug(f"   ✅ SQL execution successful: {result}")
             except Exception as sql_error:
-                print(f"   ❌ SQL execution failed: {sql_error}")
-                print(f"   SQL that failed: {insert_sql}")
+                logger.error(f"   ❌ SQL execution failed: {sql_error}")
+                logger.error(f"   SQL that failed: {insert_sql}")
                 raise sql_error
         
-        print(f"✅ Inserted {len(failure_data)} failed records for job {job_id}")
+        logger.info(f"✅ Inserted {len(failure_data)} failed records for job {job_id}")
         
     except Exception as e:
-        print(f"❌ Error inserting failure records: {e}")
-        		print(f"📋 Last processed record index: {i if 'i' in locals() else 'N/A'}")
+        logger.error(f"❌ Error inserting failure records: {e}")
+        		logger.error(f"📋 Last processed record index: {i if 'i' in locals() else 'N/A'}")
         raise
 
 def process_bulk_api_results(session: Session, access_info: dict, job_id: str):
@@ -386,53 +389,50 @@ def process_bulk_api_results(session: Session, access_info: dict, job_id: str):
         access_info: Salesforce access credentials dictionary
         job_id: The Bulk API 2.0 job ID to process
     """
-    print(f"\n🚀 Processing Bulk API 2.0 results for job: {job_id}")
-    print("=" * 80)
+    logger.info(f"🚀 Processing Bulk API 2.0 results for job: {job_id}")
     
     try:
         # Step 1: Create schema and tables if they don't exist
-        print("📋 Setting up database schema and tables...")
+        logger.info("📋 Setting up database schema and tables...")
         create_logs_schema_if_not_exists(session)
         create_job_info_table(session)
         create_success_table(session)
         create_failure_table(session)
         
         # Step 2: Retrieve job information
-        print(f"📊 Retrieving job information for job {job_id}...")
+        logger.info(f"📊 Retrieving job information for job {job_id}...")
         job_info = get_job_info(access_info, job_id)
         
         # Step 3: Insert job information
-        print("💾 Storing job information...")
+        logger.info("💾 Storing job information...")
         insert_job_info(session, job_info, job_id)
         
         # Step 4: Retrieve and store successful results
-        print("📈 Retrieving successful results...")
+        logger.info("📈 Retrieving successful results...")
         success_results = get_successful_results(access_info, job_id)
         insert_success_records(session, job_id, success_results)
         
         # Step 5: Retrieve and store failed results
-        print("📉 Retrieving failed results...")
+        logger.info("📉 Retrieving failed results...")
         failure_results = get_failed_results(access_info, job_id)
         
-        		print(f"📋 Failure results summary:")
-        print(f"   Type: {type(failure_results)}")
-        print(f"   Length: {len(failure_results) if failure_results else 0}")
-        print(f"   Is empty: {not failure_results}")
+        		logger.debug(f"📋 Failure results summary:")
+        logger.debug(f"   Type: {type(failure_results)}")
+        logger.debug(f"   Length: {len(failure_results) if failure_results else 0}")
+        logger.debug(f"   Is empty: {not failure_results}")
         
         if failure_results:
-            print(f"   First record keys: {list(failure_results[0].keys())}")
-            print(f"   Sample first record: {failure_results[0]}")
+            logger.debug(f"   First record keys: {list(failure_results[0].keys())}")
+            logger.debug(f"   Sample first record: {failure_results[0]}")
         
         insert_failure_records(session, job_id, failure_results)
         
         # Step 6: Summary
-        print("\n" + "=" * 80)
-        print("✅ BULK API 2.0 RESULTS PROCESSING COMPLETED")
-        print(f"📊 Job ID: {job_id}")
-        print(f"📈 Successful Records: {len(success_results)}")
-        print(f"📉 Failed Records: {len(failure_results)}")
-        print(f"🗄️ Data stored in LOGS schema tables")
-        print("=" * 80)
+        logger.info("✅ BULK API 2.0 RESULTS PROCESSING COMPLETED")
+        logger.info(f"📊 Job ID: {job_id}")
+        logger.info(f"📈 Successful Records: {len(success_results)}")
+        logger.info(f"📉 Failed Records: {len(failure_results)}")
+        logger.info(f"🗄️ Data stored in LOGS schema tables")
         
         return {
             'job_id': job_id,
@@ -443,7 +443,7 @@ def process_bulk_api_results(session: Session, access_info: dict, job_id: str):
         }
         
     except Exception as e:
-        print(f"\n❌ ERROR processing Bulk API 2.0 results: {e}")
+        logger.error(f"❌ ERROR processing Bulk API 2.0 results: {e}")
         return {
             'job_id': job_id,
             'success_count': 0,
@@ -456,5 +456,5 @@ def process_bulk_api_results(session: Session, access_info: dict, job_id: str):
 # Legacy function for backward compatibility
 def successful_results(access_info, job_id):
     """Legacy function - now redirects to the new comprehensive processing."""
-    print("⚠️ Warning: This function is deprecated. Use process_bulk_api_results() instead.")
+    logger.warning("⚠️ Warning: This function is deprecated. Use process_bulk_api_results() instead.")
     return get_successful_results(access_info, job_id)

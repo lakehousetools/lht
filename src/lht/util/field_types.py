@@ -2,6 +2,9 @@ import pandas as pd
 import numpy as np
 import tempfile
 import re
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def salesforce_field_type(field_type):
@@ -70,7 +73,7 @@ def salesforce_field_type(field_type):
 	elif field_type['type'] == 'time':
 		return 'string(24)'
 	else:
-		print("KACK {}".format(field_type['type']))
+		logger.error("Unknown field type: {}".format(field_type['type']))
 		exit(0)
 	
 def df_field_type(field_type):
@@ -154,7 +157,7 @@ def format_sync_file(df, df_fields):
 		return series
 	
 	# Pre-process all columns to ensure they're in a clean state
-	print("🔍 Pre-processing DataFrame columns for type safety...")
+	logger.debug("🔍 Pre-processing DataFrame columns for type safety...")
 	for col in df.columns:
 		try:
 			# Handle any problematic data types before main processing
@@ -164,45 +167,43 @@ def format_sync_file(df, df_fields):
 				df[col] = safe_to_string(df[col])
 				#print(f"✅ Pre-processed column {col} to clean string")
 		except Exception as e:
-			print(f"⚠️ Warning: Error pre-processing column {col}: {e}")
+			logger.warning(f"⚠️ Warning: Error pre-processing column {col}: {e}")
 			# Fallback: ensure it's a string
 			try:
 				df[col] = df[col].astype(str)
 			except:
 				# Last resort: fill with None
 				df[col] = None
-				print(f"⚠️ Column {col} filled with None due to conversion error")
+				logger.warning(f"⚠️ Column {col} filled with None due to conversion error")
 	
-	print("✅ DataFrame pre-processing completed")
+	logger.debug("✅ DataFrame pre-processing completed")
 	
 	# Debug: Show field type mappings
-	print("🔍 Field type mappings:")
+	logger.debug("🔍 Field type mappings:")
 	for col, dtype in df_fields.items():
-		print(f"  {col}: {dtype}")
-	print()
+		logger.debug(f"  {col}: {dtype}")
 	
 	# Debug: Check if EFFECTIVEDATE is in the mappings
 	if 'EFFECTIVEDATE' in df_fields:
-		print(f"✅ EFFECTIVEDATE found in df_fields with type: {df_fields['EFFECTIVEDATE']}")
+		logger.debug(f"✅ EFFECTIVEDATE found in df_fields with type: {df_fields['EFFECTIVEDATE']}")
 	else:
-		print("❌ EFFECTIVEDATE NOT found in df_fields")
+		logger.debug("❌ EFFECTIVEDATE NOT found in df_fields")
 		# Check for case variations
 		effective_date_variations = [col for col in df_fields.keys() if col.upper() == 'EFFECTIVEDATE']
 		if effective_date_variations:
-			print(f"✅ Found EFFECTIVEDATE variations: {effective_date_variations}")
+			logger.debug(f"✅ Found EFFECTIVEDATE variations: {effective_date_variations}")
 			for var in effective_date_variations:
-				print(f"  {var}: {df_fields[var]}")
+				logger.debug(f"  {var}: {df_fields[var]}")
 		else:
-			print("❌ No EFFECTIVEDATE variations found either")
-		print(f"Available fields: {list(df_fields.keys())}")
+			logger.debug("❌ No EFFECTIVEDATE variations found either")
+		logger.debug(f"Available fields: {list(df_fields.keys())}")
 	
 	# Debug: Show all datetime fields
 	datetime_fields = [col for col, dtype in df_fields.items() if dtype in ['datetime64', 'datetime64[ns]']]
 	if datetime_fields:
-		print(f"🔍 Datetime fields found: {datetime_fields}")
+		logger.debug(f"🔍 Datetime fields found: {datetime_fields}")
 	else:
-		print("⚠️ No datetime fields found in df_fields")
-	print()
+		logger.debug("⚠️ No datetime fields found in df_fields")
 	
 	# Now process each field according to its intended type
 	for col, dtype in df_fields.items():
@@ -211,14 +212,14 @@ def format_sync_file(df, df_fields):
 		
 		# Debug: Show what's happening with EFFECTIVEDATE specifically
 		if col_upper == 'EFFECTIVEDATE':
-			print(f"🔍 Processing EFFECTIVEDATE field:")
-			print(f"  Original col name: {col}")
-			print(f"  Mapped dtype: {dtype}")
-			print(f"  Uppercase col: {col_upper}")
-			print(f"  In DataFrame columns: {col_upper in df.columns}")
+			logger.debug(f"🔍 Processing EFFECTIVEDATE field:")
+			logger.debug(f"  Original col name: {col}")
+			logger.debug(f"  Mapped dtype: {dtype}")
+			logger.debug(f"  Uppercase col: {col_upper}")
+			logger.debug(f"  In DataFrame columns: {col_upper in df.columns}")
 			if col_upper in df.columns:
-				print(f"  DataFrame dtype: {df[col_upper].dtype}")
-				print(f"  Sample values: {df[col_upper].head(3).tolist()}")
+				logger.debug(f"  DataFrame dtype: {df[col_upper].dtype}")
+				logger.debug(f"  Sample values: {df[col_upper].head(3).tolist()}")
 		
 		# Case-insensitive field matching
 		# First try exact match, then try uppercase match
@@ -246,9 +247,9 @@ def format_sync_file(df, df_fields):
 				# This ensures write_pandas creates the correct table schema
 				if dtype == 'datetime64' or dtype == 'datetime64[ns]':
 					# Salesforce datetime fields (like CreatedDate, LastViewedDate, LastActivityDate) MUST be datetime
-					print(f"🔍 Processing datetime field: {col_upper}")
-					print(f"  Original dtype: {df[col_upper].dtype}")
-					print(f"  Sample values: {df[col_upper].head(3).tolist()}")
+					logger.debug(f"🔍 Processing datetime field: {col_upper}")
+					logger.debug(f"  Original dtype: {df[col_upper].dtype}")
+					logger.debug(f"  Sample values: {df[col_upper].head(3).tolist()}")
 					
 					# First, handle any None/NaN values that might cause conversion issues
 					df[col_upper] = df[col_upper].replace({pd.NA: None, pd.NaT: None, 'nan': None, 'None': None, '<NA>': None})
@@ -268,15 +269,15 @@ def format_sync_file(df, df_fields):
 						
 						# Verify we have a proper datetime column
 						if pd.api.types.is_datetime64_any_dtype(df[col_upper]):
-							print(f"✅ Successfully converted {col_upper} to datetime64")
+							logger.debug(f"✅ Successfully converted {col_upper} to datetime64")
 						else:
-							print(f"⚠️ Warning: {col_upper} is not datetime64 after conversion, dtype: {df[col_upper].dtype}")
+							logger.warning(f"⚠️ Warning: {col_upper} is not datetime64 after conversion, dtype: {df[col_upper].dtype}")
 							# Try one more time with string conversion first
 							df[col_upper] = pd.to_datetime(df[col_upper].astype(str), errors='coerce', utc=True)
 							df[col_upper] = df[col_upper].fillna(pd.Timestamp('1900-01-01 00:00:00'))
 							
 					except Exception as e:
-						print(f"⚠️ Warning: Error converting {col_upper} to datetime: {e}")
+						logger.warning(f"⚠️ Warning: Error converting {col_upper} to datetime: {e}")
 						# Fallback: convert to string to preserve data
 						df[col_upper] = safe_to_string(df[col_upper])
 						df[col_upper] = df[col_upper].replace({'nan': None, 'None': None, '<NA>': None})
@@ -345,7 +346,7 @@ def format_sync_file(df, df_fields):
 						try:
 							df[col_upper] = pd.to_numeric(df[col_upper], errors='coerce').astype('Int64')
 						except Exception as e:
-							print(f"⚠️ Warning: Could not convert {col_upper} to int64, treating as string: {e}")
+							logger.warning(f"⚠️ Warning: Could not convert {col_upper} to int64, treating as string: {e}")
 							df[col_upper] = df[col_upper].replace({pd.NA: None, pd.NaT: None})
 							df[col_upper] = safe_to_string(df[col_upper])
 							df[col_upper] = df[col_upper].replace({'nan': None, 'None': None, '<NA>': None})
@@ -359,7 +360,7 @@ def format_sync_file(df, df_fields):
 					try:
 						df[col_upper] = pd.to_numeric(df[col_upper], errors='coerce').astype('float64')
 					except Exception as e:
-						print(f"❌ Failed to convert {col_upper} to float64: {e}")
+						logger.error(f"❌ Failed to convert {col_upper} to float64: {e}")
 						# Fallback: convert to string but preserve None values
 						df[col_upper] = df[col_upper].replace({pd.NA: None, pd.NaT: None})
 						df[col_upper] = safe_to_string(df[col_upper])
@@ -375,7 +376,7 @@ def format_sync_file(df, df_fields):
 					
 					if has_non_bool:
 						# Convert entire column to string
-						print(f"⚠️ Column {col_upper} contains non-boolean values, converting entire column to string")
+						logger.warning(f"⚠️ Column {col_upper} contains non-boolean values, converting entire column to string")
 						df[col_upper] = df[col_upper].replace({pd.NA: None, pd.NaT: None})
 						df[col_upper] = safe_to_string(df[col_upper])
 						df[col_upper] = df[col_upper].replace({'nan': None, 'None': None, '<NA>': None})
@@ -384,19 +385,19 @@ def format_sync_file(df, df_fields):
 						try:
 							df[col_upper] = pd.to_numeric(df[col_upper], errors='coerce').astype('bool')
 						except Exception as e:
-							print(f"⚠️ Warning: Could not convert {col_upper} to bool, treating as string: {e}")
+							logger.warning(f"⚠️ Warning: Could not convert {col_upper} to bool, treating as string: {e}")
 							df[col_upper] = df[col_upper].replace({pd.NA: None, pd.NaT: None})
 							df[col_upper] = safe_to_string(df[col_upper])
 							df[col_upper] = df[col_upper].replace({'nan': None, 'None': None, '<NA>': None})
 							
 
 			else:
-				print(f"field not found '{col_upper}' in DataFrame columns: {list(df.columns)}")
+				logger.warning(f"field not found '{col_upper}' in DataFrame columns: {list(df.columns)}")
 		except Exception as e:
-			print(f"field not found '{col_upper}': {e}")
+			logger.warning(f"field not found '{col_upper}': {e}")
 	
 	# Final safety check: ensure all columns are in a safe state for Snowpark conversion
-	print("🔍 Final safety check: ensuring all columns are Snowpark-compatible...")
+	logger.debug("🔍 Final safety check: ensuring all columns are Snowpark-compatible...")
 	for col in df.columns:
 		try:
 			# Ensure the column is in a safe state
@@ -411,14 +412,14 @@ def format_sync_file(df, df_fields):
 				if df[col].isna().any():
 					df[col] = df[col].fillna(0)
 		except Exception as e:
-			print(f"⚠️ Warning: Error in final safety check for column {col}: {e}")
+			logger.warning(f"⚠️ Warning: Error in final safety check for column {col}: {e}")
 			# Last resort: convert to string
 			try:
 				df[col] = df[col].astype(str)
 			except:
 				df[col] = None
 	
-	print("✅ Final safety check completed")
+	logger.debug("✅ Final safety check completed")
 	return df
 
 def map_table_field_types(schema_df, dataframe, df_cols):
@@ -435,9 +436,9 @@ def map_table_field_types(schema_df, dataframe, df_cols):
     if cols_to_drop:
         try:
             dataframe = dataframe.drop(cols_to_drop)
-            print(f"Dropped columns not in df_cols: {cols_to_drop}")
+            logger.info(f"Dropped columns not in df_cols: {cols_to_drop}")
         except Exception as e:
-            print(f"Error dropping columns: {e}")
+            logger.error(f"Error dropping columns: {e}")
     
     # Map types
     for index, row in schema_df.iterrows():

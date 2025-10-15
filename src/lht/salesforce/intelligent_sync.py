@@ -7,85 +7,16 @@ from typing import Optional, Dict, Any, Tuple, List
 from . import sobjects, sobject_query, sobject_sync
 from lht.util import merge, data_writer
 
-# Set up logging for debugging
-logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-# Global debug flag - can be set by applications using the package
-SQL_DEBUG_MODE = False
 
-def set_sql_debug_mode(debug: bool):
-    """Set global SQL debug mode for all SQL operations."""
-    global SQL_DEBUG_MODE
-    SQL_DEBUG_MODE = debug
-    if debug:
-        print("🔍 SQL Debug Mode: ENABLED")
-    else:
-        print("🔍 SQL Debug Mode: DISABLED")
-
-def get_sql_debug_mode() -> bool:
-    """Get current SQL debug mode setting."""
-    return SQL_DEBUG_MODE
-
-
-def sql_execution(session, query, context="", debug=None):
-    """SQL execution with optional debug output."""
-    # Use global flag if debug not specified
-    if debug is None:
-        debug = SQL_DEBUG_MODE
-    
-    if debug:
-        # Full debug output
-        print(f"\n{'='*80}")
-        print(f"🔍 EXECUTING SQL [{context}]:")
-        print(f"Query: {query}")
-        print(f"{'='*80}")
-        
-        # Check for common issues
-        if not query or query.strip() == "":
-            print(f"❌ ERROR: Empty SQL query in {context}")
-            return None
-        
-        if query.strip().upper().startswith('FROM'):
-            print(f"❌ ERROR: SQL query starts with FROM in {context}: {query}")
-            return None
-        
-        # Additional checks for malformed queries
-        query_upper = query.strip().upper()
-        if query_upper.startswith('FROM ') or query_upper.startswith('FROM\n') or query_upper.startswith('FROM\t'):
-            print(f"❌ ERROR: SQL query starts with FROM in {context}: {query}")
-            print(f"❌ Query length: {len(query)}")
-            print(f"❌ Query stripped: '{query.strip()}'")
-            return None
-        
-        try:
-            print(f"🚀 Executing query...")
-            result = session.sql(query).collect()
-            print(f"✅ SUCCESS: {len(result)} rows returned")
-            print(f"Result: {result}")
-            return result
-        except Exception as e:
-            print(f"❌ FAILED: {e}")
-            print(f"❌ Query was: {query}")
-            print(f"❌ Query type: {type(query)}")
-            print(f"❌ Query length: {len(query)}")
-            print(f"❌ Query stripped: '{query.strip()}'")
-            print(f"❌ Error type: {type(e).__name__}")
-            import traceback
-            print(f"❌ Full traceback: {traceback.format_exc()}")
-            raise
-    else:
-        # Silent execution with minimal error info
-        try:
-            return session.sql(query).collect()
-        except Exception as e:
-            print(f"❌ SQL Error in {context}: {e}")
-            raise
-
-# Keep the old function name for backward compatibility
-def debug_sql_execution(session, query, context=""):
-    """Backward compatibility wrapper for debug_sql_execution."""
-    return sql_execution(session, query, context, debug=True)
+def sql_execution(session, query, context=""):
+    """SQL execution with error handling."""
+    try:
+        return session.sql(query).collect()
+    except Exception as e:
+        logger.error(f"SQL Error in {context}: {e}")
+        raise
 
 
 class IntelligentSync:
@@ -140,7 +71,6 @@ class IntelligentSync:
             Dictionary containing sync results and metadata
         """
         logger.debug(f"🔄 Starting intelligent sync for {sobject} -> {schema}.{table}")
-        print(f"🔄 Starting intelligent sync for {sobject} -> {schema}.{table}")
         
         # Store force_full_sync, force_bulk_api, existing_job_id, and delete_job as instance attributes for use in other methods
         self.force_full_sync = force_full_sync
@@ -148,16 +78,12 @@ class IntelligentSync:
         self.existing_job_id = existing_job_id
         self.delete_job = delete_job
         logger.debug(f"🔧 Force full sync: {self.force_full_sync}")
-        print(f"🔧 Force full sync: {self.force_full_sync}")
         logger.debug(f"🔧 Force bulk API: {self.force_bulk_api}")
-        print(f"🔧 Force bulk API: {self.force_bulk_api}")
 
         if existing_job_id:
             logger.debug(f"🔧 Using existing job ID: {existing_job_id}")
-            print(f"🔧 Using existing job ID: {existing_job_id}")
         
         logger.debug(f"🧹 Delete job after completion: {self.delete_job}")
-        print(f"🧹 Delete job after completion: {self.delete_job}")
         
         # Ensure schema exists before proceeding
         logger.debug(f"🔍 Ensuring schema {schema} exists...")
@@ -183,15 +109,12 @@ class IntelligentSync:
         
         if table_exists and not force_full_sync:
             last_modified_date = self._get_last_modified_date(schema, table)
-            print(f"📅 Last sync date: {last_modified_date}")
                     
         # Determine sync strategy
         logger.debug("🎯 Determining sync strategy...")
-        print("🎯 Determining sync strategy...")
         
         # Get estimated record count first
         estimated_records = self._estimate_record_count(sobject, last_modified_date)
-        print(f"📊 Estimated records: {estimated_records}")
         
         sync_strategy = self._determine_sync_strategy(
             sobject, table_exists, last_modified_date, use_stage, stage_name, estimated_records
@@ -204,7 +127,6 @@ class IntelligentSync:
         
         # Check result validity
         if result is None:
-            print(f"❌ ERROR: _execute_sync_strategy returned None!")
             raise Exception("_execute_sync_strategy returned None - sync failed")
         
         # Compile results
@@ -221,7 +143,7 @@ class IntelligentSync:
             'error': result.get('error', None)
         }
         
-        print(f"✅ Sync completed: {sync_result['actual_records']} records in {sync_result['sync_duration_seconds']:.2f}s")
+        logger.info(f"✅ Sync completed: {sync_result['actual_records']} records in {sync_result['sync_duration_seconds']:.2f}s")
         return sync_result
     
     def _table_exists(self, schema: str, table: str) -> bool:
@@ -231,7 +153,7 @@ class IntelligentSync:
             schema_query = f"SHOW SCHEMAS LIKE '{schema}'"
             #logger.debug(f"🔍 Checking if schema exists: {schema_query}")
             #print(f"🔍 Checking if schema exists: {schema_query}")
-            schema_result = debug_sql_execution(self.session, schema_query, "schema_check")
+            schema_result = sql_execution(self.session, schema_query, "schema_check")
             #print(f"📋 Schema result: {schema_result}")
             if not schema_result or len(schema_result) == 0:
                 #logger.debug(f"📋 Schema {schema} does not exist")
@@ -243,7 +165,7 @@ class IntelligentSync:
             query = f"SELECT COUNT(*) as table_count FROM information_schema.tables WHERE table_schema = '{schema}' AND table_name = '{table}' AND table_type = 'BASE TABLE'"
             #logger.debug(f"🔍 Executing table existence check: {query}")
             #print(f"🔍 Executing table existence check: {query}")
-            result = debug_sql_execution(self.session, query, "table_check")
+            result = sql_execution(self.session, query, "table_check")
             #print(f"📋 Table result: {result}")
             
             # More robust result checking
@@ -262,7 +184,6 @@ class IntelligentSync:
             return exists
         except Exception as e:
             logger.error(f"❌ Error checking table existence: {e}")
-            print(f"❌ Error checking table existence: {e}")
             return False
     
     def _ensure_schema_exists(self, schema: str) -> bool:
@@ -270,13 +191,13 @@ class IntelligentSync:
         try:
             schema_query = f"SHOW SCHEMAS LIKE '{schema}'"
             logger.debug(f"🔍 Checking if schema exists: {schema_query}")
-            schema_result = debug_sql_execution(self.session, schema_query, "schema_exists_check")
+            schema_result = sql_execution(self.session, schema_query, "schema_exists_check")
             
             if not schema_result or len(schema_result) == 0:
                 #logger.debug(f"📋 Schema {schema} does not exist, creating it...")
                 create_schema_query = f"CREATE SCHEMA IF NOT EXISTS {schema}"
                 #logger.debug(f"🔍 Creating schema: {create_schema_query}")
-                debug_sql_execution(self.session, create_schema_query, "create_schema")
+                sql_execution(self.session, create_schema_query, "create_schema")
                 #logger.debug(f"✅ Schema {schema} created successfully")
                 return True
             else:
@@ -308,7 +229,6 @@ class IntelligentSync:
         # Check if force_bulk_api is set - if so, use Bulk API regardless of record count
         if self.force_bulk_api:
             logger.debug("🔧 Force bulk API is enabled - using Bulk API regardless of record count")
-            print("🔧 Force bulk API is enabled - using Bulk API regardless of record count")
             if not table_exists or last_modified_date is None:
                 # First-time sync with forced bulk API
                 method = "bulk_api_stage_full" if use_stage and stage_name else "bulk_api_full"
@@ -320,9 +240,7 @@ class IntelligentSync:
             if not table_exists or last_modified_date is None:
                 # First-time sync
                 logger.debug("🆕 First-time sync detected")
-                print("🆕 First-time sync detected")
                 logger.debug(f"📊 Record count: {estimated_records}, Bulk API threshold: {self.BULK_API_THRESHOLD}")
-                print(f"📊 Record count: {estimated_records}, Bulk API threshold: {self.BULK_API_THRESHOLD}")
                 
                 # Force Bulk API for large datasets (1M+ records)
                 if estimated_records >= 1000000:
@@ -338,11 +256,9 @@ class IntelligentSync:
                 if estimated_records >= 100000:  # Only use Bulk API for very large incremental changes
                     method = "bulk_api_incremental"
                     logger.debug(f"📊 Using bulk API incremental (large changes: {estimated_records} >= 100,000)")
-                    print(f"📊 Using bulk API incremental (large changes: {estimated_records} >= 100,000)")
                     if use_stage and stage_name and estimated_records >= self.STAGE_THRESHOLD:
                         method = "bulk_api_stage_incremental"
                         logger.debug(f"📦 Using stage-based bulk API incremental (records: {estimated_records} >= {self.STAGE_THRESHOLD})")
-                        print(f"📦 Using stage-based bulk API incremental (records: {estimated_records} >= {self.STAGE_THRESHOLD})")
                 else:
                     method = "regular_api_incremental"
         
@@ -387,7 +303,7 @@ class IntelligentSync:
                 #logger.debug(f"🔍 Executing last modified date query: {query}")
                 #print(f"🔍 Executing SQL: {query}")
                 
-                result = debug_sql_execution(self.session, query, "last_modified_date")
+                result = sql_execution(self.session, query, "last_modified_date")
                 #   logger.debug(f"📋 Query result: {result}")
                 #print(f"🔍 DEBUG: Query result type: {type(result)}")
                 #print(f"🔍 DEBUG: Query result length: {len(result) if result else 'None'}")
@@ -418,7 +334,6 @@ class IntelligentSync:
                                 #logger.debug(f"📅 Last modified date: {last_modified}")
                                 return last_modified
                         except (KeyError, TypeError) as e:
-                            print(f"🔍 DEBUG: Dictionary access failed: {e}")
                             pass
                     
                     #print(f"🔍 DEBUG: No valid LAST_MODIFIED found in row")
@@ -427,7 +342,6 @@ class IntelligentSync:
                     
             except Exception as e:
                 logger.warning(f"⚠️ First attempt failed, trying alternative approach: {e}")
-                print(f"⚠️ First attempt failed, trying alternative approach: {e}")
                 
                 try:
                     # Alternative: try to get the last modified date without casting
@@ -435,7 +349,7 @@ class IntelligentSync:
                     #logger.debug(f"🔍 Executing alternative query: {query}")
                     #print(f"🔍 Executing alternative query: {query}")
                     
-                    result = debug_sql_execution(self.session, query, "last_modified_date_alt")
+                    result = sql_execution(self.session, query, "last_modified_date_alt")
                     #logger.debug(f"📋 Alternative query result: {result}")
                     #print(f"🔍 DEBUG: Alternative query result type: {type(result)}")
                     #print(f"🔍 DEBUG: Alternative query result length: {len(result) if result else 'None'}")
@@ -499,14 +413,12 @@ class IntelligentSync:
                             
                 except Exception as e2:
                     logger.warning(f"⚠️ Alternative approach also failed: {e2}")
-                    print(f"⚠️ Alternative approach also failed: {e2}")
             
             # logger.debug("📅 No valid last modified date found (table empty, no LASTMODIFIEDDATE field, or conversion failed)")
             # print(f"📅 No valid last modified date found - will use full sync")
             return None
         except Exception as e:
             logger.error(f"❌ Error getting last modified date: {e}")
-            print(f"❌ SQL Error in _get_last_modified_date: {e}")
             return None
 
     
@@ -523,7 +435,6 @@ class IntelligentSync:
                 query = f"SELECT COUNT(Id) FROM {sobject}"
             
             logger.debug(f"🔍 Executing record count query: {query}")
-            print(f"🔍 Executing Salesforce record count query: {query}")
             
             # Use regular API for count (faster than Bulk API for counts)
             headers = {
@@ -533,7 +444,6 @@ class IntelligentSync:
             url = f"{self.access_info['instance_url']}/services/data/v58.0/query?q={query}"
             
             logger.debug(f"🌐 Making API request to: {url}")
-            print(f"🌐 Making Salesforce API request to: {url}")
             response = requests.get(url, headers=headers)
             response.raise_for_status()
             
@@ -559,13 +469,10 @@ class IntelligentSync:
                         if field in first_record:
                             count = first_record[field]
                             logger.debug(f"📊 Estimated record count from {field}: {count}")
-                            print(f"📊 Estimated record count from {field}: {count}")
                             return count
                     
                     # If no expected field found, log the structure
                     logger.warning(f"📊 Unexpected record structure: {first_record}")
-                    print(f"📊 Unexpected record structure: {first_record}")
-                    print(f"📊 Available fields: {list(first_record.keys())}")
                 
                 # Fallback to totalSize (though this should not be used for COUNT queries)
                 if 'totalSize' in result:
@@ -575,7 +482,7 @@ class IntelligentSync:
                                 count = result['records'][0]['expr0']
                                 return count
                         except (KeyError, IndexError, TypeError) as e:
-                            print(f"⚠️ Warning: Could not determine record count: {e}")
+                            logger.warning(f"⚠️ Warning: Could not determine record count: {e}")
                 else:
                     pass
             else:
@@ -589,16 +496,14 @@ class IntelligentSync:
             return 1000 if last_modified_date else 100000
             
         except Exception as e:
-            print(f"❌ Error estimating record count: {e}")
-            import traceback
-            print(f"📋 Full traceback: {traceback.format_exc()}")
+            logger.error(f"❌ Error estimating record count: {e}")
             
             # Try to get more information about the response if available
             try:
                 if 'response' in locals():
-                    print(f"📊 Response status: {response.status_code}")
-                    print(f"📊 Response headers: {dict(response.headers)}")
-                    print(f"📊 Response content: {response.text[:500]}...")
+                    logger.debug(f"📊 Response status: {response.status_code}")
+                    logger.debug(f"📊 Response headers: {dict(response.headers)}")
+                    logger.debug(f"📊 Response content: {response.text[:500]}...")
                     
                     # Try to parse the response if possible
                     try:
@@ -614,7 +519,6 @@ class IntelligentSync:
             # Return a conservative estimate
             estimate = 1000 if last_modified_date else 100000
             logger.debug(f"📊 Using conservative estimate: {estimate}")
-            print(f"📊 Using conservative estimate: {estimate}")
             return estimate
     
     def _execute_sync_strategy(self, 
@@ -626,33 +530,30 @@ class IntelligentSync:
         """Execute the determined sync strategy."""
         
         method = strategy['method']
-        print(f"🚀 Executing sync strategy: {method}")
         logger.debug(f"🚀 Executing sync strategy: {method}")
         
         try:
             if method.startswith('bulk_api'):
-                print(f"📦 Using Bulk API sync method: {method}")
                 if self.existing_job_id:
-                    print(f"🚀 Using existing job ID: {self.existing_job_id} - skipping query creation")
+                    logger.debug(f"🚀 Using existing job ID: {self.existing_job_id} - skipping query creation")
                     result = self._execute_bulk_api_with_existing_job(sobject, schema, table, strategy)
                 else:
                     result = self._execute_bulk_api_sync(strategy, sobject, schema, table)
                 # Bulk API sync completed
                 return result
             elif method.startswith('regular_api'):
-                print(f"📡 Using Regular API sync method: {method}")
+                logger.debug(f"📡 Using Regular API sync method: {method}")
                 result = self._execute_regular_api_sync(strategy, sobject, schema, table, match_field)
                 # Regular API sync completed
                 return result
             else:
                 error_msg = f"Unknown sync method: {method}"
-                print(f"❌ {error_msg}")
+                logger.error(f"❌ {error_msg}")
                 raise ValueError(error_msg)
                 
         except Exception as e:
             error_msg = f"Error executing sync strategy: {str(e)}"
-            print(f"❌ {error_msg}")
-            import traceback
+            logger.error(f"❌ {error_msg}")
             traceback.print_exc()
             logger.error(f"❌ {error_msg}")
             return {
@@ -669,7 +570,6 @@ class IntelligentSync:
         """Execute Bulk API sync using an existing job ID, skipping query creation."""
         
         logger.debug(f"🚀 Starting Bulk API sync with existing job ID: {self.existing_job_id}")
-        print(f"🚀 Starting Bulk API sync with existing job ID: {self.existing_job_id}")
         
         # Get field descriptions for table creation (but don't create query)
         logger.debug(f"🔍 Getting field descriptions for {sobject}")
@@ -689,7 +589,7 @@ class IntelligentSync:
             raise Exception(error_msg)
         
         # Skip query creation and go straight to job execution
-        print(f"⏭️ Skipping query creation - using existing job ID: {self.existing_job_id}")
+        logger.debug(f"⏭️ Skipping query creation - using existing job ID: {self.existing_job_id}")
         return self._execute_bulk_api_job_with_id(sobject, schema, table, df_fields, snowflake_fields, strategy)
     
     def _execute_bulk_api_sync(self, 
@@ -742,7 +642,7 @@ class IntelligentSync:
         
         while current_fields:
             try:
-                print(f"🔄 Trying with {len(current_fields)} fields...")
+                logger.debug(f"🔄 Trying with {len(current_fields)} fields...")
                 
                 # Build query string with current fields
                 query_string = f"SELECT {', '.join(current_fields.keys())} FROM {sobject}"
@@ -761,36 +661,36 @@ class IntelligentSync:
                     error_message = error_info.get('message', 'Unknown error')
                     error_code = error_info.get('errorCode', 'UNKNOWN_ERROR')
                     
-                    print(f"❌ Bulk API job creation failed:")
-                    print(f"  - Error Code: {error_code}")
-                    print(f"  - Error Message: {error_message}")
+                    logger.error(f"❌ Bulk API job creation failed:")
+                    logger.error(f"  - Error Code: {error_code}")
+                    logger.error(f"  - Error Message: {error_message}")
                     
                     # Extract field names from error message
                     problematic_fields = self._extract_problematic_fields(error_message)
                     if problematic_fields:
-                        print(f"🔍 Identified problematic fields: {problematic_fields}")
+                        logger.debug(f"🔍 Identified problematic fields: {problematic_fields}")
                         
                         # Remove problematic fields and retry
                         for field in problematic_fields:
                             if field in current_fields:
                                 del current_fields[field]
                                 removed_fields.append(field)
-                                print(f"🗑️ Removed field: {field}")
+                                logger.debug(f"🗑️ Removed field: {field}")
                         
                         if not current_fields:
                             raise Exception("No fields remaining after removing problematic fields")
                         
-                        print(f"🔄 Retrying with {len(current_fields)} remaining fields...")
+                        logger.debug(f"🔄 Retrying with {len(current_fields)} remaining fields...")
                         continue
                     else:
                         # If we can't identify specific fields, remove some fields and retry
-                        print(f"⚠️ Could not identify specific problematic fields, removing some fields and retry...")
+                        logger.warning(f"⚠️ Could not identify specific problematic fields, removing some fields and retry...")
                         fields_to_remove = list(current_fields.keys())[-5:]  # Remove last 5 fields
                         for field in fields_to_remove:
                             if field in current_fields:
                                 del current_fields[field]
                                 removed_fields.append(field)
-                                print(f"🗑️ Removed field: {field}")
+                                logger.debug(f"🗑️ Removed field: {field}")
                         
                         if not current_fields:
                             raise Exception("No fields remaining after removing fields")
@@ -798,9 +698,9 @@ class IntelligentSync:
                         continue
                 
                 # If we get here, job creation was successful
-                print(f"✅ Successfully created Bulk API job with {len(current_fields)} fields")
+                logger.info(f"✅ Successfully created Bulk API job with {len(current_fields)} fields")
                 if removed_fields:
-                    print(f"🗑️ Removed {len(removed_fields)} problematic fields: {removed_fields}")
+                    logger.info(f"🗑️ Removed {len(removed_fields)} problematic fields: {removed_fields}")
                 
                 # Now proceed with the actual sync using the working field set
                 result = self._execute_bulk_api_job(sobject, schema, table, current_fields, snowflake_fields, last_modified_date, strategy)
@@ -809,19 +709,19 @@ class IntelligentSync:
                 return result
                 
             except Exception as e:
-                print(f"⚠️ Error during sync: {e}")
+                logger.warning(f"⚠️ Error during sync: {e}")
                 # Remove some fields and retry
                 fields_to_remove = list(current_fields.keys())[-3:]  # Remove last 3 fields
                 for field in fields_to_remove:
                     if field in current_fields:
                         del current_fields[field]
                         removed_fields.append(field)
-                        print(f"🗑️ Removed field: {field}")
+                        logger.debug(f"🗑️ Removed field: {field}")
                 
                 if not current_fields:
                     raise Exception("No fields remaining after removing fields")
                 
-                print(f"🔄 Retrying with {len(current_fields)} remaining fields...")
+                logger.debug(f"🔄 Retrying with {len(current_fields)} remaining fields...")
                 continue
         
         # If we get here, we've exhausted all fields
@@ -863,7 +763,6 @@ class IntelligentSync:
         # FIRST INSTANCE - _execute_bulk_api_job_with_id method
         job_id = self.existing_job_id
         logger.debug(f"📋 Using existing Bulk API job: {job_id}")
-        print(f"📋 Using existing Bulk API job: {job_id}")
         
         # Validate that the job ID exists and is accessible
         logger.debug("🔍 Validating existing job ID...")
@@ -882,23 +781,20 @@ class IntelligentSync:
                     if 'NOT_FOUND' in error_code or 'NOT_FOUND' in error_message.upper():
                         error_msg = f"Job ID '{job_id}' not found. The job may have been deleted or never existed."
                         logger.error(f"❌ {error_msg}")
-                        print(f"❌ {error_msg}")
                         raise Exception(error_msg)
                     
                     # Check for other common error codes
                     if 'INVALID_ID' in error_code or 'INVALID_ID' in error_message.upper():
                         error_msg = f"Job ID '{job_id}' is invalid or malformed."
                         logger.error(f"❌ {error_msg}")
-                        print(f"❌ {error_msg}")
                         raise Exception(error_msg)
                     
                     # If there's any other error, raise it
                     error_msg = f"Error accessing job '{job_id}': {error_message} (Code: {error_code})"
                     logger.error(f"❌ {error_msg}")
-                    print(f"❌ {error_msg}")
                     raise Exception(error_msg)
             
-            print(f"✅ Job ID '{job_id}' validated successfully")
+            logger.info(f"✅ Job ID '{job_id}' validated successfully")
             
         except Exception as e:
             # Re-raise the exception if it's our custom error
@@ -907,7 +803,6 @@ class IntelligentSync:
             # Otherwise, provide a generic error message
             error_msg = f"Failed to validate job ID '{job_id}': {str(e)}"
             logger.error(f"❌ {error_msg}")
-            print(f"❌ {error_msg}")
             raise Exception(error_msg)
         
         # Monitor job status
@@ -921,7 +816,6 @@ class IntelligentSync:
             
             state = job_status['state']
             logger.debug(f"📊 Job status: {state}")
-            print(f"📊 Job status: {state}")
             
             if state == 'JobComplete':
                 break
@@ -939,18 +833,16 @@ class IntelligentSync:
         logger.debug(f"📥 Getting results (optimized direct loading)")
         
         # Use optimized direct loading for all cases (stage parameters are deprecated)
-        print(f"🔍 About to call get_bulk_results with force_full_sync={self.force_full_sync}")
-        print(f"🔍 force_full_sync type: {type(self.force_full_sync)}")
-        print(f"🔍 force_full_sync value: {repr(self.force_full_sync)}")
+        logger.debug(f"🔍 About to call get_bulk_results with force_full_sync={self.force_full_sync}")
         try:
             result = query_bapi20.get_bulk_results(
                 self.session, self.access_info, job_id, sobject, schema, table,
                 snowflake_fields=snowflake_fields, use_stage=use_stage, stage_name=stage_name,
                 force_full_sync=self.force_full_sync  # Pass the force_full_sync parameter
             )
-            print(f"✅ Bulk API results retrieved successfully")
+            logger.info(f"✅ Bulk API results retrieved successfully")
         except Exception as e:
-            print(f"⚠️ Warning: Error getting bulk results: {e}")
+            logger.warning(f"⚠️ Warning: Error getting bulk results: {e}")
             # Continue with cleanup even if results retrieval failed
             result = None
         
@@ -960,15 +852,15 @@ class IntelligentSync:
                 logger.debug(f"🧹 Cleaning up job: {job_id}")
                 cleanup_result = query_bapi20.delete_specific_job(self.access_info, job_id)
                 if cleanup_result.get('success'):
-                    print(f"🧹 Cleaned up job: {job_id}")
+                    logger.info(f"🧹 Cleaned up job: {job_id}")
                 else:
                     logger.warning(f"⚠️ Warning: Could not clean up job {job_id}: {cleanup_result.get('error', 'Unknown error')}")
-                    print(f"⚠️ Warning: Could not clean up job {job_id}: {cleanup_result.get('error', 'Unknown error')}")
+                    logger.warning(f"⚠️ Warning: Could not clean up job {job_id}: {cleanup_result.get('error', 'Unknown error')}")
             except Exception as e:
                 logger.warning(f"⚠️ Warning: Could not clean up job {job_id}: {e}")
-                print(f"⚠️ Warning: Could not clean up job {job_id}: {e}")
+                logger.warning(f"⚠️ Warning: Could not clean up job {job_id}: {e}")
         else:
-            print(f"🧹 Skipping job cleanup (delete_job=False) - job {job_id} will remain in Salesforce")
+            logger.info(f"🧹 Skipping job cleanup (delete_job=False) - job {job_id} will remain in Salesforce")
         
         return {
             'success': True,
@@ -991,7 +883,7 @@ class IntelligentSync:
             query_string += f" WHERE LastModifiedDate > {lmd_sf}"
         
         logger.debug(f"🔍 Final SOQL query: {query_string}")
-        print(f"🔍 Executing Bulk API query: {query_string}")
+        logger.debug(f"🔍 Executing Bulk API query: {query_string}")
         
         # Create bulk query job
         logger.debug("📋 Creating Bulk API job...")
@@ -1005,9 +897,9 @@ class IntelligentSync:
             error_message = error_info.get('message', 'Unknown error')
             error_code = error_info.get('errorCode', 'UNKNOWN_ERROR')
             
-            print(f"❌ Bulk API job creation failed:")
-            print(f"  - Error Code: {error_code}")
-            print(f"  - Error Message: {error_message}")
+            logger.error(f"❌ Bulk API job creation failed:")
+            logger.error(f"  - Error Code: {error_code}")
+            logger.error(f"  - Error Message: {error_message}")
             
             # Return error info instead of raising exception so retry logic can handle it
             return {
@@ -1020,8 +912,8 @@ class IntelligentSync:
         
         # Check if job_response is a valid success response
         if not isinstance(job_response, dict) or 'id' not in job_response:
-            print(f"❌ Unexpected job_response format: {type(job_response)}")
-            print(f"❌ Expected dict with 'id' key, got: {job_response}")
+            logger.error(f"❌ Unexpected job_response format: {type(job_response)}")
+            logger.error(f"❌ Expected dict with 'id' key, got: {job_response}")
             # Return error info instead of raising exception so retry logic can handle it
             return {
                 'success': False,
@@ -1034,7 +926,7 @@ class IntelligentSync:
         job_id = job_response['id']
         
         logger.debug(f"📋 Created Bulk API job: {job_id}")
-        print(f"📋 Created Bulk API job: {job_id}")
+        logger.info(f"📋 Created Bulk API job: {job_id}")
         
         # Monitor job status
         logger.debug("📊 Monitoring job status...")
@@ -1047,7 +939,6 @@ class IntelligentSync:
             
             state = job_status['state']
             logger.debug(f"📊 Job status: {state}")
-            print(f"📊 Job status: {state}")
             
             if state == 'JobComplete':
                 break
@@ -1065,18 +956,16 @@ class IntelligentSync:
         logger.debug(f"📥 Getting results (optimized direct loading)")
         
         # Use optimized direct loading for all cases (stage parameters are deprecated)
-        print(f"🔍 About to call get_bulk_results with force_full_sync={self.force_full_sync}")
-        print(f"🔍 force_full_sync type: {type(self.force_full_sync)}")
-        print(f"🔍 force_full_sync value: {repr(self.force_full_sync)}")
+        logger.debug(f"🔍 About to call get_bulk_results with force_full_sync={self.force_full_sync}")
         try:
             result = query_bapi20.get_bulk_results(
                 self.session, self.access_info, job_id, sobject, schema, table,
                 snowflake_fields=snowflake_fields, use_stage=use_stage, stage_name=stage_name,
                 force_full_sync=self.force_full_sync  # Pass the force_full_sync parameter
             )
-            print(f"✅ Bulk API results retrieved successfully")
+            logger.info(f"✅ Bulk API results retrieved successfully")
         except Exception as e:
-            print(f"⚠️ Warning: Error getting bulk results: {e}")
+            logger.warning(f"⚠️ Warning: Error getting bulk results: {e}")
             # Continue with cleanup even if results retrieval failed
             result = None
         
@@ -1086,15 +975,15 @@ class IntelligentSync:
                 logger.debug(f"🧹 Cleaning up job: {job_id}")
                 cleanup_result = query_bapi20.delete_specific_job(self.access_info, job_id)
                 if cleanup_result.get('success'):
-                    print(f"🧹 Cleaned up job: {job_id}")
+                    logger.info(f"🧹 Cleaned up job: {job_id}")
                 else:
                     logger.warning(f"⚠️ Warning: Could not clean up job {job_id}: {cleanup_result.get('error', 'Unknown error')}")
-                    print(f"⚠️ Warning: Could not clean up job {job_id}: {cleanup_result.get('error', 'Unknown error')}")
+                    logger.warning(f"⚠️ Warning: Could not clean up job {job_id}: {cleanup_result.get('error', 'Unknown error')}")
             except Exception as e:
                 logger.warning(f"⚠️ Warning: Could not clean up job {job_id}: {e}")
-                print(f"⚠️ Warning: Could not clean up job {job_id}: {e}")
+                logger.warning(f"⚠️ Warning: Could not clean up job {job_id}: {e}")
         else:
-            print(f"🧹 Skipping job cleanup (delete_job=False) - job {job_id} will remain in Salesforce")
+            logger.info(f"🧹 Skipping job cleanup (delete_job=False) - job {job_id} will remain in Salesforce")
         
         return {
             'success': True,
@@ -1113,7 +1002,7 @@ class IntelligentSync:
             dict: Summary of cleanup operation.
         """
         logger.debug(f"🧹 Starting cleanup of jobs older than {max_age_hours} hours")
-        print(f"🧹 Starting cleanup of jobs older than {max_age_hours} hours")
+        logger.info(f"🧹 Starting cleanup of jobs older than {max_age_hours} hours")
         
         try:
             from . import query_bapi20
@@ -1125,7 +1014,6 @@ class IntelligentSync:
         except Exception as e:
             error_msg = f"Error during job cleanup: {str(e)}"
             logger.error(f"❌ {error_msg}")
-            print(f"❌ {error_msg}")
             return {
                 'deleted_count': 0,
                 'failed_count': 0,
@@ -1160,7 +1048,7 @@ class IntelligentSync:
             soql_query = soql_query.replace('where', 'WHERE').replace('LastModifiedDate>', 'LastModifiedDate > ')
         
         logger.debug(f"🔍 Final SOQL query: {soql_query}")
-        print(f"🔍 Executing regular API query: {soql_query}")
+        logger.debug(f"🔍 Executing regular API query: {soql_query}")
         
         # Execute query and process results
         records_processed = 0
@@ -1180,7 +1068,7 @@ class IntelligentSync:
             # tmp_table = f"TMP_{table}"
             # create_temp_query = f"CREATE OR REPLACE TEMPORARY TABLE {current_db}.{schema}.{tmp_table} LIKE {current_db}.{schema}.{table}"
             # logger.debug(f"🔍 Creating temp table: {create_temp_query}")
-            # debug_sql_execution(self.session, create_temp_query, "create_temp_table")
+            # sql_execution(self.session, create_temp_query, "create_temp_table")
             
             # # Use the existing df_fields from Salesforce describe - no need to query temp table
             # table_fields = df_fields
@@ -1335,54 +1223,3 @@ def sync_sobject_intelligent(session,
         sobject, schema, table, match_field, use_stage, stage_name, force_full_sync, force_bulk_api, existing_job_id, delete_job
     )
 
-
-def sync_with_debug(session, access_info, sobject, schema, table, **kwargs):
-    """
-    Simple debug wrapper that prints everything to stdout.
-    Use this in Snowflake notebooks to see exactly what's happening.
-    
-    Example with existing job ID:
-        result = sync_with_debug(session, access_info, "Account", "SALESFORCE", "ACCOUNT", 
-                                existing_job_id="750U700000IN4oaIAD", delete_job=False)
-    """
-    print("\n" + "="*100)
-    print("🚀 STARTING SYNC WITH DEBUG OUTPUT")
-    print("="*100)
-    print(f"📋 Parameters:")
-    print(f"   - SObject: {sobject}")
-    print(f"   - Schema: {schema}")
-    print(f"   - Table: {table}")
-    print(f"   - Additional args: {kwargs}")
-    if 'existing_job_id' in kwargs:
-        print(f"   - Using existing job ID: {kwargs['existing_job_id']}")
-    print("="*100)
-    
-    try:
-        result = sync_sobject_intelligent(
-            session=session,
-            access_info=access_info,
-            sobject=sobject,
-            schema=schema,
-            table=table,
-            **kwargs
-        )
-        
-        print("\n" + "="*100)
-        print("✅ SYNC COMPLETED SUCCESSFULLY")
-        print("="*100)
-        print(f"📊 Result: {result}")
-        print("="*100)
-        
-        return result
-        
-    except Exception as e:
-        print("\n" + "="*100)
-        print("❌ SYNC FAILED")
-        print("="*100)
-        print(f"Error: {e}")
-        print(f"Error type: {type(e).__name__}")
-        import traceback
-        print(f"Full traceback:")
-        print(traceback.format_exc())
-        print("="*100)
-        raise 

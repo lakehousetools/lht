@@ -1,7 +1,10 @@
 import re
 import requests
 import pandas as pd
+import logging
 from urllib.parse import unquote_plus
+
+logger = logging.getLogger(__name__)
 
 def remove_field_from_query(query, field_to_remove):
     """
@@ -14,33 +17,33 @@ def remove_field_from_query(query, field_to_remove):
     Returns:
         str: Modified query string with the field removed
     """
-    print(f"🔍 DEBUG: Original query: '{query}'")
-    print(f"🔍 DEBUG: Query type: {type(query)}")
-    print(f"🔍 DEBUG: Query length: {len(query) if query else 0}")
-    print(f"🔍 DEBUG: Field to remove: '{field_to_remove}'")
+    logger.debug(f"🔍 DEBUG: Original query: '{query}'")
+    logger.debug(f"🔍 DEBUG: Query type: {type(query)}")
+    logger.debug(f"🔍 DEBUG: Query length: {len(query) if query else 0}")
+    logger.debug(f"🔍 DEBUG: Field to remove: '{field_to_remove}'")
     
     # Check if query is None or empty
     if not query or not isinstance(query, str):
-        print(f"❌ DEBUG: Query is None, empty, or not a string")
+        logger.error(f"❌ DEBUG: Query is None, empty, or not a string")
         return query or ""
     
     # Clean up the query string and handle URL encoding
     query_clean = query.strip()
     if not query_clean:
-        print(f"❌ DEBUG: Query is empty after stripping whitespace")
+        logger.error(f"❌ DEBUG: Query is empty after stripping whitespace")
         return query
     
     # Check if query is URL encoded (contains + instead of spaces)
     is_url_encoded = '+' in query_clean and not re.search(r'SELECT\s+.*\s+FROM', query_clean, re.IGNORECASE)
-    print(f"🔍 DEBUG: Query appears to be URL encoded: {is_url_encoded}")
+    logger.debug(f"🔍 DEBUG: Query appears to be URL encoded: {is_url_encoded}")
     
     if is_url_encoded:
         # URL decode the query by replacing + with spaces
         query_for_parsing = unquote_plus(query_clean)
-        print(f"🔍 DEBUG: URL decoded query (first 200 chars): '{query_for_parsing[:200]}...'")
+        logger.debug(f"🔍 DEBUG: URL decoded query (first 200 chars): '{query_for_parsing[:200]}...'")
     else:
         query_for_parsing = query_clean
-        print(f"🔍 DEBUG: Query for parsing (first 200 chars): '{query_for_parsing[:200]}...'")
+        logger.debug(f"🔍 DEBUG: Query for parsing (first 200 chars): '{query_for_parsing[:200]}...'")
     
     # Try multiple regex patterns to be more flexible
     patterns = [
@@ -55,24 +58,24 @@ def remove_field_from_query(query, field_to_remove):
     for i, pattern in enumerate(patterns):
         select_match = re.search(pattern, query_for_parsing, re.IGNORECASE | re.DOTALL)
         if select_match:
-            print(f"✅ DEBUG: Pattern {i+1} matched: {pattern}")
+            logger.debug(f"✅ DEBUG: Pattern {i+1} matched: {pattern}")
             break
         else:
-            print(f"❌ DEBUG: Pattern {i+1} failed: {pattern}")
+            logger.debug(f"❌ DEBUG: Pattern {i+1} failed: {pattern}")
     
     if not select_match:
-        print(f"❌ DEBUG: Could not parse SELECT clause from query")
-        print(f"🔍 DEBUG: Query contains 'SELECT'? {'SELECT' in query_for_parsing.upper()}")
-        print(f"🔍 DEBUG: Query contains 'FROM'? {'FROM' in query_for_parsing.upper()}")
+        logger.error(f"❌ DEBUG: Could not parse SELECT clause from query")
+        logger.debug(f"🔍 DEBUG: Query contains 'SELECT'? {'SELECT' in query_for_parsing.upper()}")
+        logger.debug(f"🔍 DEBUG: Query contains 'FROM'? {'FROM' in query_for_parsing.upper()}")
         
         # Show character-by-character breakdown for very short queries
         if len(query_for_parsing) < 100:
-            print(f"🔍 DEBUG: Character breakdown: {[c for c in query_for_parsing]}")
+            logger.debug(f"🔍 DEBUG: Character breakdown: {[c for c in query_for_parsing]}")
         
         return query
     
     select_clause = select_match.group(1)
-    print(f"🔍 DEBUG: SELECT clause (first 200 chars): {select_clause[:200]}...")
+    logger.debug(f"🔍 DEBUG: SELECT clause (first 200 chars): {select_clause[:200]}...")
     
     # Always clean the select clause properly - remove + signs and extra spaces
     select_clause_clean = select_clause.replace('+', ' ')
@@ -80,8 +83,8 @@ def remove_field_from_query(query, field_to_remove):
     
     # Split by commas and clean each field
     fields = [field.strip() for field in select_clause_clean.split(',') if field.strip()]
-    print(f"🔍 DEBUG: Total fields found: {len(fields)}")
-    print(f"🔍 DEBUG: First 10 fields: {fields[:10]}")
+    logger.debug(f"🔍 DEBUG: Total fields found: {len(fields)}")
+    logger.debug(f"🔍 DEBUG: First 10 fields: {fields[:10]}")
     
     # Find the field to remove (case-insensitive)
     field_found = False
@@ -91,7 +94,7 @@ def remove_field_from_query(query, field_to_remove):
             field_found = True
             break
     
-    print(f"🔍 DEBUG: Field '{field_to_remove}' found in query: {field_found}")
+    logger.debug(f"🔍 DEBUG: Field '{field_to_remove}' found in query: {field_found}")
     
     # Remove the specified field (case-insensitive)
     # Also handle field aliases (e.g., "Field__c AS MyField")
@@ -106,17 +109,17 @@ def remove_field_from_query(query, field_to_remove):
             cleaned_fields.append(field)
         else:
             field_removed = True
-            print(f"✅ DEBUG: Removed field: {field}")
+            logger.debug(f"✅ DEBUG: Removed field: {field}")
     
-    print(f"🔍 DEBUG: Fields after removal: {len(cleaned_fields)} remaining")
-    print(f"🔍 DEBUG: Original field count: {len(fields)}, Cleaned field count: {len(cleaned_fields)}")
+    logger.debug(f"🔍 DEBUG: Fields after removal: {len(cleaned_fields)} remaining")
+    logger.debug(f"🔍 DEBUG: Original field count: {len(fields)}, Cleaned field count: {len(cleaned_fields)}")
     
     if not field_removed:
-        print(f"❌ DEBUG: Field {field_to_remove} not found in fields list")
+        logger.warning(f"❌ DEBUG: Field {field_to_remove} not found in fields list")
         return query
     
     if len(cleaned_fields) == 0:
-        print(f"❌ DEBUG: Cannot remove all fields from SELECT clause")
+        logger.error(f"❌ DEBUG: Cannot remove all fields from SELECT clause")
         return query
     
     # Reconstruct the query
@@ -139,7 +142,7 @@ def remove_field_from_query(query, field_to_remove):
             flags=re.IGNORECASE | re.DOTALL
         )
     
-    print(f"🔍 DEBUG: Cleaned query (first 200 chars): {cleaned_query[:200]}...")
+    logger.debug(f"🔍 DEBUG: Cleaned query (first 200 chars): {cleaned_query[:200]}...")
     return cleaned_query
 
 
@@ -166,7 +169,7 @@ def query_records(access_info, query, batch_size=1000, incremental=False):
     }
 
     url = f"{access_info['instance_url']}/services/data/v58.0/queryAll?q={query}"
-    print("@@@ QUERY: ", query)
+    logger.debug(f"@@@ QUERY: {query}")
     
     results = requests.get(url, headers=headers)
     
@@ -177,23 +180,23 @@ def query_records(access_info, query, batch_size=1000, incremental=False):
             error_info = json_data[0]
             if error_info.get('errorCode') == 'INVALID_FIELD':
                 error_message = error_info.get('message', '')
-                print(f"❌ INVALID_FIELD error: {error_message}")
+                logger.error(f"❌ INVALID_FIELD error: {error_message}")
                 
                 # Extract field name from error message
                 field_match = re.search(r"No such column '([^']+)'", error_message)
                 if field_match:
                     invalid_field = field_match.group(1)
-                    print(f"🔍 Removing invalid field: {invalid_field}")
+                    logger.info(f"🔍 Removing invalid field: {invalid_field}")
                     
                     # Remove the invalid field from the query
                     cleaned_query = remove_field_from_query(query, invalid_field)
                     if cleaned_query != query:
-                        print(f"🔄 Retrying with cleaned query")
+                        logger.info(f"🔄 Retrying with cleaned query")
                         # Use 'yield from' to properly delegate the generator
                         yield from query_records(access_info, cleaned_query, batch_size, incremental)
                         return  # Exit early after successful retry
                     else:
-                        print(f"❌ Could not remove field {invalid_field} from query")
+                        logger.error(f"❌ Could not remove field {invalid_field} from query")
     
     results.raise_for_status()  # Raise exception for HTTP errors
     json_data = results.json()
@@ -205,7 +208,7 @@ def query_records(access_info, query, batch_size=1000, incremental=False):
     try:
         sobj_data.drop(columns=['attributes.type', 'attributes.url'], inplace=True)
     except KeyError:
-        print("Attributes not found, moving on")
+        logger.debug("Attributes not found, moving on")
     
     for col in sobj_data.select_dtypes(include=['datetime64']).columns:
         sobj_data[col] = sobj_data[col].fillna(pd.Timestamp('1900-01-01'))
@@ -231,7 +234,7 @@ def query_records(access_info, query, batch_size=1000, incremental=False):
         try:
             sobj_data.drop(columns=['ATTRIBUTES.TYPE', 'ATTRIBUTES.URL'], inplace=True)
         except KeyError:
-            print("Attributes not found, moving on")
+            logger.debug("Attributes not found, moving on")
         
         for col in sobj_data.select_dtypes(include=['datetime64']).columns:
             sobj_data[col] = sobj_data[col].fillna(pd.Timestamp('1900-01-01')) 

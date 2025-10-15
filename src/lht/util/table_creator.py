@@ -36,9 +36,7 @@ def create_salesforce_table(
         Exception: If table creation fails
     """
     try:
-        print(f"🔍 create_salesforce_table called with force_full_sync={force_full_sync}")
-        print(f"🔍 force_full_sync type: {type(force_full_sync)}")
-        print(f"🔍 force_full_sync value: {repr(force_full_sync)}")
+        logger.debug(f"🔍 create_salesforce_table called with force_full_sync={force_full_sync}")
         
         # Auto-detect database if not provided
         if database is None:
@@ -51,45 +49,33 @@ def create_salesforce_table(
         
         # Check if table already exists
         try:
-            print(f"🔍 Checking if table {schema}.{table} exists...")
-            print(f"🔍 force_full_sync parameter = {force_full_sync}")
-            print(f"🔍 force_full_sync type = {type(force_full_sync)}")
+            logger.debug(f"🔍 Checking if table {schema}.{table} exists...")
             
             table_check = session.sql(f'SHOW TABLES IN SCHEMA "{schema}"').collect()
-            print(f"🔍 Raw table_check result: {table_check}")
             table_names = [row['name'] for row in table_check]
-            print(f"🔍 Tables in schema: {table_names}")
-            print(f"🔍 Looking for table: {table}")
-            print(f"🔍 Table exists: {table in table_names}")
-            print(f"🔍 Table names types: {[type(name).__name__ for name in table_names]}")
-            print(f"🔍 Target table type: {type(table).__name__}")
             
             if table in table_names:
-                print(f"🔍 Table {table} EXISTS in schema {schema}")
+                logger.debug(f"🔍 Table {table} EXISTS in schema {schema}")
                 if force_full_sync:
-                    print(f"🔍 force_full_sync is TRUE - will recreate table")
+                    logger.debug(f"🔍 force_full_sync is TRUE - will recreate table")
                     logger.info(f"Table {schema}.{table} exists and force_full_sync=True, recreating it...")
                     # Drop existing table first
-                    print(f"🗑️ Dropping existing table {schema}.{table}...")
+                    logger.info(f"🗑️ Dropping existing table {schema}.{table}...")
                     session.sql(f"DROP TABLE IF EXISTS {schema}.{table}").collect()
-                    print(f"✅ Dropped existing table {schema}.{table}")
+                    logger.info(f"✅ Dropped existing table {schema}.{table}")
                     logger.info(f"Dropped existing table {schema}.{table}")
                 else:
-                    print(f"🔍 force_full_sync is FALSE - skipping table creation")
+                    logger.debug(f"🔍 force_full_sync is FALSE - skipping table creation")
                     logger.info(f"Table {schema}.{table} already exists, skipping creation")
                     return True
             else:
-                print(f"🔍 Table {table} does NOT exist in schema {schema}")
+                logger.debug(f"🔍 Table {table} does NOT exist in schema {schema}")
             
             # Create table with correct schema (either new or after dropping)
             logger.info(f"Creating table {schema}.{table}...")
             create_table_sql = _build_create_table_sql(schema, table, snowflake_fields, force_full_sync)
             
-            # Make CREATE TABLE SQL highly visible
-            print(f"\n{'='*80}")
-            print(f"🔧 CREATING TABLE: {schema}.{table}")
-            print(f"🔧 FORCE_FULL_SYNC: {force_full_sync}")
-            print(f"{'='*80}")
+            # Create table with correct schema (either new or after dropping)
             
             result = session.sql(create_table_sql).collect()
             logger.info(f"Table created successfully with correct schema")
@@ -126,11 +112,7 @@ def create_salesforce_table(
                 # Create table with correct schema
                 create_table_sql = _build_create_table_sql(schema, table, snowflake_fields, force_full_sync)
                 
-                # Make CREATE TABLE SQL highly visible (fallback path)
-                print(f"\n{'='*80}")
-                print(f"🔧 FORCE_FULL_SYNC: {force_full_sync}")
-                print(f"{'='*80}")
-                print(f"{'='*80}")
+                # Create table with correct schema
                 
                 result = session.sql(create_table_sql).collect()
                 logger.info(f"Table recreated with correct schema")
@@ -217,7 +199,7 @@ def ensure_table_exists_for_dataframe(
         filtered_snowflake_fields = {k: snowflake_fields.get(k, 'VARCHAR(16777216)') for k in df_fields.keys()}
         
         # Create the table
-        print(f"🚀 Calling create_salesforce_table with force_full_sync={force_full_sync}")
+        logger.debug(f"🚀 Calling create_salesforce_table with force_full_sync={force_full_sync}")
         return create_salesforce_table(
             session=session,
             schema=schema,
