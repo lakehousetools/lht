@@ -52,13 +52,24 @@ def format_insert_upsert(snowpark_session, src_table, tgt_table, s_filter_cond):
     # Use fully qualified table names for temporary table queries
     src_table_col = snowpark_session.sql("select COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '{0}' AND TABLE_SCHEMA = \'{1}\' ORDER BY ORDINAL_POSITION".format(src_table, schema_name)).collect()
     tgt_table_col = snowpark_session.sql("select COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '{0}' AND TABLE_SCHEMA = \'{1}\' ORDER BY ORDINAL_POSITION".format(tgt_table, schema_name)).collect()
-
+    logger.info("\n\nsrc_table_col: {}".format(src_table_col))
+    logger.info("\n\ntgt_table_col: {}".format(tgt_table_col))
     if len(src_table_col) != 0:
         for idx_value in range(len(src_table_col)):
             sel_colum.append('"'+src_table_col[idx_value][0]+'"')
             insert_val.append("src." + '"' + str(src_table_col[idx_value][0]) + '"')
             insert_sel.append("tgt." + '"' + str(tgt_table_col[idx_value][0]) + '"')
             update_col.append("tgt." + '"' + str(tgt_table_col[idx_value][0]) + '"' + ' = ' + "src." + '"' + str(src_table_col[idx_value][0]) + '"')
+
+        # DEBUG: Log the column lists before generating SQL
+        logger.debug("🔍 DEBUG: Column lists being used in merge statement:")
+        logger.debug(f"   sel_colum (SELECT columns): {sel_colum}")
+        logger.debug(f"   insert_val (INSERT VALUES): {insert_val}")
+        logger.debug(f"   insert_sel (INSERT columns): {insert_sel}")
+        logger.debug(f"   update_col (UPDATE SET): {update_col}")
+        logger.debug(f"   s_filter_cond (ON condition): {s_filter_cond}")
+        logger.debug(f"   tgt_table: {tgt_table}")
+        logger.debug(f"   src_table: {src_table}")
 
         s_merge_stmt = """
                     MERGE INTO
@@ -81,9 +92,13 @@ def format_insert_upsert(snowpark_session, src_table, tgt_table, s_filter_cond):
                     ",".join(update_col),
                     ",".join(insert_sel),
                     ",".join(insert_val)
-                )   
+                )
+        
+        # DEBUG: Log the complete generated SQL statement
+        logger.debug("🔍 DEBUG: Generated merge SQL statement:")
+        logger.debug(f"   {s_merge_stmt}")   
     else:
-        return "Error"
+        return "Error---"
     return s_merge_stmt
 
 #method to transform temp table and match datatypes with permanent table

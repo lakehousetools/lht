@@ -440,11 +440,13 @@ def write_dataframe_with_type_handling(
 def write_batch_to_temp_table(
     session: Session,
     df: pd.DataFrame,
-    schema: str,
+    schema: Optional[str],
     temp_table: str,
     df_fields: dict,
     validate_types: bool = True,
-    force_full_sync: bool = False
+    force_full_sync: bool = False,
+    main_table: str = None,
+    snowflake_fields: Optional[dict] = None
 ) -> bool:
     """
     Write a batch DataFrame to a temporary table for incremental sync operations.
@@ -452,29 +454,52 @@ def write_batch_to_temp_table(
     Args:
         session: Snowflake Snowpark session
         df: DataFrame to write
-        schema: Target schema name
+        schema: Target schema name (None to use session's current schema)
         temp_table: Temporary table name
         df_fields: List of field names for validation
         validate_types: Whether to validate DataFrame types before writing
+        force_full_sync: Whether this is a full sync operation
+        main_table: Main table name to copy schema from (for temp table creation)
+        snowflake_fields: Salesforce field type definitions
         
     Returns:
         bool: True if successful
     """
-    logger.debug(f"📦 Writing batch to temp table: {schema}.{temp_table}")
+    # Get current schema if not provided
+    if schema is None:
+        current_schema = session.sql('SELECT CURRENT_SCHEMA()').collect()[0][0]
+        logger.debug(f"📦 Using current schema: {current_schema}")
+    else:
+        current_schema = schema
+        
+    logger.debug(f"📦 Writing batch to temp table: {current_schema}.{temp_table}")
+    
+    # Create temporary table with schema copied from main table if provided
+    if main_table:
+        try:
+            create_temp_query = f"CREATE OR REPLACE TEMPORARY TABLE {temp_table} LIKE {main_table}"
+            logger.debug(f"🔍 Creating temp table with schema copy: {create_temp_query}")
+            session.sql(create_temp_query).collect()
+            logger.debug(f"✅ Temp table created with schema from {main_table}")
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to create temp table with schema copy: {e}")
+            logger.warning(f"⚠️ Falling back to auto-create mode")
+            main_table = None  # Fall back to auto-create
     
     try:
         return write_dataframe_to_table(
             session=session,
             df=df,
-            schema=schema,
+            schema=current_schema,
             table=temp_table,
             overwrite=False,
-            auto_create=False,
+            auto_create=main_table is None,  # Only auto-create if we didn't create with LIKE
             temp_table=temp_table,
             validate_types=validate_types,
             use_logical_type=False,  # More lenient for temp tables
             on_error="CONTINUE",
             df_fields=df_fields,  # Pass field definitions for proper formatting
+            snowflake_fields=snowflake_fields,  # Pass Salesforce field types
             force_full_sync=force_full_sync  # Pass through force_full_sync parameter
         )
     except Exception as e:
@@ -488,7 +513,7 @@ def write_batch_to_temp_table(
             return write_dataframe_to_table(
                 session=session,
                 df=df_standardized,
-                schema=schema,
+                schema=current_schema,
                 table=temp_table,
                 overwrite=False,
                 auto_create=False,
@@ -497,6 +522,7 @@ def write_batch_to_temp_table(
                 use_logical_type=False,
                 on_error="CONTINUE",
                 df_fields=df_fields,  # Pass field definitions for proper formatting
+                snowflake_fields=snowflake_fields,  # Pass Salesforce field types
                 force_full_sync=force_full_sync  # Pass through force_full_sync parameter
             )
         else:
