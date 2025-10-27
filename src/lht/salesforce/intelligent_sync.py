@@ -552,6 +552,7 @@ class IntelligentSync:
                 raise ValueError(error_msg)
                 
         except Exception as e:
+            import traceback
             error_msg = f"Error executing sync strategy: {str(e)}"
             logger.error(f"❌ {error_msg}")
             traceback.print_exc()
@@ -1054,15 +1055,16 @@ class IntelligentSync:
         records_processed = 0
         
         if strategy['is_incremental']:
+            logger.debug(f"🔍 Performing incremental sync for {sobject}")
             # Incremental sync - use merge logic
             # First check if the main table exists before creating temp table
             if not self._table_exists(schema, table):
                 error_msg = f"Cannot perform incremental sync: table {schema}.{table} does not exist"
-                logger.error(f"❌ {error_msg}")
+                logger.error(f"❌.. {error_msg}")
                 raise Exception(error_msg)
             
             # Get current database for fully qualified table names
-            current_db = self.session.sql('SELECT CURRENT_DATABASE()').collect()[0][0]
+            #current_db = self.session.sql('SELECT CURRENT_DATABASE()').collect()[0][0]
             sobject_sync.new_changed_records(self.session, self.access_info, sobject, table, match_field)
             
             # tmp_table = f"TMP_{table}"

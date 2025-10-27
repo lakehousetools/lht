@@ -105,6 +105,8 @@ def df_field_type(field_type):
 		return 'object'
 	elif field_type['type'] == 'currency':
 		return 'float64'
+	elif field_type['type'] == 'percent':
+		return 'float64'
 	elif field_type['type'] == 'int':
 		return 'int64'
 
@@ -318,7 +320,9 @@ def format_sync_file(df, df_fields):
 					# 	df[col_upper] = df[col_upper].replace({'nan': None, 'None': None, '<NA>': None})
 						
 				elif dtype == 'date':
-					# Handle date fields - just fill None values, don't change the type
+					# First, replace empty strings with None (which pandas can handle)
+					df[col_upper] = df[col_upper].replace({'': None, 'nan': None, 'None': None, '<NA>': None})
+					# Handle date fields - fill None values with default date, don't change the type
 					df[col_upper] = df[col_upper].fillna(pd.Timestamp('1900-01-01').date())
 
 				elif dtype == 'object':
@@ -329,6 +333,9 @@ def format_sync_file(df, df_fields):
 					df[col_upper] = df[col_upper].replace({'nan': None, 'None': None, '<NA>': None})
 					
 				elif dtype == 'int64':
+					# First, replace empty strings with None (which pandas can handle)
+					df[col_upper] = df[col_upper].replace({'': None, 'nan': None, 'None': None, '<NA>': None})
+					
 					# Check if ANY value is non-numeric - if so, convert entire column to string
 					has_non_numeric = False
 					for value in df[col_upper].dropna():

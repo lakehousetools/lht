@@ -19,18 +19,8 @@ def new_changed_records(session, access_info, sobject, local_table, match_field,
     else:
         lmd_sf = None
     tmp_table = 'TMP_{}'.format(local_table)
-    session.sql("CREATE or REPLACE TEMPORARY TABLE {} LIKE {}""".format(tmp_table,local_table)).collect()
+    # Temporary table will be created by data_writer.write_batch_to_temp_table()
 
-    #get the columns from the local table.  There may be fields that are not in the local table
-    #and the salesforce sync will need to skip them
-    results = session.sql("SHOW COLUMNS IN TABLE TMP_{}".format(local_table)).collect()
-    table_fields = []
-    for field in results:
-        try:
-            table_fields.append(field[2]) 
-        except:
-            logger.warning("field {} not present.  Skipping".format(field[2]))
-            continue
  
     #method returns the salesforce sobject query and the fields from the sobject
     query, df_fields, snowflake_fields = sobj.describe(access_info, sobject, lmd_sf)
@@ -39,14 +29,37 @@ def new_changed_records(session, access_info, sobject, local_table, match_field,
     data_list = list(sobject_data)  # Convert generator to list
     logger.info(f"Processing {len(data_list)} batches")
     for i, batch_df in enumerate(data_list):
-        df_str = batch_df.astype(str)
-        batch_df = None
-        logger.debug(f"📊 Processing first batch of data")
-        session.write_pandas(df_str, table_name="tmp_"+local_table, auto_create_table=True, overwrite=True, table_type="temporary", quote_identifiers=False)
-        df_str = None
-        transformed_data = merge.transform_and_match_datatypes(session, "tmp_"+local_table, local_table)
+        logger.debug(f"📊 Processing batch {i+1} of data")
         
-        session.sql(f"Insert into {local_table} select {transformed_data} from tmp_{local_table}").collect()
+        # Write to temp table using data_writer (handles null values properly)
+        # Let the session handle schema context - don't override it
+        dw.write_batch_to_temp_table(
+            session=session,
+            df=batch_df,  # Use original DataFrame, not string version
+            schema=None,  # Let session use current schema context
+            temp_table=tmp_table,  # Use the tmp_table variable (TMP_ prefix)
+            df_fields=df_fields,
+            validate_types=True,
+            main_table=local_table,
+            snowflake_fields=snowflake_fields  # Add missing snowflake_fields parameter
+        )
+        logger.debug(f"📊 data written to temporary table")
+        transformed_data = merge.transform_and_match_datatypes(session, tmp_table, local_table)
+        
+        # INCREMENTAL SYNC: Use MERGE logic instead of INSERT
+        logger.info("🔄 Performing incremental sync with MERGE logic")
+        #merge_condition = merge.format_filter_condition(session, tmp_table, local_table, match_field, match_field)
+        #merge_statement = merge.format_insert_upsert(session, tmp_table, local_table, merge_condition)
+        merge_statement = merge.format_filter_condition(session, tmp_table, local_table, match_field, match_field)
+        
+        # DEBUG: Print the merge statement before execution
+        logger.info("🔍 MERGE STATEMENT TO BE EXECUTED:")
+        logger.info("=" * 80)
+        logger.info(merge_statement)
+        logger.info("=" * 80)
+        
+        session.sql(merge_statement).collect()
+        logger.info(f"✅ Batch {i+1} merged successfully")
 
     #merge.format_filter_condition(session, tmp_table, local_table,match_field, match_field)
     return query
