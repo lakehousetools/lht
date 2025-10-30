@@ -250,7 +250,6 @@ def update(session, access_info, sobject, query):
     #########################################################
     logger.debug("closing job")
     close_results = ingest.job_close(access_info, job_id)
-    logger.debug(f"close_results: {close_results}")
 
 
     #########################################################
@@ -303,7 +302,6 @@ def insert(session, access_info, sobject, query):
     #########################################################
     logger.debug("closing job")
     close_results = ingest.job_close(access_info, job_id)
-    logger.debug(f"close_results: {close_results}")
 
 
     #########################################################
@@ -368,7 +366,6 @@ def delete(session, access_info, sobject, query, field):
     #########################################################
     logger.debug("closing job")
     close_results = ingest.job_close(access_info, job_id)
-    logger.debug(f"close_results: {close_results}")
 
 
     #########################################################

@@ -122,11 +122,23 @@ def write_dataframe_to_table(
         Exception: If the write operation fails
     """
     try:
+        # DEBUG: Log input DataFrame information
+        logger.debug(f"🔍 DEBUG: Input DataFrame - Type: {type(df).__name__}, Is DataFrame: {isinstance(df, pd.DataFrame)}")
+        if isinstance(df, pd.DataFrame):
+            logger.debug(f"   Shape: {df.shape}")
+        else:
+            logger.debug(f"   Value: {df}")
+
+        sd = df.head(1).to_dict()
+        logger.error(f"   here is the sample data: {str(sd)[:500]}")
+
+
         # Format DataFrame using field_types.format_sync_file if df_fields provided
         if df_fields is not None:
             try:
                 from lht.util import field_types
                 df = field_types.format_sync_file(df, df_fields)
+                logger.debug(f"🔍 DEBUG: After format_sync_file - Type: {type(df).__name__}, Shape: {df.shape if isinstance(df, pd.DataFrame) else 'N/A'}")
                 
                 # VALIDATION: Ensure snowflake_fields is provided when df_fields is available
                 if snowflake_fields is None or len(snowflake_fields) == 0:
@@ -143,11 +155,11 @@ def write_dataframe_to_table(
         if validate_types:
             validation_result = validate_dataframe_types(df)
             if not validation_result['is_valid']:
-                logger.warning("⚠️ DataFrame type validation found potential issues:")
-                for issue in validation_result['issues']:
-                    logger.warning(f"   - {issue}")
-                for recommendation in validation_result['recommendations']:
-                    logger.info(f"   💡 {recommendation}")
+            #     logger.warning("⚠️ DataFrame type validation found potential issues:")
+            #     for issue in validation_result['issues']:
+            #         logger.warning(f"   - {issue}")
+            #     for recommendation in validation_result['recommendations']:
+            #         logger.info(f"   💡 {recommendation}")
                 
                 # If there are critical issues, consider using more lenient settings
                 if use_logical_type and any("Mixed data types" in issue for issue in validation_result['issues']):
@@ -214,6 +226,9 @@ def write_dataframe_to_table(
                                 logger.error(f"❌ Failed to convert {col} to timezone-naive: {e}")
                 
                 #df['CREATEDDATE'] = pd.to_datetime(df['CREATEDDATE'], errors='coerce')
+                # DEBUG: Log df before creating Snowpark DataFrame
+                logger.debug(f"🔍 DEBUG: Before create_dataframe (primary) - Type: {type(df).__name__}, Shape: {df.shape if isinstance(df, pd.DataFrame) else 'N/A'}")
+                
                 # Convert to Snowpark DataFrame and use save_as_table instead of write_pandas
                 snowpark_df = session.create_dataframe(df)
                 df = None
@@ -246,6 +261,9 @@ def write_dataframe_to_table(
                 #             except Exception as e:
                 #                 logger.error(f"❌ Failed to convert {col} to timezone-naive: {e}")
                 
+                # DEBUG: Log df_fallback before creating Snowpark DataFrame
+                logger.debug(f"🔍 DEBUG: Before create_dataframe (fallback) - Type: {type(df_fallback).__name__}, Shape: {df_fallback.shape if isinstance(df_fallback, pd.DataFrame) else 'N/A'}")
+                
                 # Convert to Snowpark DataFrame and use save_as_table instead of write_pandas
                 snowpark_df = session.create_dataframe(df_fallback)
                 df_fallback = None
@@ -274,8 +292,77 @@ def write_dataframe_to_table(
                         except Exception as e:
                             logger.error(f"❌ Failed to convert {col} to timezone-naive: {e}")
             
+            # DEBUG: Log df_processed before creating Snowpark DataFrame
+            logger.debug(f"🔍 DEBUG: Before create_dataframe (processed) - Type: {type(df_processed).__name__}, Shape: {df_processed.shape if isinstance(df_processed, pd.DataFrame) else 'N/A'}")
+            logger.debug(f"🔍 DEBUG: df_processed columns count: {len(df_processed.columns)}")
+            logger.debug(f"🔍 DEBUG: df_processed type check - isinstance DataFrame: {isinstance(df_processed, pd.DataFrame)}")
+            
+            # Ensure DataFrame is properly reset and clean for Snowflake
+            df_processed = df_processed.copy()
+            df_processed.reset_index(drop=True, inplace=True)
+            logger.debug(f"🔍 DEBUG: df_processed shape: {df_processed.shape}")
+            logger.debug(f"🔍 DEBUG: df_processed empty check: {df_processed.empty}")
+            
+            # Check for problematic dtypes
+            logger.debug(f"🔍 DEBUG: Checking for problematic dtypes...")
+            for col in df_processed.columns:
+                dtype = df_processed[col].dtype
+                if str(dtype) == 'object':
+                    # Check if any values are not basic types
+                    sample = df_processed[col].dropna().head(3)
+                    for val in sample:
+                        if val is not None and not pd.isna(val):
+                            val_type = type(val).__name__
+                            if val_type not in ['str', 'int', 'float', 'bool', 'Timestamp', 'datetime', 'date']:
+                                logger.debug(f"🔍 DEBUG: Found unusual type in {col}: {val_type} - {str(val)[:100]}")
+
             # Convert to Snowpark DataFrame and use save_as_table instead of write_pandas
-            snowpark_df = session.create_dataframe(df_processed)
+            try:
+                # Final validation - ensure it's a proper pandas DataFrame
+                if not isinstance(df_processed, pd.DataFrame):
+                    raise TypeError(f"df_processed is not a pandas DataFrame, got {type(df_processed)}")
+                
+                # Ensure DataFrame is in a clean state
+                if df_processed.index.name is not None:
+                    df_processed.reset_index(drop=True, inplace=True)
+                
+                logger.debug(f"🔍 DEBUG: Attempting create_dataframe with type: {type(df_processed)}")
+                logger.debug(f"🔍 DEBUG: DataFrame has index: {df_processed.index.tolist()[:5]}")
+                
+                # DEBUG: Try write_pandas first to a temporary table to validate DataFrame
+                try:
+                    debug_temp_table = f"{temp_table}_DEBUG" if temp_table else f"{table}_DEBUG"
+                    logger.debug(f"🔍 DEBUG: Testing DataFrame with write_pandas to {schema}.{debug_temp_table}")
+                    
+                    session.write_pandas(
+                        df_processed, 
+                        table_name=debug_temp_table,
+                        schema=schema,
+                        auto_create_table=True,
+                        overwrite=True
+                    )
+                    logger.debug(f"✅ DEBUG: write_pandas succeeded - DataFrame is valid")
+                    logger.debug(f"🔍 DEBUG: Table {schema}.{debug_temp_table} created for inspection - NOT dropping")
+                    # Table will remain for manual inspection - you can drop it manually after reviewing
+                except Exception as wp_error:
+                    logger.error(f"❌ DEBUG: write_pandas also failed: {wp_error}")
+                    logger.error(f"   This suggests the DataFrame itself has structural issues")
+                
+                snowpark_df = session.create_dataframe(df_processed)
+            except Exception as create_error:
+                logger.error(f"❌ create_dataframe failed: {create_error}")
+                logger.error(f"   DataFrame type: {type(df_processed)}")
+                logger.error(f"   DataFrame shape: {df_processed.shape}")
+                logger.error(f"   DataFrame columns: {list(df_processed.columns)[:10]}...")
+                # Try to identify the problematic data
+                try:
+                    import json
+                    # Try to convert to dict to see what's actually in there
+                    sample_dict = df_processed.head(1).to_dict()
+                    logger.error(f"   First row sample: {str(sample_dict)[:500]}")
+                except Exception as dict_error:
+                    logger.error(f"   Could not convert to dict: {dict_error}")
+                raise
             df_processed = None
             snowpark_df.write.mode("overwrite" if overwrite else "append").save_as_table(full_table_name)
             snowpark_df = None

@@ -500,10 +500,6 @@ class IntelligentSync:
             
             # Try to get more information about the response if available
             try:
-                if 'response' in locals():
-                    logger.debug(f"📊 Response status: {response.status_code}")
-                    logger.debug(f"📊 Response headers: {dict(response.headers)}")
-                    logger.debug(f"📊 Response content: {response.text[:500]}...")
                     
                     # Try to parse the response if possible
                     try:
@@ -615,8 +611,6 @@ class IntelligentSync:
         logger.debug(f"🔍 Getting field descriptions for {sobject}")
         try:
             query_string, df_fields, snowflake_fields = sobjects.describe(self.access_info, sobject, lmd_sf if last_modified_date else None)
-            logger.debug(f"📋 Raw query string from sobjects.describe: {query_string}")
-            logger.debug(f"📋 Field descriptions: {df_fields}")
             logger.debug(f"📋 Snowflake field types: {snowflake_fields}")
             
             if not query_string or not df_fields:
@@ -883,8 +877,6 @@ class IntelligentSync:
             lmd_sf = str(last_modified_date)[:10] + 'T' + str(last_modified_date)[11:19] + '.000Z'
             query_string += f" WHERE LastModifiedDate > {lmd_sf}"
         
-        logger.debug(f"🔍 Final SOQL query: {query_string}")
-        logger.debug(f"🔍 Executing Bulk API query: {query_string}")
         
         # Create bulk query job
         logger.debug("📋 Creating Bulk API job...")
@@ -1041,15 +1033,11 @@ class IntelligentSync:
         
         logger.debug(f"🔍 Getting field descriptions for {sobject}")
         query_string, df_fields, snowflake_fields = sobjects.describe(self.access_info, sobject, lmd_sf if last_modified_date else None)
-        logger.debug(f"📋 Raw query string from sobjects.describe: {query_string}")
         
         # Convert query string to proper SOQL
         soql_query = query_string.replace('+', ' ').replace('select', 'SELECT').replace('from', 'FROM')
         if last_modified_date:
             soql_query = soql_query.replace('where', 'WHERE').replace('LastModifiedDate>', 'LastModifiedDate > ')
-        
-        logger.debug(f"🔍 Final SOQL query: {soql_query}")
-        logger.debug(f"🔍 Executing regular API query: {soql_query}")
         
         # Execute query and process results
         records_processed = 0

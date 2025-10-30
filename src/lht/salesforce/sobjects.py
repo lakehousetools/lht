@@ -63,9 +63,9 @@ def describe(access_info, sobject, lmd=None):
 		query_string = query_string + "+where+LastModifiedDate+>+{}".format(lmd)
 	
 	# Returning field descriptions from Salesforce
-	logger.debug(f"  - df_fields keys: {list(df_fields.keys())}")
-	logger.debug(f"  - df_fields values: {list(df_fields.values())}")
-	logger.debug(f"  - snowflake_fields keys: {list(snowflake_fields.keys())}")
-	logger.debug(f"  - snowflake_fields values: {list(snowflake_fields.values())}")
+	#logger.debug(f"  - df_fields keys: {list(df_fields.keys())}")
+	#logger.debug(f"  - df_fields values: {list(df_fields.values())}")
+	#logger.debug(f"  - snowflake_fields keys: {list(snowflake_fields.keys())}")
+	#logger.debug(f"  - snowflake_fields values: {list(snowflake_fields.values())}")
 	
 	return query_string, df_fields, snowflake_fields

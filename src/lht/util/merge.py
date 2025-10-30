@@ -28,14 +28,15 @@ def format_filter_condition(snowpark_session, src_table, tgt_table,src_filter, t
   #if s_merge_stament.upper() != 'ERROR':
   if s_merge_stament != 'Error':
     #print("\n\n@@@ {}".format(s_merge_stament))
-    src_table_col = snowpark_session.sql(s_merge_stament).collect()
-    s_final_result = "Number of Rows Inserted: {0} Updated:{1}".format(str(src_table_col[0][0]), str(src_table_col[0][1]))
-    
+    #src_table_col = snowpark_session.sql(s_merge_stament).collect()
+    #s_final_result = "Number of Rows Inserted: {0} Updated:{1}".format(str(src_table_col[0][0]), str(src_table_col[0][1]))
+    return s_merge_stament
   else:
-    logger.error("error")
-    s_final_result = "Error"
+    logger.error("error generating merge statement")
+    #s_final_result = "Error"
+    return "Error"
   
-  return s_final_result;
+  #return s_final_result;
  
 def format_insert_upsert(snowpark_session, src_table, tgt_table, s_filter_cond):
     """

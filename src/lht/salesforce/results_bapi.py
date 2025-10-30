@@ -186,10 +186,7 @@ def get_failed_results(access_info: dict, job_id: str) -> list:
             
             # 🔍 DEBUG: Show sample of failed results structure
             if results:
-			logger.debug(f"📋 Sample failed result structure:")
-                logger.debug(f"   Keys: {list(results[0].keys())}")
-                logger.debug(f"   Sample record: {results[0]}")
-                logger.debug(f"   Total records: {len(results)}")
+                logger.debug(f"📋 Failed results: {len(results)} records")
             
             return results
             
@@ -415,15 +412,7 @@ def process_bulk_api_results(session: Session, access_info: dict, job_id: str):
         # Step 5: Retrieve and store failed results
         logger.info("📉 Retrieving failed results...")
         failure_results = get_failed_results(access_info, job_id)
-        
-        		logger.debug(f"📋 Failure results summary:")
-        logger.debug(f"   Type: {type(failure_results)}")
-        logger.debug(f"   Length: {len(failure_results) if failure_results else 0}")
-        logger.debug(f"   Is empty: {not failure_results}")
-        
-        if failure_results:
-            logger.debug(f"   First record keys: {list(failure_results[0].keys())}")
-            logger.debug(f"   Sample first record: {failure_results[0]}")
+        logger.debug(f"📋 Failure results: {len(failure_results) if failure_results else 0} records")
         
         insert_failure_records(session, job_id, failure_results)
         
