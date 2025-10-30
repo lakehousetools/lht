@@ -169,7 +169,6 @@ def query_records(access_info, query, batch_size=1000, incremental=False):
     }
 
     url = f"{access_info['instance_url']}/services/data/v58.0/queryAll?q={query}"
-    logger.debug(f"@@@ QUERY: {query}")
     
     results = requests.get(url, headers=headers)
     
@@ -200,7 +199,7 @@ def query_records(access_info, query, batch_size=1000, incremental=False):
     
     results.raise_for_status()  # Raise exception for HTTP errors
     json_data = results.json()
-
+    print("@@@ JSON DATA: ", json_data)
     if json_data['totalSize'] == 0:
         return None
 

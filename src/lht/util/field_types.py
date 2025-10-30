@@ -159,7 +159,6 @@ def format_sync_file(df, df_fields):
 		return series
 	
 	# Pre-process all columns to ensure they're in a clean state
-	logger.debug("🔍 Pre-processing DataFrame columns for type safety...")
 	for col in df.columns:
 		try:
 			# Handle any problematic data types before main processing
@@ -178,50 +177,13 @@ def format_sync_file(df, df_fields):
 				df[col] = None
 				logger.warning(f"⚠️ Column {col} filled with None due to conversion error")
 	
-	logger.debug("✅ DataFrame pre-processing completed")
-	
-	# Debug: Show field type mappings
-	logger.debug("🔍 Field type mappings:")
-	for col, dtype in df_fields.items():
-		logger.debug(f"  {col}: {dtype}")
-	
-	# Debug: Check if EFFECTIVEDATE is in the mappings
-	if 'EFFECTIVEDATE' in df_fields:
-		logger.debug(f"✅ EFFECTIVEDATE found in df_fields with type: {df_fields['EFFECTIVEDATE']}")
-	else:
-		logger.debug("❌ EFFECTIVEDATE NOT found in df_fields")
-		# Check for case variations
-		effective_date_variations = [col for col in df_fields.keys() if col.upper() == 'EFFECTIVEDATE']
-		if effective_date_variations:
-			logger.debug(f"✅ Found EFFECTIVEDATE variations: {effective_date_variations}")
-			for var in effective_date_variations:
-				logger.debug(f"  {var}: {df_fields[var]}")
-		else:
-			logger.debug("❌ No EFFECTIVEDATE variations found either")
-		logger.debug(f"Available fields: {list(df_fields.keys())}")
-	
-	# Debug: Show all datetime fields
-	datetime_fields = [col for col, dtype in df_fields.items() if dtype in ['datetime64', 'datetime64[ns]']]
-	if datetime_fields:
-		logger.debug(f"🔍 Datetime fields found: {datetime_fields}")
-	else:
-		logger.debug("⚠️ No datetime fields found in df_fields")
+	# Debug: Show field type mappings (simplified)
+	logger.debug(f"🔍 Processing {len(df_fields)} field types")
 	
 	# Now process each field according to its intended type
 	for col, dtype in df_fields.items():
 		# Convert field name to uppercase to match DataFrame columns
 		col_upper = col.upper()
-		
-		# Debug: Show what's happening with EFFECTIVEDATE specifically
-		if col_upper == 'EFFECTIVEDATE':
-			logger.debug(f"🔍 Processing EFFECTIVEDATE field:")
-			logger.debug(f"  Original col name: {col}")
-			logger.debug(f"  Mapped dtype: {dtype}")
-			logger.debug(f"  Uppercase col: {col_upper}")
-			logger.debug(f"  In DataFrame columns: {col_upper in df.columns}")
-			if col_upper in df.columns:
-				logger.debug(f"  DataFrame dtype: {df[col_upper].dtype}")
-				logger.debug(f"  Sample values: {df[col_upper].head(3).tolist()}")
 		
 		# Case-insensitive field matching
 		# First try exact match, then try uppercase match
@@ -250,8 +212,6 @@ def format_sync_file(df, df_fields):
 				if dtype == 'datetime64' or dtype == 'datetime64[ns]':
 					# Salesforce datetime fields (like CreatedDate, LastViewedDate, LastActivityDate) MUST be datetime
 					logger.debug(f"🔍 Processing datetime field: {col_upper}")
-					logger.debug(f"  Original dtype: {df[col_upper].dtype}")
-					logger.debug(f"  Sample values: {df[col_upper].head(3).tolist()}")
 					
 					# First, handle any None/NaN values that might cause conversion issues
 					df[col_upper] = df[col_upper].replace({pd.NA: None, pd.NaT: None, 'nan': None, 'None': None, '<NA>': None})
@@ -404,7 +364,6 @@ def format_sync_file(df, df_fields):
 			logger.warning(f"field not found '{col_upper}': {e}")
 	
 	# Final safety check: ensure all columns are in a safe state for Snowpark conversion
-	logger.debug("🔍 Final safety check: ensuring all columns are Snowpark-compatible...")
 	for col in df.columns:
 		try:
 			# Ensure the column is in a safe state
@@ -426,7 +385,6 @@ def format_sync_file(df, df_fields):
 			except:
 				df[col] = None
 	
-	logger.debug("✅ Final safety check completed")
 	return df
 
 def map_table_field_types(schema_df, dataframe, df_cols):

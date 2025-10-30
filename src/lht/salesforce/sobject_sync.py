@@ -26,13 +26,23 @@ def new_changed_records(session, access_info, sobject, local_table, match_field,
     query, df_fields, snowflake_fields = sobj.describe(access_info, sobject, lmd_sf)
 
     sobject_data = sobj_query.query_records(access_info, query)
-    data_list = list(sobject_data)  # Convert generator to list
+    
+    data_list = list(sobject_data)  # Convert generator to list of DataFrames
     logger.info(f"Processing {len(data_list)} batches")
     for i, batch_df in enumerate(data_list):
         logger.debug(f"📊 Processing batch {i+1} of data")
         
+        # DEBUG: Check the DataFrame structure before writing
+        logger.debug(f"🔍 DEBUG: batch_df type: {type(batch_df)}, shape: {batch_df.shape if isinstance(batch_df, pd.DataFrame) else 'N/A'}")
+        
+        if not isinstance(batch_df, pd.DataFrame):
+            logger.error(f"❌ batch_df is not a DataFrame! Type: {type(batch_df)}")
+            continue
+        
         # Write to temp table using data_writer (handles null values properly)
         # Let the session handle schema context - don't override it
+        sd = batch_df.head(1).to_dict()
+        logger.error(f"   here is the batch_df data: {str(sd)[:500]}")
         dw.write_batch_to_temp_table(
             session=session,
             df=batch_df,  # Use original DataFrame, not string version

@@ -25,7 +25,6 @@ def job_status(access_info, job_id):
     }
     response = requests.get(url, headers=headers)
     response.raise_for_status()
-    logger.debug(f"STATUS: {response.json()}")
     return response.json()
 
 def send_file(access_info, job_id, data):
