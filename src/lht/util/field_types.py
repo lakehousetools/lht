@@ -388,48 +388,48 @@ def format_sync_file(df, df_fields):
 	return df
 
 def map_table_field_types(schema_df, dataframe, df_cols):
-    df_cols = [col.upper() for col in df_cols]
-    
-    # Initialize Pandas_Type column
-    schema_df['Pandas_Type'] = None
-    
-    # Track columns to keep
-    cols_to_keep = [col for col in dataframe.columns if col.upper() in df_cols]
-    
-    # Drop columns not in df_cols
-    cols_to_drop = [col for col in dataframe.columns if col.upper() not in df_cols]
-    if cols_to_drop:
-        try:
-            dataframe = dataframe.drop(cols_to_drop)
-            logger.info(f"Dropped columns not in df_cols: {cols_to_drop}")
-        except Exception as e:
-            logger.error(f"Error dropping columns: {e}")
-    
-    # Map types
-    for index, row in schema_df.iterrows():
-        col = row['Column_Name'].upper()
-        dtype = row['Data_Type']
-        # Skip columns not in df_cols
-        try:
-            if col not in df_cols:
-                dataframe = dataframe.drop(col, axis=1, inplace=True)
-        except Exception as e:
-            pass
+	df_cols = [col.upper() for col in df_cols]
+	
+	# Initialize Pandas_Type column
+	schema_df['Pandas_Type'] = None
+	
+	# Track columns to keep
+	cols_to_keep = [col for col in dataframe.columns if col.upper() in df_cols]
+	
+	# Drop columns not in df_cols
+	cols_to_drop = [col for col in dataframe.columns if col.upper() not in df_cols]
+	if cols_to_drop:
+		try:
+			dataframe = dataframe.drop(cols_to_drop)
+			logger.info(f"Dropped columns not in df_cols: {cols_to_drop}")
+		except Exception as e:
+			logger.error(f"Error dropping columns: {e}")
+	
+	# Map types
+	for index, row in schema_df.iterrows():
+		col = row['Column_Name'].upper()
+		dtype = row['Data_Type']
+		# Skip columns not in df_cols
+		try:
+			if col not in df_cols:
+				dataframe = dataframe.drop(col, axis=1, inplace=True)
+		except Exception as e:
+			pass
 
-        # Map Salesforce/Snowflake types to Pandas types
-        if dtype.startswith('StringType') or dtype.startswith('VARCHAR'):
-            schema_df.at[index, 'Pandas_Type'] = 'object'
-        elif dtype.startswith('BooleanType') or dtype.startswith('BOOLEAN'):
-            schema_df.at[index, 'Pandas_Type'] = 'bool'
-        elif dtype.startswith('DecimalType') or dtype.startswith('NUMBER'):
-            schema_df.at[index, 'Pandas_Type'] = 'float64'
-        elif dtype.startswith('LongType') or dtype.startswith('INTEGER'):
-            schema_df.at[index, 'Pandas_Type'] = 'int64'
-        elif dtype.startswith('TimestampType') or dtype.startswith('TIMESTAMP'):
-            schema_df.at[index, 'Pandas_Type'] = 'datetime64[ns]'
-        elif dtype.startswith('DateType') or dtype.startswith('DATE'):
-            schema_df.at[index, 'Pandas_Type'] = 'date'
-        else:
-            schema_df.at[index, 'Pandas_Type'] = 'unknown'
-    
-    return schema_df, dataframe
+		# Map Salesforce/Snowflake types to Pandas types
+		if dtype.startswith('StringType') or dtype.startswith('VARCHAR'):
+			schema_df.at[index, 'Pandas_Type'] = 'object'
+		elif dtype.startswith('BooleanType') or dtype.startswith('BOOLEAN'):
+			schema_df.at[index, 'Pandas_Type'] = 'bool'
+		elif dtype.startswith('DecimalType') or dtype.startswith('NUMBER'):
+			schema_df.at[index, 'Pandas_Type'] = 'float64'
+		elif dtype.startswith('LongType') or dtype.startswith('INTEGER'):
+			schema_df.at[index, 'Pandas_Type'] = 'int64'
+		elif dtype.startswith('TimestampType') or dtype.startswith('TIMESTAMP'):
+			schema_df.at[index, 'Pandas_Type'] = 'datetime64[ns]'
+		elif dtype.startswith('DateType') or dtype.startswith('DATE'):
+			schema_df.at[index, 'Pandas_Type'] = 'date'
+		else:
+			schema_df.at[index, 'Pandas_Type'] = 'unknown'
+	
+	return schema_df, dataframe
