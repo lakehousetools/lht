@@ -354,13 +354,15 @@ class IntelligentSync:
                     #print(f"🔍 DEBUG: Alternative query result type: {type(result)}")
                     #print(f"🔍 DEBUG: Alternative query result length: {len(result) if result else 'None'}")
                     
+                    # Initialize raw_value before the if/else block for Cython compatibility
+                    raw_value = None
+                    
                     if result and len(result) > 0:
                         #print(f"🔍 DEBUG: Alternative first result item type: {type(result[0])}")
                         #print(f"🔍 DEBUG: Alternative first result item: {result[0]}")
                         
                         # Handle Snowflake Row objects properly
                         row = result[0]
-                        raw_value = None
                         
                         #print(f"🔍 DEBUG: Alternative row object type: {type(row)}")
                         #print(f"🔍 DEBUG: Alternative row object attributes: {[attr for attr in dir(row) if not attr.startswith('_')]}")

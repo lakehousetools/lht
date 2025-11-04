@@ -1,10 +1,6 @@
-rm -rf dist/ build/ src/lht.egg-info/ && python -m build
-python -m twine upload --repository testpypi dist/*
-python -m twine upload --repository pypi dist/*
-
 # Lake House Tools (LHT) - Salesforce & Snowflake Integration
 
-Bring Salesforce into the fold of your data cloud. LHT is a robust Python library that makes it really easy to extract data from Salesforce and reverse-extract your updates and transformations back into Salesforce.
+Bring Salesforce into the fold of your data cloud. LHT is a robust Python library that makes it really easy to extract data from Salesforce and reverse-extract your updates and transformations back into Salesforce. LHT optimizes the integration of Salesforce into your data cloud by automatically selecting and using the appropriate Salesforce API (Regular API or Bulk API 2.0) based on the data volume and sync requirements.
 
 ## 🚀 Features
 
@@ -12,14 +8,13 @@ Bring Salesforce into the fold of your data cloud. LHT is a robust Python librar
 - **Automatic Method Selection**: Choose the best sync method based on data volume
 - **Incremental Sync**: Smart detection of changed records since last sync
 - **Bulk API 2.0 Integration**: Efficient handling of large datasets
-- **Snowflake Stage Support**: Optimized for Snowflake Notebook environments
 
 ### Core Capabilities
 - **Salesforce Bulk API 2.0**: Full support for bulk operations
 - **Snowflake Integration**: Native Snowpark support
 - **Data Type Mapping**: Automatic Salesforce to Snowflake type conversion
 - **Error Handling**: Comprehensive error management and recovery
-- **Performance Optimization**: Stage-based processing for large datasets
+- **Performance Optimization**: Efficient processing for large datasets
 
 ## 📦 Installation
 
@@ -84,7 +79,6 @@ Since Salesforce was never really architected to deal with any meaningful amount
 - **Security Admin privileges** (required for user and role management)
 - **Database creation permissions**
 - **Warehouse creation permissions**
-- **Stage creation permissions**
 
 **🔑 Minimum Snowflake Roles Needed:**
 ```sql
@@ -112,22 +106,6 @@ result = sync_sobject_intelligent(
 print(f"Synced {result['actual_records']} records using {result['sync_method']}")
 ```
 
-### Advanced Sync with Stage
-
-```python
-# For large datasets in Snowflake Notebooks
-result = sync_sobject_intelligent(
-    session=session,
-    access_info=access_info,
-    sobject="Contact",
-    schema="WAREHOUSE",
-    table="CONTACTS",
-    match_field="ID",
-    use_stage=True,
-    stage_name="@SALESFORCE_STAGE"
-)
-```
-
 ## 🔧 How It Works
 
 ### Decision Matrix
@@ -137,11 +115,9 @@ The system automatically selects the optimal sync method:
 | Scenario | Records | Method | Description |
 |----------|---------|--------|-------------|
 | **First-time sync** | < 1,000 | `regular_api_full` | Use regular Salesforce API |
-| **First-time sync** | 1,000 - 49,999 | `bulk_api_full` | Use Bulk API 2.0 |
-| **First-time sync** | ≥ 50,000 | `bulk_api_stage_full` | Use Bulk API 2.0 with Snowflake stage |
+| **First-time sync** | 1,000+ | `bulk_api_full` | Use Bulk API 2.0 |
 | **Incremental sync** | < 1,000 | `regular_api_incremental` | Use regular API with merge logic |
-| **Incremental sync** | 1,000 - 49,999 | `bulk_api_incremental` | Use Bulk API 2.0 |
-| **Incremental sync** | ≥ 50,000 | `bulk_api_stage_incremental` | Use Bulk API 2.0 with stage |
+| **Incremental sync** | 1,000+ | `bulk_api_incremental` | Use Bulk API 2.0 with merge logic |
 
 ### Incremental Sync Logic
 
@@ -154,7 +130,6 @@ The system automatically selects the optimal sync method:
 ## 📚 Documentation
 
 - **[Intelligent Sync Guide](docs/intelligent_sync_guide.md)**: Comprehensive guide to the intelligent sync system
-- **[Snowflake Stage Integration](docs/snowflake_stage_integration.md)**: Stage-based processing documentation
 - **[Examples](examples/)**: Complete working examples
 
 ## 🔄 Sync Methods
@@ -169,11 +144,6 @@ The system automatically selects the optimal sync method:
 - **Advantages**: Handles large datasets efficiently, built-in retry logic
 - **Disadvantages**: Requires job management, asynchronous processing
 
-### 3. Stage-Based Methods
-- **Use cases**: Very large datasets (50,000+ records) in Snowflake Notebooks
-- **Advantages**: Handles massive datasets, better memory management
-- **Disadvantages**: Requires stage setup, Snowflake-specific
-
 ## 🛠️ Configuration
 
 ### Custom Thresholds
@@ -183,15 +153,11 @@ from lht.salesforce.intelligent_sync import IntelligentSync
 
 sync_system = IntelligentSync(session, access_info)
 sync_system.BULK_API_THRESHOLD = 5000    # Use Bulk API for 5K+ records
-sync_system.STAGE_THRESHOLD = 25000      # Use stage for 25K+ records
 ```
 
 ### Environment Setup
 
 ```python
-# Create stage for large datasets
-session.sql("CREATE OR REPLACE STAGE @SALESFORCE_STAGE").collect()
-
 # Set appropriate warehouse size
 session.sql("USE WAREHOUSE LARGE_WH").collect()
 ```
@@ -277,12 +243,10 @@ result = sync_sobject_intelligent(
 ### Memory Usage
 - **Regular API**: Loads all data in memory
 - **Bulk API**: Processes in batches
-- **Stage-based**: Minimal memory usage
 
 ### Processing Time
 - **Small datasets** (< 1K): Regular API fastest
-- **Medium datasets** (1K-50K): Bulk API optimal
-- **Large datasets** (> 50K): Stage-based best
+- **Medium to large datasets** (1K+): Bulk API optimal
 
 ## 🤝 Contributing
 

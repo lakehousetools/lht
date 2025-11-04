@@ -1,0 +1,14 @@
+# Include all source files for compilation
+include src/lht/**/*.py
+include setup.py
+include pyproject.toml
+include README.md
+include LICENSE
+
+# Exclude build artifacts
+global-exclude *.pyc
+global-exclude *.so
+global-exclude *.pyd
+global-exclude __pycache__
+recursive-exclude * __pycache__
+

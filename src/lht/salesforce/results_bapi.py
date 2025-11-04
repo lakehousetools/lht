@@ -287,7 +287,7 @@ def insert_job_info(session: Session, job_data: dict, job_id: str):
         
     except Exception as e:
         logger.error(f"❌ Error inserting job info: {e}")
-        		logger.error(f"📋 SQL that failed: {insert_sql}")
+        logger.error(f"📋 SQL that failed: {insert_sql}")
 
 def insert_success_records(session: Session, job_id: str, success_data: list):
     """Insert successful records into the SUCCESS table."""
@@ -332,11 +332,11 @@ def insert_failure_records(session: Session, job_id: str, failure_data: list):
         logger.info("ℹ️ No failed records to insert")
         return
     
-    		logger.info(f"📋 Starting to insert {len(failure_data)} failed records for job {job_id}")
+    logger.info(f"📋 Starting to insert {len(failure_data)} failed records for job {job_id}")
     
     try:
         for i, record in enumerate(failure_data):
-			logger.debug(f"📋 Processing failed record {i+1}/{len(failure_data)}")
+            logger.debug(f"📋 Processing failed record {i+1}/{len(failure_data)}")
             logger.debug(f"   Raw record: {record}")
             logger.debug(f"   Record keys: {list(record.keys())}")
             
@@ -374,7 +374,7 @@ def insert_failure_records(session: Session, job_id: str, failure_data: list):
         
     except Exception as e:
         logger.error(f"❌ Error inserting failure records: {e}")
-        		logger.error(f"📋 Last processed record index: {i if 'i' in locals() else 'N/A'}")
+        logger.error(f"📋 Last processed record index: {i if 'i' in locals() else 'N/A'}")
         raise
 
 def process_bulk_api_results(session: Session, access_info: dict, job_id: str):
