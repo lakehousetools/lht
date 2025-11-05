@@ -215,14 +215,24 @@ def save_connection_config(connection_name: str, credentials: Dict[str, Any], co
             key_filename = os.path.basename(private_key_file)
             dest_key_path = solomo_dir / key_filename
             
-            # Copy the key file
-            shutil.copy2(private_key_file, dest_key_path)
-            # Set restrictive permissions (read-only for owner)
-            os.chmod(dest_key_path, 0o600)
+            # Convert both to absolute paths for comparison
+            src_path = os.path.abspath(private_key_file)
+            dst_path = os.path.abspath(dest_key_path)
             
-            # Update the path to point to the copied file
+            # Only copy if source and destination are different files
+            if src_path != dst_path:
+                # Copy the key file
+                shutil.copy2(private_key_file, dest_key_path)
+                # Set restrictive permissions (read-only for owner)
+                os.chmod(dest_key_path, 0o600)
+                print(f"✓ Copied private key to {dest_key_path}")
+            else:
+                # File is already in the .solomo directory, just ensure permissions are correct
+                os.chmod(dest_key_path, 0o600)
+                print(f"✓ Private key already in .solomo directory")
+            
+            # Update the path to point to the copied file (or existing file)
             private_key_file = str(dest_key_path)
-            print(f"✓ Copied private key to {dest_key_path}")
         
         # Add Snowflake-specific fields
         connection_entry.update({
@@ -407,14 +417,24 @@ def update_connection(connection_name: str, credentials: Dict[str, Any], connect
             key_filename = os.path.basename(private_key_file)
             dest_key_path = solomo_dir / key_filename
             
-            # Copy the key file
-            shutil.copy2(private_key_file, dest_key_path)
-            # Set restrictive permissions (read-only for owner)
-            os.chmod(dest_key_path, 0o600)
+            # Convert both to absolute paths for comparison
+            src_path = os.path.abspath(private_key_file)
+            dst_path = os.path.abspath(dest_key_path)
             
-            # Update the path to point to the copied file
+            # Only copy if source and destination are different files
+            if src_path != dst_path:
+                # Copy the key file
+                shutil.copy2(private_key_file, dest_key_path)
+                # Set restrictive permissions (read-only for owner)
+                os.chmod(dest_key_path, 0o600)
+                print(f"✓ Copied private key to {dest_key_path}")
+            else:
+                # File is already in the .solomo directory, just ensure permissions are correct
+                os.chmod(dest_key_path, 0o600)
+                print(f"✓ Private key already in .solomo directory")
+            
+            # Update the path to point to the copied file (or existing file)
             private_key_file = str(dest_key_path)
-            print(f"✓ Copied private key to {dest_key_path}")
         
         # Update connection entry with Snowflake fields
         connection_entry.update({
@@ -478,6 +498,18 @@ def get_primary_connection(connection_type: Optional[str] = None) -> Optional[st
             primary_name = primary_data.get('salesforce_primary', None)
         else:
             raise ValueError(f"Invalid connection_type: {connection_type}. Must be 'snowflake' or 'salesforce'")
+        
+        # If type-specific primary not found, fall back to legacy 'name' and verify type
+        if not primary_name:
+            legacy_name = primary_data.get('name', None)
+            if legacy_name:
+                legacy_name = str(legacy_name).strip()
+                # Verify the connection exists and matches the requested type
+                if legacy_name in connections:
+                    conn_data = connections[legacy_name]
+                    conn_type = str(conn_data.get('connection_type', 'snowflake')).strip().lower()
+                    if conn_type == connection_type:
+                        primary_name = legacy_name
         
         if primary_name:
             return str(primary_name).strip()

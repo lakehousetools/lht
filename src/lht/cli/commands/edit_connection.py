@@ -283,6 +283,22 @@ def edit_connection() -> int:
             print("\n" + "=" * 60)
             print(f"✓ Connection '{selected_connection}' updated successfully!")
             print("=" * 60)
+            
+            # Ask if user wants to set this as primary
+            print()
+            from lht.user.connections import set_primary_connection, get_primary_connection
+            current_primary = get_primary_connection(connection_type)
+            if current_primary == selected_connection:
+                print(f"✓ This connection is already set as the primary {connection_type} connection.")
+            else:
+                make_primary = input(f"Set '{selected_connection}' as the primary {connection_type} connection? (y/n): ").strip().lower() == 'y'
+                if make_primary:
+                    try:
+                        set_primary_connection(selected_connection, connection_type=connection_type)
+                        print(f"✓ Set '{selected_connection}' as primary {connection_type} connection")
+                    except Exception as e:
+                        print(f"⚠ Warning: Failed to set primary connection: {e}")
+            
             return 0
         else:
             print(f"\n✗ Failed to update connection '{selected_connection}'")

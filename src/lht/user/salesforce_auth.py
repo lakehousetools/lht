@@ -61,9 +61,75 @@ def login_user_flow(clientid: str, clientsecret: str, my_domain: str) -> Dict[st
     r.raise_for_status()  # Raise exception for bad status codes
     
     response_data = r.json()
-    print("\n@@@ {}".format(response_data))
     
     return response_data
+
+
+def get_salesforce_access_info(connection_name: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Get Salesforce access_info from a saved connection.
+    
+    Loads a Salesforce connection, authenticates using OAuth2 client credentials flow,
+    and returns the access_info dictionary needed for Salesforce API calls.
+    
+    Args:
+        connection_name: Optional name of Salesforce connection to use.
+                        If None, uses the primary Salesforce connection.
+        
+    Returns:
+        Dictionary containing access_info with 'access_token' and 'instance_url'
+        
+    Raises:
+        ValueError: If connection not found or invalid
+        FileNotFoundError: If connections.toml doesn't exist
+        requests.RequestException: If authentication fails
+    """
+    from lht.user.connections import load_connection, get_primary_connection
+    
+    # Get connection name if not provided
+    if connection_name is None:
+        connection_name = get_primary_connection('salesforce')
+        if connection_name is None:
+            raise ValueError(
+                "No Salesforce connection specified and no primary Salesforce connection found. "
+                "Please specify a connection with --salesforce or create a primary connection."
+            )
+    
+    # Load connection credentials
+    credentials = load_connection(connection_name)
+    if credentials is None:
+        raise ValueError(f"Salesforce connection '{connection_name}' not found")
+    
+    if credentials.get('connection_type', 'snowflake') != 'salesforce':
+        raise ValueError(f"Connection '{connection_name}' is not a Salesforce connection")
+    
+    # Extract credentials
+    client_id = credentials.get('client_id', '')
+    client_key = credentials.get('client_key', '')
+    my_domain = credentials.get('my_domain', '')
+    
+    if not client_id or not client_key or not my_domain:
+        raise ValueError(
+            f"Salesforce connection '{connection_name}' is missing required credentials. "
+            "Need: client_id, client_key, my_domain"
+        )
+    
+    # Authenticate with Salesforce
+    auth_result = login_user_flow(client_id, client_key, my_domain)
+    
+    # Extract access_info from auth result
+    access_info = {
+        'access_token': auth_result.get('access_token'),
+        'instance_url': auth_result.get('instance_url'),
+    }
+    
+    if not access_info['access_token'] or not access_info['instance_url']:
+        raise ValueError(
+            f"Salesforce authentication failed for connection '{connection_name}'. "
+            "Missing access_token or instance_url in response."
+        )
+    
+    return access_info
 
 
 def authenticate_salesforce() -> Dict[str, Any]:
@@ -179,4 +245,3 @@ def authenticate_salesforce() -> Dict[str, Any]:
         print(f"Warning: Failed to save connection: {e}")
     
     return credentials
-
