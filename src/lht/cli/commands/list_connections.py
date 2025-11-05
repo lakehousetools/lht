@@ -25,8 +25,12 @@ def list_connections() -> int:
             print("No saved connections found.")
             return 0
         
-        # Get primary connection if set
-        primary = get_primary_connection()
+        # Get primary connections if set
+        primary_snowflake = get_primary_connection('snowflake')
+        primary_salesforce = get_primary_connection('salesforce')
+        
+        # For backward compatibility, also check legacy primary
+        primary_legacy = get_primary_connection()
         
         print("\n" + "=" * 60)
         print("Saved Connections")
