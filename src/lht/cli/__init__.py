@@ -27,6 +27,7 @@ Examples:
   lht create-connection --snowflake    Create a new Snowflake connection
   lht create-connection --salesforce   Create a new Salesforce connection
   lht list-connections                 List all saved connections
+  lht connect CONNECTION                Verify a connection works
   lht edit-connection                  Edit an existing connection
   lht set-primary CONNECTION           Set a connection as primary
   lht sync --sobject Account --table ACCOUNT  Sync Salesforce Account to Snowflake
@@ -83,6 +84,17 @@ Examples:
     set_primary_parser.add_argument(
         'connection_name',
         help='Name of the connection to set as primary'
+    )
+    
+    # connect command
+    connect_parser = subparsers.add_parser(
+        'connect',
+        help='Verify a connection works',
+        description='Verify a saved connection by attempting to connect and perform a basic operation'
+    )
+    connect_parser.add_argument(
+        'connection_name',
+        help='Name of the connection to verify'
     )
     
     # sync command
@@ -193,6 +205,9 @@ def main(args: Optional[List[str]] = None) -> int:
     elif parsed_args.command == 'set-primary':
         from lht.cli.commands.set_primary import set_primary
         return set_primary(parsed_args.connection_name)
+    elif parsed_args.command == 'connect':
+        from lht.cli.commands.connect import connect
+        return connect(parsed_args.connection_name)
     elif parsed_args.command == 'sync':
         from lht.cli.commands.sync_sobject import sync_sobject
         return sync_sobject(
