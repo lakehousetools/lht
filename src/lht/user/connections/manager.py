@@ -55,7 +55,10 @@ def get_connections_file() -> Path:
 
 def initialize_solomo_directory() -> Path:
     """
-    Create the .solomo directory and connections.toml file if they don't exist.
+    Create the .solomo directory if it doesn't exist.
+    
+    The connections.toml file will be created automatically when the first
+    connection is saved.
     
     Returns:
         Path to the .solomo directory
@@ -64,29 +67,9 @@ def initialize_solomo_directory() -> Path:
         OSError: If directory creation fails
     """
     solomo_dir = get_solomo_dir()
-    connections_file = get_connections_file()
     
     # Create .solomo directory if it doesn't exist
     solomo_dir.mkdir(mode=0o700, exist_ok=True)
-    
-    # Create connections.toml with template if it doesn't exist
-    if not connections_file.exists():
-        template = """[foley_dev1]
-
-connection_type = 'snowflake'
-private_key_file = ''
-private_key_passphrase = ''
-account = ''
-user = ''
-authenticator = ''
-warehouse = ''
-database = ''
-schema = ''
-role = ''
-"""
-        with open(connections_file, 'w') as f:
-            f.write(template)
-        print(f"✓ Created {connections_file}")
     
     return solomo_dir
 

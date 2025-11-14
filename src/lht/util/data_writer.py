@@ -363,6 +363,22 @@ def write_dataframe_to_table(
                 except Exception as dict_error:
                     logger.error(f"   Could not convert to dict: {dict_error}")
                 raise
+            
+            # DEBUG: Display DataFrame contents before write
+            logger.debug(f"\n🔍 DEBUG: DataFrame contents before write (line 367):")
+            logger.debug(f"   Shape: {df_processed.shape}")
+            logger.debug(f"   Columns: {list(df_processed.columns)}")
+            logger.debug(f"   Dtypes:\n{df_processed.dtypes.to_string()}")
+            logger.debug(f"   DataFrame type: {type(df_processed)}")
+            logger.debug(f"   Is pandas DataFrame: {isinstance(df_processed, pd.DataFrame)}")
+            if len(df_processed) > 0:
+                logger.debug(f"   First row data:\n{df_processed.head(1).to_string()}")
+            # Show each column's dtype in detail
+            for col in df_processed.columns:
+                dtype_str = str(df_processed[col].dtype)
+                sample_val = df_processed[col].iloc[0] if len(df_processed) > 0 else None
+                logger.debug(f"   Column '{col}': dtype={dtype_str}, sample_value={sample_val} (type: {type(sample_val).__name__})")
+            
             df_processed = None
             snowpark_df.write.mode("overwrite" if overwrite else "append").save_as_table(full_table_name)
             snowpark_df = None
