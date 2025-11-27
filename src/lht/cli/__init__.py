@@ -172,6 +172,10 @@ Examples:
         action='store_true',
         help='Do not delete the Bulk API job after completion'
     )
+    sync_parser.add_argument(
+        '--where',
+        help='Optional SOQL WHERE clause to append to the Salesforce query (e.g., "IsPersonAccount = False")'
+    )
     
     return parser
 
@@ -223,7 +227,8 @@ def main(args: Optional[List[str]] = None) -> int:
             force_full_sync=parsed_args.force_full_sync,
             force_bulk_api=parsed_args.force_bulk_api,
             existing_job_id=parsed_args.existing_job_id,
-            delete_job=not parsed_args.no_delete_job
+            delete_job=not parsed_args.no_delete_job,
+            where_clause=parsed_args.where
         )
     
     # No command provided
