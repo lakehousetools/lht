@@ -3,6 +3,7 @@ Sync Salesforce object command implementation.
 """
 
 import sys
+import logging
 from typing import Optional
 from lht.user.auth import create_session
 from lht.user.salesforce_auth import get_salesforce_access_info
@@ -23,7 +24,8 @@ def sync_sobject(
     force_full_sync: bool = False,
     force_bulk_api: bool = False,
     existing_job_id: Optional[str] = None,
-    delete_job: bool = True
+    delete_job: bool = True,
+    where_clause: Optional[str] = None
 ) -> int:
     """
     Sync a Salesforce object to Snowflake.
@@ -42,10 +44,19 @@ def sync_sobject(
         force_bulk_api: Force use of Bulk API 2.0 instead of regular API
         existing_job_id: Optional existing Bulk API job ID to use
         delete_job: Whether to delete the Bulk API job after completion (default: True)
+        where_clause: Optional SOQL WHERE clause to filter records (e.g., "IsPersonAccount = False")
         
     Returns:
         Exit code (0 for success, 1 for error)
     """
+    # Configure logging to output to stdout so progress messages are visible
+    logging.basicConfig(
+        level=logging.INFO,  # Show INFO and above (INFO, WARNING, ERROR)
+        format='%(message)s',  # Simple format without timestamps/module names
+        stream=sys.stdout,
+        force=True  # Override any existing configuration
+    )
+    
     try:
         # Get Snowflake connection
         if snowflake_connection is None:
@@ -164,6 +175,8 @@ def sync_sobject(
             print("Force Bulk API: Yes")
         if existing_job_id:
             print(f"Existing Job ID: {existing_job_id}")
+        if where_clause:
+            print(f"WHERE Clause: {where_clause}")
         print(f"Delete Job: {delete_job}")
         print("=" * 60)
         print()
@@ -182,7 +195,8 @@ def sync_sobject(
             force_full_sync=force_full_sync,
             force_bulk_api=force_bulk_api,
             existing_job_id=existing_job_id,
-            delete_job=delete_job
+            delete_job=delete_job,
+            where_clause=where_clause
         )
         
         # Display results
