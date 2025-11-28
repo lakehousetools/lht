@@ -108,59 +108,202 @@ print(f"Synced {result['actual_records']} records using {result['sync_method']}"
 
 ## 🔧 How It Works
 
-### Decision Matrix
+### Sync Strategy
 
-The system automatically selects the optimal sync method:
+LHT uses Salesforce Bulk API 2.0 for all synchronizations, providing consistent and efficient data extraction regardless of data volume.
 
-| Scenario | Records | Method | Description |
-|----------|---------|--------|-------------|
-| **First-time sync** | < 1,000 | `regular_api_full` | Use regular Salesforce API |
-| **First-time sync** | 1,000+ | `bulk_api_full` | Use Bulk API 2.0 |
-| **Incremental sync** | < 1,000 | `regular_api_incremental` | Use regular API with merge logic |
-| **Incremental sync** | 1,000+ | `bulk_api_incremental` | Use Bulk API 2.0 with merge logic |
+**Full Sync (First-time)**
+- Performed when the target table doesn't exist
+- Extracts all records from the Salesforce object
+- Creates the target table in Snowflake
 
-### Incremental Sync Logic
+**Incremental Sync**
+- Performed when the target table already exists
+- Queries `MAX(LASTMODIFIEDDATE)` from the existing table
+- Extracts only records modified since the last sync
+- Uses MERGE logic to update existing records and insert new ones
+
+### Sync Process
 
 1. **Check Table Existence**: Determines if target table exists
-2. **Get Last Modified Date**: Queries `MAX(LASTMODIFIEDDATE)` from existing table
-3. **Estimate Record Count**: Counts records modified since last sync
-4. **Choose Method**: Selects appropriate sync method based on count
-5. **Execute Sync**: Runs the chosen method
+2. **Get Last Modified Date**: Queries `MAX(LASTMODIFIEDDATE)` from existing table (for incremental syncs)
+3. **Create Bulk API 2.0 Job**: Creates a query job in Salesforce
+4. **Process Batches**: Downloads and processes CSV batches from Salesforce
+5. **Write to Temp Table**: Loads data into a temporary Snowflake table
+6. **MERGE to Target**: Merges data from temp table to target table using match field
+7. **Cleanup**: Removes temporary table and Bulk API job
+
+## 💻 Command Line Interface
+
+LHT provides a comprehensive CLI for managing connections and synchronizing data.
+
+### Connection Management
+
+**Create a Snowflake Connection**
+
+```bash
+lht create-connection --snowflake
+```
+
+Prompts for:
+- Account identifier (e.g., `xy12345.us-east-1`)
+- Username
+- Role (e.g., `ACCOUNTADMIN`, `SYSADMIN`)
+- Warehouse (e.g., `COMPUTE_WH`)
+- Private key file path (PEM format for JWT authentication)
+- Private key passphrase (optional)
+- Database (optional, can be overridden)
+- Schema (optional, can be overridden)
+- Connection name
+- Set as primary connection (y/n)
+
+**Create a Salesforce Connection**
+
+```bash
+lht create-connection --salesforce
+```
+
+Prompts for:
+- Client ID (from Connected App)
+- Client Key/Secret (from Connected App)
+- My Domain (e.g., `mycompany`)
+- Sandbox (y/n)
+- Redirect URL (optional)
+- Connection name
+- Set as primary connection (y/n)
+
+**Note:** The CLI requires an External App configured for OAuth2.0 Client Credentials flow. See [Salesforce documentation](https://help.salesforce.com/s/articleView?id=xcloud.remoteaccess_oauth_client_credentials_flow.htm) for setup instructions.
+
+**List Connections**
+
+```bash
+lht list-connections
+```
+
+**Set Primary Connection**
+
+```bash
+lht set-primary CONNECTION_NAME
+```
+
+Sets a connection as the primary/default connection. `lht` commands will default to the primary connection if one is set.
+
+**Edit Connection**
+
+```bash
+lht edit-connection
+```
+
+**Test Connection**
+
+```bash
+lht connect CONNECTION_NAME
+```
+
+### Data Synchronization
+
+**Sync Salesforce Object to Snowflake**
+
+```bash
+lht sync --sobject Account --table ACCOUNT
+```
+
+**Required Arguments:**
+- `--sobject`: Salesforce object name (e.g., `Account`, `Contact`)
+- `--table`: Snowflake table name
+
+**Optional Arguments:**
+- `--schema`: Snowflake schema (defaults to connection if available)
+- `--database`: Snowflake database (defaults to connection if available)
+- `--snowflake NAME`: Snowflake connection name (defaults to primary)
+- `--salesforce NAME`: Salesforce connection name (defaults to primary)
+- `--match-field FIELD`: Field to use for matching records (default: `ID`)
+- `--use-stage`: Use Snowflake stage for large datasets
+- `--stage-name STAGE`: Snowflake stage name (required if `--use-stage` is specified)
+- `--force-full-sync`: Force a full sync regardless of previous sync status
+- `--where WHERE_CLAUSE`: SOQL WHERE clause to filter records (e.g., `"IsPersonAccount = False"`)
+
+**Examples:**
+
+```bash
+# Basic sync
+lht sync --sobject Account --table ACCOUNT
+
+# Sync with custom schema and database
+lht sync --sobject Contact --table CONTACT --schema RAW --database SALESFORCE_DB
+
+# Sync with WHERE clause filter
+lht sync --sobject Account --table ACCOUNT --where "IsPersonAccount = False"
+
+# Force full sync
+lht sync --sobject Account --table ACCOUNT --force-full-sync
+
+# Use specific connections
+lht sync --sobject Account --table ACCOUNT --snowflake my_snowflake --salesforce my_salesforce
+```
+
+### Bulk API 2.0 Job Management
+
+**List All Jobs**
+
+```bash
+lht list-jobs [--salesforce NAME] [--api-version VERSION]
+```
+
+Displays all Bulk API 2.0 query jobs with:
+- Job ID
+- Operation
+- Object
+- Created By
+- Created Date
+- State
+- Concurrency Mode
+- Content Type
+- API Version
+- Job Type
+
+**Show Job Details**
+
+```bash
+lht show-job <JOB_ID> [--salesforce NAME] [--api-version VERSION]
+```
+
+Displays detailed information about a specific job including:
+- Job ID, Operation, Object
+- Created By, Created Date
+- State, API Version, Job Type
+- Number of Records Processed
+- Retries
+- Total Processing Time
+- PK Chunking Support
+
+**Delete Job**
+
+```bash
+lht delete-job <JOB_ID> [--salesforce NAME] [--api-version VERSION]
+```
+
+Deletes a specific Bulk API 2.0 job from Salesforce.
+
+**Examples:**
+
+```bash
+# List all jobs
+lht list-jobs
+
+# Show details for a specific job
+lht show-job 750xx000000abcDAAQ
+
+# Delete a job
+lht delete-job 750xx000000abcDAAQ
+```
 
 ## 📚 Documentation
 
 - **[Intelligent Sync Guide](docs/intelligent_sync_guide.md)**: Comprehensive guide to the intelligent sync system
+- **[Salesforce Sync Guide](docs/salesforce_sync_guide.md)**: Detailed Salesforce synchronization guide
+- **[API Documentation](docs/_build/html/index.html)**: Full API reference (build with `make html` in `docs/` directory)
 - **[Examples](examples/)**: Complete working examples
-
-## 🔄 Sync Methods
-
-### 1. Regular API Methods
-- **Use cases**: Small datasets (< 1,000 records)
-- **Advantages**: Fast for small datasets, real-time processing
-- **Disadvantages**: API rate limits, memory intensive
-
-### 2. Bulk API 2.0 Methods
-- **Use cases**: Medium to large datasets (1,000+ records)
-- **Advantages**: Handles large datasets efficiently, built-in retry logic
-- **Disadvantages**: Requires job management, asynchronous processing
-
-## 🛠️ Configuration
-
-### Custom Thresholds
-
-```python
-from lht.salesforce.intelligent_sync import IntelligentSync
-
-sync_system = IntelligentSync(session, access_info)
-sync_system.BULK_API_THRESHOLD = 5000    # Use Bulk API for 5K+ records
-```
-
-### Environment Setup
-
-```python
-# Set appropriate warehouse size
-session.sql("USE WAREHOUSE LARGE_WH").collect()
-```
 
 ## 📊 Return Values
 
@@ -240,13 +383,16 @@ result = sync_sobject_intelligent(
 
 ## 📈 Performance Considerations
 
-### Memory Usage
-- **Regular API**: Loads all data in memory
-- **Bulk API**: Processes in batches
+### Bulk API 2.0 Benefits
+- **Efficient Processing**: Processes data in batches, reducing memory usage
+- **Scalability**: Handles datasets of any size efficiently
+- **Consistency**: All syncs use the same method, ensuring predictable behavior
+- **Built-in Retry Logic**: Automatic retry handling for transient failures
 
-### Processing Time
-- **Small datasets** (< 1K): Regular API fastest
-- **Medium to large datasets** (1K+): Bulk API optimal
+### Optimization Tips
+- Use appropriate warehouse size for large datasets
+- Consider using `--use-stage` for very large datasets
+- Monitor Bulk API job status using `lht list-jobs` and `lht show-job`
 
 ## 🤝 Contributing
 
