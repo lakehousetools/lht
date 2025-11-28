@@ -32,7 +32,7 @@ print(f"Sync completed: {result}")
 ### What Happens Automatically
 
 1. **Sync Strategy Selection**: System determines whether to perform full or incremental sync
-2. **API Selection**: Chooses between Regular API, Bulk API 2.0, or Stage-based loading
+2. **Bulk API 2.0**: All syncs use Salesforce Bulk API 2.0 (with optional stage-based loading for large datasets)
 3. **Data Processing**: Handles Salesforce data types and converts to Snowflake-compatible formats
 4. **Table Management**: Creates/updates tables with proper schemas
 5. **Data Loading**: Loads data into Snowflake with error handling
@@ -58,10 +58,8 @@ from lht.salesforce.intelligent_sync import IntelligentSync
 # Create sync instance with custom configuration
 sync = IntelligentSync(session, sf_token)
 
-# Configure thresholds
-sync.BULK_API_THRESHOLD = 5000      # Use Bulk API for >= 5000 records
-sync.REGULAR_API_THRESHOLD = 500    # Use Regular API for >= 500 records
-sync.STAGE_THRESHOLD = 25000        # Use Stage for >= 25000 records
+# Note: All syncs now use Bulk API 2.0. Threshold configuration has been removed.
+# The system automatically determines full vs incremental sync and optional stage usage.
 
 # Perform sync with custom settings
 result = sync.sync_sobject(
@@ -91,9 +89,9 @@ result = sync_sobject_intelligent(
 ```
 
 **Features:**
-- Automatically selects best sync method based on data volume
+- Automatically determines full vs incremental sync based on table state
 - Handles incremental vs. full sync decisions
-- Chooses appropriate Salesforce API (Regular vs. Bulk API 2.0)
+- Uses Salesforce Bulk API 2.0 for all synchronizations
 - Manages temporary tables and data merging
 
 ### 2. Direct Bulk API 2.0
@@ -611,7 +609,7 @@ print(f"Sync completed: {result}")
 ### What Happens Automatically
 
 1. **Sync Strategy Selection**: System determines whether to perform full or incremental sync
-2. **API Selection**: Chooses between Regular API, Bulk API 2.0, or Stage-based loading
+2. **Bulk API 2.0**: All syncs use Salesforce Bulk API 2.0 (with optional stage-based loading for large datasets)
 3. **Data Processing**: Handles Salesforce data types and converts to Snowflake-compatible formats
 4. **Table Management**: Creates/updates tables with proper schemas
 5. **Data Loading**: Loads data into Snowflake with error handling
@@ -637,10 +635,8 @@ from lht.salesforce.intelligent_sync import IntelligentSync
 # Create sync instance with custom configuration
 sync = IntelligentSync(session, sf_token)
 
-# Configure thresholds
-sync.BULK_API_THRESHOLD = 5000      # Use Bulk API for >= 5000 records
-sync.REGULAR_API_THRESHOLD = 500    # Use Regular API for >= 500 records
-sync.STAGE_THRESHOLD = 25000        # Use Stage for >= 25000 records
+# Note: All syncs now use Bulk API 2.0. Threshold configuration has been removed.
+# The system automatically determines full vs incremental sync and optional stage usage.
 
 # Perform sync with custom settings
 result = sync.sync_sobject(
@@ -670,9 +666,9 @@ result = sync_sobject_intelligent(
 ```
 
 **Features:**
-- Automatically selects best sync method based on data volume
+- Automatically determines full vs incremental sync based on table state
 - Handles incremental vs. full sync decisions
-- Chooses appropriate Salesforce API (Regular vs. Bulk API 2.0)
+- Uses Salesforce Bulk API 2.0 for all synchronizations
 - Manages temporary tables and data merging
 
 ### 2. Direct Bulk API 2.0

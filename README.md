@@ -1,13 +1,13 @@
 # Lake House Tools (LHT) - Salesforce & Snowflake Integration
 
-Bring Salesforce into the fold of your data cloud. LHT is a robust Python library that makes it really easy to extract data from Salesforce and reverse-extract your updates and transformations back into Salesforce. LHT optimizes the integration of Salesforce into your data cloud by automatically selecting and using the appropriate Salesforce API (Regular API or Bulk API 2.0) based on the data volume and sync requirements.
+Bring Salesforce into the fold of your data cloud. LHT is a robust Python library that makes it really easy to extract data from Salesforce and reverse-extract your updates and transformations back into Salesforce. LHT uses Salesforce Bulk API 2.0 for all data synchronizations, providing efficient and consistent data extraction regardless of data volume.
 
 ## 🚀 Features
 
 ### Intelligent Synchronization
-- **Automatic Method Selection**: Choose the best sync method based on data volume
-- **Incremental Sync**: Smart detection of changed records since last sync
-- **Bulk API 2.0 Integration**: Efficient handling of large datasets
+- **Bulk API 2.0**: All syncs use Salesforce Bulk API 2.0 for efficient data extraction
+- **Incremental Sync**: Smart detection of changed records since last sync based on LastModifiedDate
+- **Full Sync**: Complete data synchronization for first-time syncs
 
 ### Core Capabilities
 - **Salesforce Bulk API 2.0**: Full support for bulk operations
