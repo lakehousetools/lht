@@ -133,3 +133,75 @@ def get_bulk_api_job(access_info: Dict[str, str], job_id: str, api_version: str 
         logger.error(f"Request error getting job: {e}")
         raise
 
+
+def delete_bulk_api_job(access_info: Dict[str, str], job_id: str, api_version: str = "v58.0") -> Dict[str, Any]:
+    """
+    Delete a specific Bulk API 2.0 query job from Salesforce.
+    
+    Args:
+        access_info: Dictionary containing Salesforce access details, including
+            'access_token' (str) and 'instance_url' (str).
+        job_id: The ID of the job to delete
+        api_version: Salesforce API version (default: "v58.0")
+    
+    Returns:
+        Dictionary containing deletion result with fields:
+        - success: Boolean indicating if deletion was successful
+        - job_id: The ID of the job that was deleted
+        - message: Success message (if successful)
+        - status_code: HTTP status code (if failed)
+        - error: Error message (if failed)
+    
+    Raises:
+        requests.exceptions.RequestException: If the API request fails
+        ValueError: If access_info is missing required fields or job_id is empty
+    """
+    if 'access_token' not in access_info or 'instance_url' not in access_info:
+        raise ValueError("access_info must contain 'access_token' and 'instance_url'")
+    
+    if not job_id:
+        raise ValueError("job_id is required")
+    
+    headers = {
+        "Authorization": f"Bearer {access_info['access_token']}",
+        "Content-Type": "application/json"
+    }
+    
+    url = f"{access_info['instance_url']}/services/data/{api_version}/jobs/query/{job_id}"
+    
+    try:
+        response = requests.delete(url, headers=headers)
+        
+        if response.status_code == 204:
+            logger.info(f"Successfully deleted Bulk API 2.0 job: {job_id}")
+            return {
+                'success': True,
+                'job_id': job_id,
+                'message': 'Job deleted successfully'
+            }
+        else:
+            logger.error(f"Failed to delete job {job_id}: HTTP {response.status_code}")
+            return {
+                'success': False,
+                'job_id': job_id,
+                'status_code': response.status_code,
+                'error': response.text if response.text else f'HTTP {response.status_code}'
+            }
+            
+    except requests.exceptions.HTTPError as e:
+        logger.error(f"HTTP error deleting job: {e}")
+        if e.response is not None:
+            logger.error(f"Response: {e.response.text}")
+        return {
+            'success': False,
+            'job_id': job_id,
+            'error': str(e)
+        }
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Request error deleting job: {e}")
+        return {
+            'success': False,
+            'job_id': job_id,
+            'error': str(e)
+        }
+

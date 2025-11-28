@@ -33,6 +33,7 @@ Examples:
   lht sync --sobject Account --table ACCOUNT  Sync Salesforce Account to Snowflake
   lht list-jobs                        List Bulk API 2.0 jobs from Salesforce
   lht show-job <JOB_ID>                Show details about a specific Bulk API 2.0 job
+  lht delete-job <JOB_ID>              Delete a specific Bulk API 2.0 job
         """
     )
     
@@ -217,6 +218,27 @@ Examples:
         help='Salesforce API version (default: v58.0)'
     )
     
+    # delete-job command
+    delete_job_parser = subparsers.add_parser(
+        'delete-job',
+        help='Delete a specific Bulk API 2.0 job',
+        description='Delete a specific Bulk API 2.0 query job from Salesforce'
+    )
+    delete_job_parser.add_argument(
+        'job_id',
+        help='The ID of the Bulk API 2.0 job to delete'
+    )
+    delete_job_parser.add_argument(
+        '--salesforce',
+        metavar='NAME',
+        help='Salesforce connection name (defaults to primary connection)'
+    )
+    delete_job_parser.add_argument(
+        '--api-version',
+        default='v58.0',
+        help='Salesforce API version (default: v58.0)'
+    )
+    
     return parser
 
 
@@ -279,6 +301,13 @@ def main(args: Optional[List[str]] = None) -> int:
     elif parsed_args.command == 'show-job':
         from lht.cli.commands.show_job import show_job
         return show_job(
+            job_id=parsed_args.job_id,
+            salesforce_connection=parsed_args.salesforce,
+            api_version=parsed_args.api_version
+        )
+    elif parsed_args.command == 'delete-job':
+        from lht.cli.commands.delete_job import delete_job
+        return delete_job(
             job_id=parsed_args.job_id,
             salesforce_connection=parsed_args.salesforce,
             api_version=parsed_args.api_version
