@@ -19,7 +19,7 @@ def list_jobs(salesforce_connection: Optional[str] = None, api_version: str = "v
     """
     try:
         from lht.user.salesforce_auth import get_salesforce_access_info
-        from lht.salesforce.list_jobs import list_bulk_api_jobs
+        from lht.salesforce.jobs import list_bulk_api_jobs
         
         # Get Salesforce access info
         try:
