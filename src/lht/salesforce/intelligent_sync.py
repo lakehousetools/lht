@@ -4,7 +4,7 @@ import requests
 import numpy as np
 import logging
 from typing import Optional, Dict, Any, Tuple, List
-from . import sobjects, sobject_query, sobject_sync
+from . import sobjects
 from lht.util import merge, data_writer
 
 logger = logging.getLogger(__name__)
@@ -21,8 +21,11 @@ def sql_execution(session, query, context=""):
 
 class IntelligentSync:
     """
-    Intelligent synchronization system that determines the best method to sync Salesforce data
-    based on volume and previous sync status.
+    Synchronization system for Salesforce data using Bulk API 2.0.
+    
+    All syncs use Bulk API 2.0 regardless of data volume. The system automatically
+    determines whether to perform a full sync or incremental sync based on whether
+    the target table exists and has a LastModifiedDate value.
     """
     
     def __init__(self, session, access_info: Dict[str, str]):
@@ -35,11 +38,6 @@ class IntelligentSync:
         """
         self.session = session
         self.access_info = access_info
-        
-        # Configuration thresholds
-        self.BULK_API_THRESHOLD = 10000  # Use Bulk API for records >= this number
-        self.REGULAR_API_THRESHOLD = 1000  # Use regular API for records < this number
-        self.STAGE_THRESHOLD = 50000  # Use stage for records >= this number
         
     def sync_sobject(self, 
                     sobject: str, 
@@ -64,7 +62,7 @@ class IntelligentSync:
             use_stage: Whether to use Snowflake stage for large datasets
             stage_name: Snowflake stage name (required if use_stage=True)
             force_full_sync: Force a full sync regardless of previous sync status
-            force_bulk_api: Force use of Bulk API 2.0 instead of regular API (useful for long query strings)
+            force_bulk_api: Deprecated - all syncs now use Bulk API 2.0 (kept for backward compatibility)
             existing_job_id: Optional existing Bulk API job ID to use instead of creating a new query
             delete_job: Whether to delete the Bulk API job after completion (default: True)
             where_clause: Optional SOQL WHERE clause to filter records (e.g., "IsPersonAccount = False")
@@ -74,14 +72,12 @@ class IntelligentSync:
         """
         logger.debug(f"🔄 Starting intelligent sync for {sobject} -> {schema}.{table}")
         
-        # Store force_full_sync, force_bulk_api, existing_job_id, delete_job, and where_clause as instance attributes for use in other methods
+        # Store force_full_sync, existing_job_id, delete_job, and where_clause as instance attributes for use in other methods
         self.force_full_sync = force_full_sync
-        self.force_bulk_api = force_bulk_api
         self.existing_job_id = existing_job_id
         self.delete_job = delete_job
         self.where_clause = where_clause
         logger.debug(f"🔧 Force full sync: {self.force_full_sync}")
-        logger.debug(f"🔧 Force bulk API: {self.force_bulk_api}")
 
         if existing_job_id:
             logger.debug(f"🔧 Using existing job ID: {existing_job_id}")
@@ -509,11 +505,6 @@ class IntelligentSync:
                 else:
                     result = self._execute_bulk_api_sync(strategy, sobject, schema, table)
                 # Bulk API sync completed
-                return result
-            elif method.startswith('regular_api'):
-                logger.debug(f"📡 Using Regular API sync method: {method}")
-                result = self._execute_regular_api_sync(strategy, sobject, schema, table, match_field)
-                # Regular API sync completed
                 return result
             else:
                 error_msg = f"Unknown sync method: {method}"
@@ -1005,94 +996,6 @@ class IntelligentSync:
                 'error': str(e)
             }
     
-    def _execute_regular_api_sync(self, 
-                                 strategy: Dict[str, Any], 
-                                 sobject: str, 
-                                 schema: str, 
-                                 table: str,
-                                 match_field: str) -> Dict[str, Any]:
-        """Execute regular API sync using sobject_query."""
-        
-        logger.debug(f"🚀 Starting regular API sync for {sobject}")
-        # Get query string and field descriptions
-        last_modified_date = None
-        if strategy['is_incremental']:
-            last_modified_date = self._get_last_modified_date(schema, table)
-            if last_modified_date:
-                lmd_sf = str(last_modified_date)[:10] + 'T' + str(last_modified_date)[11:19] + '.000Z'
-                logger.debug(f"📅 Using last modified date for incremental sync: {lmd_sf}")
-        
-        logger.debug(f"🔍 Getting field descriptions for {sobject}")
-        query_string, df_fields, snowflake_fields = sobjects.describe(self.access_info, sobject, lmd_sf if last_modified_date else None)
-        
-        # Convert query string to proper SOQL
-        soql_query = query_string.replace('+', ' ').replace('select', 'SELECT').replace('from', 'FROM')
-        if last_modified_date:
-            soql_query = soql_query.replace('where', 'WHERE').replace('LastModifiedDate>', 'LastModifiedDate > ')
-        
-        # Execute query and process results
-        records_processed = 0
-        
-        if strategy['is_incremental']:
-            logger.debug(f"🔍 Performing incremental sync for {sobject}")
-            # Incremental sync - use merge logic
-            # First check if the main table exists before creating temp table
-            if not self._table_exists(schema, table):
-                error_msg = f"Cannot perform incremental sync: table {schema}.{table} does not exist"
-                logger.error(f"❌.. {error_msg}")
-                raise Exception(error_msg)
-            
-        else:
-            # Full sync - overwrite table
-            logger.debug("📥 Processing batches for full sync...")
-            for batch_num, batch_df in enumerate(sobject_query.query_records(self.access_info, soql_query), 1):
-                if batch_df is not None and not batch_df.empty:
-                    logger.debug(f"📦 Processing batch {batch_num}: {len(batch_df)} records")
-                    # Let data_writer handle all formatting - no duplicate calls
-                    formatted_df = batch_df.replace(np.nan, None)
-                    
-                    # Write to table using centralized data writer with type handling (overwrite for first batch, append for subsequent)
-                    is_first_batch = records_processed == 0
-                    logger.debug(f"💾 Writing batch {batch_num} to table {schema}.{table} (overwrite={is_first_batch})")
-                    
-                    # Use type handling to prevent casting errors
-                    try:
-                        data_writer.write_batch_to_main_table(
-                            self.session, formatted_df, schema, table, is_first_batch,
-                            validate_types=True,
-                            use_logical_type=False,  # More lenient for problematic data
-                            df_fields=df_fields,  # Pass field definitions for proper formatting
-                            snowflake_fields=snowflake_fields,  # Pass Salesforce field types for proper table creation
-                            force_full_sync=self.force_full_sync  # Pass force_full_sync parameter
-                        )
-                    except Exception as e:
-                        error_msg = str(e)
-                        if any(phrase in error_msg for phrase in ["Failed to cast", "cast", "variant", "FIXED"]):
-                            logger.warning(f"⚠️ Casting error detected: {error_msg[:100]}...")
-                            logger.warning(f"⚠️ Retrying with type standardization...")
-                            # Standardize types and retry
-                            df_standardized = data_writer.standardize_dataframe_types(formatted_df, "string")
-                            data_writer.write_batch_to_main_table(
-                                self.session, df_standardized, schema, table, is_first_batch,
-                                validate_types=False,
-                                use_logical_type=False,
-                                df_fields=df_fields,  # Pass field definitions for proper formatting
-                                snowflake_fields=snowflake_fields,  # Pass Salesforce field types for proper table creation
-                                force_full_sync=self.force_full_sync  # Pass force_full_sync parameter
-                            )
-                        else:
-                            logger.error(f"❌ Non-casting error: {error_msg}")
-                            raise
-                    
-                    records_processed += len(batch_df)
-        
-        logger.debug(f"✅ Regular API sync completed: {records_processed} records processed")
-        return {
-            'success': True,
-            'records_processed': records_processed
-        }
-
-
 def sync_sobject_intelligent(session, 
                            access_info: Dict[str, str],
                            sobject: str, 
@@ -1119,7 +1022,7 @@ def sync_sobject_intelligent(session,
         use_stage: Whether to use Snowflake stage for large datasets
         stage_name: Snowflake stage name (required if use_stage=True)
         force_full_sync: Force a full sync regardless of previous sync status
-        force_bulk_api: Force use of Bulk API 2.0 instead of regular API (useful for long query strings)
+        force_bulk_api: Deprecated - all syncs now use Bulk API 2.0 (kept for backward compatibility)
         existing_job_id: Optional existing Bulk API job ID to use instead of creating a new query
         delete_job: Whether to delete the Bulk API job after completion (default: True)
         where_clause: Optional SOQL WHERE clause to filter records (e.g., "IsPersonAccount = False")

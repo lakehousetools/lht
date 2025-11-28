@@ -2,11 +2,13 @@
 
 ## Overview
 
-The Intelligent Sync system automatically determines the best method to synchronize Salesforce data to Snowflake based on:
+The Intelligent Sync system orchestrates Salesforce data synchronization to Snowflake using Bulk API 2.0. The system automatically determines:
 
-1. **Data Volume**: Number of records to be synced
-2. **Previous Sync Status**: Whether the table exists and when it was last synced
-3. **Environment**: Whether running in Snowflake Notebooks with stage access
+1. **Full vs Incremental Sync**: Based on whether the target table exists and has a LastModifiedDate value
+2. **Stage Usage**: Optional use of Snowflake stages for large datasets when specified
+3. **Data Processing**: Handles Salesforce data types and converts to Snowflake-compatible formats
+
+**Note:** All synchronizations now use Salesforce Bulk API 2.0 exclusively. The regular API sync method has been removed for consistency and performance.
 
 ## How It Works
 
@@ -14,24 +16,20 @@ The Intelligent Sync system automatically determines the best method to synchron
 
 The system uses the following logic to determine the sync method:
 
-| Scenario | Records | Method | Description |
-|----------|---------|--------|-------------|
-| **First-time sync** | < 1,000 | `regular_api_full` | Use regular Salesforce API |
-| **First-time sync** | 1,000 - 49,999 | `bulk_api_full` | Use Bulk API 2.0 |
-| **First-time sync** | ≥ 50,000 | `bulk_api_stage_full` | Use Bulk API 2.0 with Snowflake stage |
-| **Incremental sync** | < 1,000 | `regular_api_incremental` | Use regular API with merge logic |
-| **Incremental sync** | 1,000 - 49,999 | `bulk_api_incremental` | Use Bulk API 2.0 |
-| **Incremental sync** | ≥ 50,000 | `bulk_api_stage_incremental` | Use Bulk API 2.0 with stage |
+| Scenario | Method | Description |
+|----------|--------|-------------|
+| **First-time sync** (no stage) | `bulk_api_full` | Use Bulk API 2.0 for complete data extraction |
+| **First-time sync** (with stage) | `bulk_api_stage_full` | Use Bulk API 2.0 with Snowflake stage |
+| **Incremental sync** (no stage) | `bulk_api_incremental` | Use Bulk API 2.0 with MERGE logic for updates |
+| **Incremental sync** (with stage) | `bulk_api_stage_incremental` | Use Bulk API 2.0 with stage and MERGE logic |
 
-### Thresholds
+### Configuration
 
-You can customize the thresholds in the `IntelligentSync` class:
+The system no longer uses threshold-based API selection. All syncs use Bulk API 2.0. You can still configure:
 
-```python
-sync_system = IntelligentSync(session, access_info)
-sync_system.BULK_API_THRESHOLD = 5000    # Use Bulk API for 5K+ records
-sync_system.STAGE_THRESHOLD = 25000      # Use stage for 25K+ records
-```
+- **Stage usage**: Enable with `use_stage=True` and provide `stage_name`
+- **Full sync**: Force with `force_full_sync=True`
+- **WHERE clause**: Filter records with `where_clause` parameter
 
 ## Usage
 
@@ -81,42 +79,31 @@ result = sync_sobject_intelligent(
 
 ## Sync Methods Explained
 
-### 1. Regular API Methods
+### Bulk API 2.0 Methods
 
-**Use cases**: Small datasets (< 1,000 records)
-
-**Advantages**:
-- Fast for small datasets
-- Real-time processing
-- No job management required
-
-**Disadvantages**:
-- API rate limits
-- Slower for large datasets
-- Memory intensive
-
-### 2. Bulk API 2.0 Methods
-
-**Use cases**: Medium to large datasets (1,000+ records)
+**Use cases**: All datasets (small to very large)
 
 **Advantages**:
+- Consistent performance across all data volumes
 - Handles large datasets efficiently
 - Better performance for bulk operations
 - Built-in retry logic
+- Asynchronous processing
+- Job management and monitoring
 
 **Disadvantages**:
 - Requires job management
-- Asynchronous processing
-- More complex error handling
+- Asynchronous processing (not real-time)
 
-### 3. Stage-Based Methods
+### Stage-Based Methods
 
-**Use cases**: Very large datasets (50,000+ records) in Snowflake Notebooks
+**Use cases**: Very large datasets in Snowflake Notebooks or when stage is preferred
 
 **Advantages**:
-- Handles massive datasets
+- Handles massive datasets efficiently
 - Better memory management
 - Leverages Snowflake's stage capabilities
+- Direct file uploads
 
 **Disadvantages**:
 - Requires stage setup
@@ -128,21 +115,22 @@ result = sync_sobject_intelligent(
 ### How It Works
 
 1. **Check Table Existence**: Determines if target table exists
-2. **Get Last Modified Date**: Queries `MAX(LASTMODIFIEDDATE)` from existing table
-3. **Estimate Record Count**: Counts records modified since last sync
-4. **Choose Method**: Selects appropriate sync method based on count
-5. **Execute Sync**: Runs the chosen method
+2. **Get Last Modified Date**: Queries `MAX(LASTMODIFIEDDATE)` from existing table (if table exists)
+3. **Estimate Record Count**: Counts records modified since last sync (for incremental)
+4. **Determine Strategy**: Selects full vs incremental, and stage vs non-stage
+5. **Execute Sync**: Runs Bulk API 2.0 sync with appropriate method
 
 ### Example Flow
 
 ```python
 # First sync (table doesn't exist)
 result = sync_sobject_intelligent(session, access_info, "Account", "RAW", "ACCOUNTS")
-# Result: Uses bulk_api_full or bulk_api_stage_full
+# Result: Uses bulk_api_full or bulk_api_stage_full (if use_stage=True)
 
 # Subsequent syncs (table exists)
 result = sync_sobject_intelligent(session, access_info, "Account", "RAW", "ACCOUNTS")
-# Result: Uses incremental method based on changed record count
+# Result: Uses bulk_api_incremental or bulk_api_stage_incremental (if use_stage=True)
+# Automatically filters for records where LastModifiedDate > MAX(LastModifiedDate) from table
 ```
 
 ## Return Values
@@ -268,21 +256,18 @@ result = sync_sobject_intelligent(session, access_info, "Account", "RAW", "ACCOU
 
 ### Memory Usage
 
-- **Regular API**: Loads all data in memory
-- **Bulk API**: Processes in batches
-- **Stage-based**: Minimal memory usage
+- **Bulk API 2.0**: Processes in batches, efficient memory usage
+- **Stage-based**: Minimal memory usage, direct file uploads
 
 ### Network Usage
 
-- **Regular API**: Multiple API calls
-- **Bulk API**: Fewer, larger calls
-- **Stage-based**: Direct file uploads
+- **Bulk API 2.0**: Fewer, larger API calls, efficient data transfer
+- **Stage-based**: Direct file uploads to Snowflake stage
 
 ### Processing Time
 
-- **Small datasets** (< 1K): Regular API fastest
-- **Medium datasets** (1K-50K): Bulk API optimal
-- **Large datasets** (> 50K): Stage-based best
+- **All datasets**: Bulk API 2.0 provides consistent performance
+- **Large datasets**: Stage-based methods offer optimal performance for very large volumes
 
 ## Migration from Existing Code
 
@@ -295,15 +280,15 @@ if record_count > 10000:
     job_id = create_batch_query(access_info, query)
     get_bulk_results(session, access_info, job_id, sobject, schema, table)
 else:
-    # Use regular API
+    # Use regular API (now removed)
     for batch in query_records(access_info, query):
         session.write_pandas(batch, f"{schema}.{table}")
 ```
 
-### After (Intelligent Sync)
+### After (Intelligent Sync - Bulk API 2.0 Only)
 
 ```python
-# New way - automatic method selection
+# New way - automatic sync orchestration with Bulk API 2.0
 result = sync_sobject_intelligent(
     session=session,
     access_info=access_info,
@@ -311,18 +296,24 @@ result = sync_sobject_intelligent(
     schema=schema,
     table=table
 )
+# All syncs now use Bulk API 2.0 automatically
 ```
 
 ## Advanced Configuration
 
-### Custom Thresholds
+### Stage Configuration
 
 ```python
-sync_system = IntelligentSync(session, access_info)
-
-# Adjust for your environment
-sync_system.BULK_API_THRESHOLD = 2000   # More aggressive Bulk API usage
-sync_system.STAGE_THRESHOLD = 10000     # Earlier stage usage
+# Enable stage-based loading for large datasets
+result = sync_sobject_intelligent(
+    session=session,
+    access_info=access_info,
+    sobject="Account",
+    schema="RAW",
+    table="ACCOUNTS",
+    use_stage=True,
+    stage_name="@SALESFORCE_STAGE"
+)
 ```
 
 ### Custom Match Fields
