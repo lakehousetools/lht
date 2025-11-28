@@ -32,6 +32,9 @@ class BdistWheelWithoutSources(bdist_wheel):
                 import hashlib
                 
                 with tempfile.TemporaryDirectory() as tmpdir:
+                    extract_dir = os.path.join(tmpdir, 'extract')
+                    os.makedirs(extract_dir)
+                    
                     with zipfile.ZipFile(wheel_path, 'r') as zin:
                         # Find the dist-info directory name first
                         dist_info_dir = None
@@ -40,35 +43,53 @@ class BdistWheelWithoutSources(bdist_wheel):
                                 dist_info_dir = item.filename.split('/')[0]
                                 break
                         
-                        with zipfile.ZipFile(os.path.join(tmpdir, 'new.whl'), 'w', zipfile.ZIP_DEFLATED) as zout:
-                            record_entries = []
-                            
-                            for item in zin.infolist():
+                        # Extract all files first
+                        zin.extractall(extract_dir)
+                    
+                    # Now create new wheel with filtered files
+                    with zipfile.ZipFile(os.path.join(tmpdir, 'new.whl'), 'w', zipfile.ZIP_DEFLATED) as zout:
+                        record_entries = []
+                        
+                        # Walk through extracted files
+                        for root, dirs, files in os.walk(extract_dir):
+                            for file in files:
+                                file_path = os.path.join(root, file)
+                                # Get relative path within wheel
+                                rel_path = os.path.relpath(file_path, extract_dir).replace(os.sep, '/')
+                                
                                 # Skip .py files except __init__.py
-                                if item.filename.endswith('.py') and not item.filename.endswith('__init__.py'):
+                                if rel_path.endswith('.py') and not rel_path.endswith('__init__.py'):
                                     continue
                                 
                                 # Skip RECORD file - we'll regenerate it
-                                if item.filename.endswith('.dist-info/RECORD'):
+                                if rel_path.endswith('.dist-info/RECORD'):
                                     continue
                                 
-                                # Read and write file
-                                data = zin.read(item.filename)
-                                zout.writestr(item, data)
+                                # Read file content
+                                with open(file_path, 'rb') as f:
+                                    data = f.read()
+                                
+                                # Write to new wheel
+                                zout.writestr(rel_path, data)
                                 
                                 # Calculate hash for RECORD file
-                                if not item.filename.endswith('/'):  # Skip directories
-                                    hash_obj = hashlib.sha256(data)
-                                    hash_value = hash_obj.hexdigest()
-                                    record_entries.append(f"{item.filename},sha256={hash_value},{item.file_size}")
+                                hash_obj = hashlib.sha256(data)
+                                hash_value = hash_obj.hexdigest()
+                                record_entries.append(f"{rel_path},sha256={hash_value},{len(data)}")
+                        
+                        # Sort record entries for consistency
+                        record_entries.sort()
+                        
+                        if dist_info_dir:
+                            # Add RECORD file itself (without hash/size for RECORD entry)
+                            record_path = f"{dist_info_dir}/RECORD"
+                            record_content = '\n'.join(record_entries)
+                            if record_content:  # Add newline if there are entries
+                                record_content += '\n'
+                            record_content += f"{record_path},,\n"
                             
-                            if dist_info_dir:
-                                # Add RECORD file itself (without hash/size for RECORD entry)
-                                record_path = f"{dist_info_dir}/RECORD"
-                                record_content = '\n'.join(record_entries) + f"{record_path},,\n"
-                                record_info = zipfile.ZipInfo(record_path)
-                                record_info.compress_type = zipfile.ZIP_DEFLATED
-                                zout.writestr(record_info, record_content.encode('utf-8'))
+                            # Write RECORD file to wheel
+                            zout.writestr(record_path, record_content.encode('utf-8'))
                     
                     # Replace original wheel
                     shutil.move(os.path.join(tmpdir, 'new.whl'), wheel_path)
