@@ -68,3 +68,4 @@ def set_primary(connection_name: str) -> int:
         traceback.print_exc()
         return 1
 
+
