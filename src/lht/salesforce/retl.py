@@ -4,7 +4,7 @@ import json
 import logging
 from lht.util import csv
 from lht.sflake import query as q
-from lht.salesforce import ingest_bapi20 as ingest
+from . import ingest_bapi20 as ingest
 import time
 
 logger = logging.getLogger(__name__)
@@ -27,6 +27,10 @@ def upsert(session, access_info, sobject, query, field, batch_size=25000):
     
     try:
         access_token = access_info['access_token']
+        
+        # Wrap the user query in a subquery so we can safely add LIMIT/OFFSET
+        # This handles cases where the user's query already has LIMIT
+        base_query = f"SELECT * FROM ({query}) AS _retl_source"
         
         logger.debug("🔍 STEP 1: Getting total record count...")
         # First, get the total count of records to determine number of batches
@@ -71,8 +75,8 @@ def upsert(session, access_info, sobject, query, field, batch_size=25000):
             logger.debug(f"📊 Batch range: records {offset + 1:,} to {min(offset + batch_size, total_records):,}")
             
             try:
-                # Query only the records for this batch using LIMIT and OFFSET
-                batch_query = f"{query} LIMIT {limit} OFFSET {offset}"
+                # Query only the records for this batch using LIMIT and OFFSET on the wrapped query
+                batch_query = f"{base_query} LIMIT {limit} OFFSET {offset}"
                 logger.debug(f"🔍 Executing batch query: {batch_query[:100]}...")
                 
                 results = session.sql(batch_query).collect()
@@ -204,6 +208,9 @@ def upsert(session, access_info, sobject, query, field, batch_size=25000):
 def update(session, access_info, sobject, query):
     access_token = access_info['access_token']
 
+    logger.info("🚀 STARTING SALESFORCE UPDATE")
+    logger.info(f"📋 Parameters: SObject={sobject}")
+
     #records = q.get_records(session, query)
     results = session.sql(query).collect()
     # Convert results to the expected format
@@ -217,6 +224,8 @@ def update(session, access_info, sobject, query):
                 record[key] = value
         records.append(record)
 
+    logger.info(f"📊 Records to update: {len(records):,}")
+
     data = csv.json_to_csv(records)
 
     bulk_api_url = access_info['instance_url']+ f"/services/data/v62.0/jobs/ingest"
@@ -224,7 +233,7 @@ def update(session, access_info, sobject, query):
     # Create a new job
     job_data = {
         "object": f"{sobject}",  # Specify the Salesforce object
-        "operation": "update",  # Use upsert operation
+        "operation": "update",  # Use update operation
         "lineEnding" : "CRLF"
     }
 
@@ -237,6 +246,7 @@ def update(session, access_info, sobject, query):
     #log_retl.job(session, job_info)
 
     job_id = job_info['id']
+    logger.info(f"✅ Job created: {job_id}")
 
     #########################################################
     ###  SEND BATCH FILE
@@ -244,6 +254,7 @@ def update(session, access_info, sobject, query):
     #def add_batch(instance_url, access_token, job_id, data):
     logger.debug("sending file")
     ingest.send_file(access_info, job_id, data)
+    logger.info("✅ Data sent to Salesforce")
     
     #########################################################
     ###  CLOSE JOB
@@ -259,7 +270,12 @@ def update(session, access_info, sobject, query):
         close_results = ingest.job_status(access_info, job_id)
         logger.debug(f"ID: {close_results['id']}, Status: {close_results['state']}")
         if close_results['state'] == 'JobComplete':
+            logger.info("✅ Update completed successfully!")
             break
+        elif close_results['state'] in ['Failed', 'Aborted']:
+            logger.error(f"❌ Update job failed with status: {close_results['state']}")
+            logger.error(f"❌ Job details: {close_results}")
+            raise RuntimeError(f"Salesforce update job failed: {close_results['state']}")
         time.sleep(10)
 
     return job_info
@@ -267,7 +283,12 @@ def update(session, access_info, sobject, query):
 def insert(session, access_info, sobject, query):
     access_token = access_info['access_token']
 
+    logger.info("🚀 STARTING SALESFORCE INSERT")
+    logger.info(f"📋 Parameters: SObject={sobject}")
+
     records = q.get_records(session, query)
+    logger.info(f"📊 Records to insert: {len(records):,}")
+
     data = csv.json_to_csv(records)
 
     bulk_api_url = access_info['instance_url']+ f"/services/data/v62.0/jobs/ingest"
@@ -289,6 +310,7 @@ def insert(session, access_info, sobject, query):
     #log_retl.job(session, job_info)
 
     job_id = job_info['id']
+    logger.info(f"✅ Job created: {job_id}")
 
     #########################################################
     ###  SEND BATCH FILE
@@ -296,6 +318,7 @@ def insert(session, access_info, sobject, query):
     #def add_batch(instance_url, access_token, job_id, data):
     logger.debug("sending file")
     ingest.send_file(access_info, job_id, data)
+    logger.info("✅ Data sent to Salesforce")
     
     #########################################################
     ###  CLOSE JOB
@@ -311,7 +334,12 @@ def insert(session, access_info, sobject, query):
         close_results = ingest.job_status(access_info, job_id)
         logger.debug(f"ID: {close_results['id']}, Status: {close_results['state']}")
         if close_results['state'] == 'JobComplete':
+            logger.info("✅ Insert completed successfully!")
             break
+        elif close_results['state'] in ['Failed', 'Aborted']:
+            logger.error(f"❌ Insert job failed with status: {close_results['state']}")
+            logger.error(f"❌ Job details: {close_results}")
+            raise RuntimeError(f"Salesforce insert job failed: {close_results['state']}")
         time.sleep(10)
 
     return job_info
@@ -319,6 +347,9 @@ def insert(session, access_info, sobject, query):
 def delete(session, access_info, sobject, query, field):
 
     access_token = access_info['access_token']
+
+    logger.info("🚀 STARTING SALESFORCE DELETE")
+    logger.info(f"📋 Parameters: SObject={sobject}")
 
     results = session.sql(query).collect()
     # Convert results to the expected format
@@ -331,6 +362,9 @@ def delete(session, access_info, sobject, query, field):
             else:
                 record[key] = value
         records.append(record)
+
+    logger.info(f"📊 Records to delete: {len(records):,}")
+
     data = csv.json_to_csv(records)
 
     bulk_api_url = access_info['instance_url']+ f"/services/data/v62.0/jobs/ingest"
@@ -353,6 +387,7 @@ def delete(session, access_info, sobject, query, field):
     #log_retl.job(session, job_info)
 
     job_id = job_info['id']
+    logger.info(f"✅ Job created: {job_id}")
 
     #########################################################
     ###  SEND BATCH FILE
@@ -360,6 +395,7 @@ def delete(session, access_info, sobject, query, field):
     #def add_batch(instance_url, access_token, job_id, data):
     logger.debug("sending file")
     ingest.send_file(access_info, job_id, data)
+    logger.info("✅ Data sent to Salesforce")
     
     #########################################################
     ###  CLOSE JOB
@@ -375,7 +411,12 @@ def delete(session, access_info, sobject, query, field):
         close_results = ingest.job_status(access_info, job_id)
         logger.debug(f"ID: {close_results['id']}, Status: {close_results['state']}")
         if close_results['state'] == 'JobComplete':
+            logger.info("✅ Delete completed successfully!")
             break
+        elif close_results['state'] in ['Failed', 'Aborted']:
+            logger.error(f"❌ Delete job failed with status: {close_results['state']}")
+            logger.error(f"❌ Job details: {close_results}")
+            raise RuntimeError(f"Salesforce delete job failed: {close_results['state']}")
         time.sleep(10)
     
     return job_info
