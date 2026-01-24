@@ -31,6 +31,7 @@ Examples:
   lht edit-connection                  Edit an existing connection
   lht set-primary CONNECTION           Set a connection as primary
   lht sync --sobject Account --table ACCOUNT  Sync Salesforce Account to Snowflake
+  lht retl upsert --sobject Account --match-field External_Id__c --sql "SELECT ..."  Push data from Snowflake into Salesforce
   lht list-jobs                        List Bulk API 2.0 jobs from Salesforce
   lht show-job <JOB_ID>                Show details about a specific Bulk API 2.0 job
   lht delete-job <JOB_ID>              Delete a specific Bulk API 2.0 job
@@ -179,6 +180,66 @@ Examples:
         '--where',
         help='Optional SOQL WHERE clause to append to the Salesforce query (e.g., "IsPersonAccount = False")'
     )
+
+    # retl command
+    retl_parser = subparsers.add_parser(
+        'retl',
+        help='Reverse ETL: push data from Snowflake into Salesforce using Bulk API ingest',
+        description='Push rows from a Snowflake SQL query into a Salesforce SObject using Bulk API 2.0 ingest'
+    )
+
+    retl_parser.add_argument(
+        'operation',
+        choices=['upsert', 'insert', 'update', 'delete'],
+        help='Operation to perform in Salesforce'
+    )
+    retl_parser.add_argument(
+        '--sobject',
+        required=True,
+        help='Salesforce object name (e.g., Account)'
+    )
+
+    # SQL source (one of)
+    retl_sql_group = retl_parser.add_mutually_exclusive_group(required=True)
+    retl_sql_group.add_argument(
+        '--sql',
+        help='Snowflake SQL SELECT that outputs Salesforce field columns'
+    )
+    retl_sql_group.add_argument(
+        '--sql-file',
+        help='Path to a file containing the Snowflake SQL SELECT'
+    )
+
+    retl_parser.add_argument(
+        '--match-field',
+        help='External ID field for matching records (required for upsert)'
+    )
+    retl_parser.add_argument(
+        '--batch-size',
+        type=int,
+        default=25000,
+        help='Upsert batch size (default: 25000)'
+    )
+    retl_parser.add_argument(
+        '--snowflake',
+        metavar='NAME',
+        help='Snowflake connection name (defaults to primary connection)'
+    )
+    retl_parser.add_argument(
+        '--salesforce',
+        metavar='NAME',
+        help='Salesforce connection name (defaults to primary connection)'
+    )
+    retl_parser.add_argument(
+        '--log-results',
+        action='store_true',
+        help='(Best-effort) Log ingest results into Snowflake LOGS schema tables'
+    )
+    retl_parser.add_argument(
+        '-v', '--verbose',
+        action='store_true',
+        help='Show detailed progress and debug output'
+    )
     
     # list-jobs command
     list_jobs_parser = subparsers.add_parser(
@@ -311,6 +372,20 @@ def main(args: Optional[List[str]] = None) -> int:
             job_id=parsed_args.job_id,
             salesforce_connection=parsed_args.salesforce,
             api_version=parsed_args.api_version
+        )
+    elif parsed_args.command == 'retl':
+        from lht.cli.commands.retl import retl
+        return retl(
+            operation=parsed_args.operation,
+            sobject=parsed_args.sobject,
+            sql=parsed_args.sql,
+            sql_file=parsed_args.sql_file,
+            match_field=parsed_args.match_field,
+            batch_size=parsed_args.batch_size,
+            snowflake_connection=parsed_args.snowflake,
+            salesforce_connection=parsed_args.salesforce,
+            log_results=parsed_args.log_results,
+            verbose=parsed_args.verbose
         )
     
     # No command provided

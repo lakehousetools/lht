@@ -60,7 +60,7 @@ def create_success_table(session: Session):
         ID INTEGER IDENTITY PRIMARY KEY,
         JOB_ID VARCHAR(255) NOT NULL,
         SF_ID VARCHAR(255),
-        CREATED TIMESTAMP_NTZ,
+        CREATED BOOLEAN,
         SUCCESS BOOLEAN,
         ERRORS VARCHAR(16777216),
         CREATED_AT TIMESTAMP_LTZ DEFAULT CURRENT_TIMESTAMP()
@@ -300,11 +300,14 @@ def insert_success_records(session: Session, job_id: str, success_data: list):
             # Safely escape string values and handle NULLs properly
             sf_id = f"'{str(record.get('sf__Id', '')).replace(chr(39), chr(39)+chr(39))}'" if record.get('sf__Id') else 'NULL'
             
-            # Format timestamps: replace 'T' with space and remove '+0000'
-            created_raw = record.get('sf__Created')
-            created = f"TO_TIMESTAMP_NTZ(TO_TIMESTAMP_TZ('{str(created_raw).replace('T', ' ').replace('+0000', '').replace(chr(39), chr(39)+chr(39))}'))" if created_raw else 'NULL'
+            # sf__Created is a boolean (true = new record created, false = existing record updated)
+            created_raw = record.get('sf__Created', '')
+            created = 'TRUE' if str(created_raw).lower() == 'true' else 'FALSE' if created_raw else 'NULL'
             
-            success = f"'{str(record.get('sf__Success', '')).replace(chr(39), chr(39)+chr(39))}'" if record.get('sf__Success') else 'NULL'
+            # sf__Success is also a boolean
+            success_raw = record.get('sf__Success', '')
+            success = 'TRUE' if str(success_raw).lower() == 'true' else 'FALSE' if success_raw else 'NULL'
+            
             errors = f"'{json.dumps(record.get('sf__Errors')).replace(chr(39), chr(39)+chr(39))}'" if record.get('sf__Errors') else 'NULL'
             
             insert_sql = f"""
