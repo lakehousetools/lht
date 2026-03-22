@@ -35,6 +35,7 @@ Examples:
   lht list-jobs                        List Bulk API 2.0 jobs from Salesforce
   lht show-job <JOB_ID>                Show details about a specific Bulk API 2.0 job
   lht delete-job <JOB_ID>              Delete a specific Bulk API 2.0 job
+  lht get-job-results <JOB_ID>         Download ingest job results as CSV files
         """
     )
     
@@ -279,6 +280,27 @@ Examples:
         help='Salesforce API version (default: v58.0)'
     )
     
+    # get-job-results command
+    get_job_results_parser = subparsers.add_parser(
+        'get-job-results',
+        help='Download ingest job result CSVs (successful, failed, unprocessed)',
+        description='Download successfulResults, failedResults, and unprocessedrecords for a Bulk API 2.0 ingest job'
+    )
+    get_job_results_parser.add_argument(
+        'job_id',
+        help='The ID of the Bulk API 2.0 ingest job'
+    )
+    get_job_results_parser.add_argument(
+        '--salesforce',
+        metavar='NAME',
+        help='Salesforce connection name (defaults to primary connection)'
+    )
+    get_job_results_parser.add_argument(
+        '--api-version',
+        default='v58.0',
+        help='Salesforce API version (default: v58.0)'
+    )
+
     # delete-job command
     delete_job_parser = subparsers.add_parser(
         'delete-job',
@@ -362,6 +384,13 @@ def main(args: Optional[List[str]] = None) -> int:
     elif parsed_args.command == 'show-job':
         from lht.cli.commands.show_job import show_job
         return show_job(
+            job_id=parsed_args.job_id,
+            salesforce_connection=parsed_args.salesforce,
+            api_version=parsed_args.api_version
+        )
+    elif parsed_args.command == 'get-job-results':
+        from lht.cli.commands.get_job_results import get_job_results
+        return get_job_results(
             job_id=parsed_args.job_id,
             salesforce_connection=parsed_args.salesforce,
             api_version=parsed_args.api_version
