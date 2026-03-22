@@ -142,7 +142,7 @@ def transform_and_match_datatypes(session, temp_table, permanent_table, temp_sch
               if 'VARCHAR' in perm_type or 'STRING' in perm_type:
                   expr = f"CASE WHEN TRIM({col_name}) = 'nan' THEN NULL ELSE CAST({col_name} AS {perm_type}) END as {col_name},\n"
               elif 'NUMBER' in perm_type or 'DECIMAL' in perm_type or 'FLOAT' in perm_type:
-                  expr = f"CASE WHEN {col_name} ='nan' THEN NULL when trim({col_name}) = '' then NULL ELSE {col_name}::NUMBER END as {col_name},\n" 
+                  expr = f"CASE WHEN {col_name} ='nan' THEN NULL when trim({col_name}) = '' then NULL ELSE {col_name} END as {col_name},\n" 
 
               elif 'INTEGER' in perm_type or 'BIGINT' in perm_type:
                   expr = f"CASE WHEN {col_name} ='nan'  then NULL when {col_name} = '' then NULL ELSE {col_name}::NUMBER END as {col_name},\n" 
