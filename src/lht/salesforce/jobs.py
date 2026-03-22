@@ -9,15 +9,30 @@ from typing import Dict, Any, List, Optional
 logger = logging.getLogger(__name__)
 
 
+def _fetch_jobs_from_endpoint(headers: Dict[str, str], url: str, instance_url: str) -> List[Dict[str, Any]]:
+    """Fetch all jobs from a paginated Bulk API 2.0 endpoint."""
+    jobs = []
+    while url:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        result = response.json()
+        jobs.extend(result.get('records', []))
+        next_url = result.get('nextRecordsUrl')
+        if next_url and not next_url.startswith('http'):
+            next_url = f"{instance_url}{next_url}"
+        url = next_url
+    return jobs
+
+
 def list_bulk_api_jobs(access_info: Dict[str, str], api_version: str = "v58.0") -> List[Dict[str, Any]]:
     """
-    List all Bulk API 2.0 query jobs from Salesforce.
-    
+    List all Bulk API 2.0 jobs from Salesforce (both query and ingest jobs).
+
     Args:
         access_info: Dictionary containing Salesforce access details, including
             'access_token' (str) and 'instance_url' (str).
         api_version: Salesforce API version (default: "v58.0")
-    
+
     Returns:
         List of dictionaries containing job information with fields:
         - id
@@ -30,42 +45,38 @@ def list_bulk_api_jobs(access_info: Dict[str, str], api_version: str = "v58.0") 
         - contentType
         - apiVersion
         - jobType
-    
+
     Raises:
         requests.exceptions.RequestException: If the API request fails
         ValueError: If access_info is missing required fields
     """
     if 'access_token' not in access_info or 'instance_url' not in access_info:
         raise ValueError("access_info must contain 'access_token' and 'instance_url'")
-    
+
     headers = {
         "Authorization": f"Bearer {access_info['access_token']}",
         "Content-Type": "application/json"
     }
-    
-    url = f"{access_info['instance_url']}/services/data/{api_version}/jobs/query"
-    
+
+    base_url = f"{access_info['instance_url']}/services/data/{api_version}"
+
     try:
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
-        
-        result = response.json()
-        
-        # The API returns a JSON object with a 'records' array
-        jobs = result.get('records', [])
-        
-        logger.debug(f"Retrieved {len(jobs)} Bulk API 2.0 jobs")
-        
-        return jobs
-        
-    except requests.exceptions.HTTPError as e:
-        logger.error(f"HTTP error listing jobs: {e}")
-        if e.response is not None:
-            logger.error(f"Response: {e.response.text}")
-        raise
+        query_jobs = _fetch_jobs_from_endpoint(headers, f"{base_url}/jobs/query", access_info['instance_url'])
+        logger.debug(f"Retrieved {len(query_jobs)} query jobs")
     except requests.exceptions.RequestException as e:
-        logger.error(f"Request error listing jobs: {e}")
+        logger.error(f"Error listing query jobs: {e}")
         raise
+
+    try:
+        ingest_jobs = _fetch_jobs_from_endpoint(headers, f"{base_url}/jobs/ingest", access_info['instance_url'])
+        logger.debug(f"Retrieved {len(ingest_jobs)} ingest jobs")
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error listing ingest jobs: {e}")
+        raise
+
+    jobs = query_jobs + ingest_jobs
+    logger.debug(f"Retrieved {len(jobs)} total Bulk API 2.0 jobs")
+    return jobs
 
 
 def get_bulk_api_job(access_info: Dict[str, str], job_id: str, api_version: str = "v58.0") -> Dict[str, Any]:
@@ -109,29 +120,28 @@ def get_bulk_api_job(access_info: Dict[str, str], job_id: str, api_version: str 
         "Content-Type": "application/json"
     }
     
-    url = f"{access_info['instance_url']}/services/data/{api_version}/jobs/query/{job_id}"
-    
-    try:
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
-        
-        job = response.json()
-        
-        logger.debug(f"Retrieved Bulk API 2.0 job: {job_id}")
-        
-        return job
-        
-    except requests.exceptions.HTTPError as e:
-        if e.response is not None and e.response.status_code == 404:
-            logger.error(f"Job not found: {job_id}")
-            raise ValueError(f"Job not found: {job_id}")
-        logger.error(f"HTTP error getting job: {e}")
-        if e.response is not None:
-            logger.error(f"Response: {e.response.text}")
-        raise
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Request error getting job: {e}")
-        raise
+    base_url = f"{access_info['instance_url']}/services/data/{api_version}"
+
+    for job_type in ('query', 'ingest'):
+        url = f"{base_url}/jobs/{job_type}/{job_id}"
+        try:
+            response = requests.get(url, headers=headers)
+            if response.status_code == 404:
+                continue
+            response.raise_for_status()
+            job = response.json()
+            logger.debug(f"Retrieved Bulk API 2.0 job: {job_id}")
+            return job
+        except requests.exceptions.HTTPError as e:
+            logger.error(f"HTTP error getting job from {job_type} endpoint: {e}")
+            if e.response is not None:
+                logger.error(f"Response: {e.response.text}")
+            raise
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Request error getting job: {e}")
+            raise
+
+    raise ValueError(f"Job not found: {job_id}")
 
 
 def delete_bulk_api_job(access_info: Dict[str, str], job_id: str, api_version: str = "v58.0") -> Dict[str, Any]:
@@ -167,8 +177,19 @@ def delete_bulk_api_job(access_info: Dict[str, str], job_id: str, api_version: s
         "Content-Type": "application/json"
     }
     
-    url = f"{access_info['instance_url']}/services/data/{api_version}/jobs/query/{job_id}"
-    
+    base_url = f"{access_info['instance_url']}/services/data/{api_version}"
+
+    # Determine correct endpoint (query vs ingest) by probing
+    url = None
+    for job_type in ('query', 'ingest'):
+        probe = requests.get(f"{base_url}/jobs/{job_type}/{job_id}", headers=headers)
+        if probe.status_code != 404:
+            url = f"{base_url}/jobs/{job_type}/{job_id}"
+            break
+
+    if url is None:
+        return {'success': False, 'job_id': job_id, 'error': f'Job not found: {job_id}'}
+
     try:
         response = requests.delete(url, headers=headers)
         
@@ -205,3 +226,43 @@ def delete_bulk_api_job(access_info: Dict[str, str], job_id: str, api_version: s
             'error': str(e)
         }
 
+
+def get_ingest_job_results(access_info: Dict[str, str], job_id: str, api_version: str = "v58.0") -> Dict[str, str]:
+    """
+    Fetch the three result CSVs for a completed Bulk API 2.0 ingest job.
+
+    Returns a dict with keys 'successful_results', 'failed_results', 'unprocessed_records',
+    each containing the raw CSV string (empty string if none).
+    """
+    if 'access_token' not in access_info or 'instance_url' not in access_info:
+        raise ValueError("access_info must contain 'access_token' and 'instance_url'")
+
+    base = f"{access_info['instance_url']}/services/data/{api_version}/jobs/ingest/{job_id}"
+    headers = {
+        "Authorization": f"Bearer {access_info['access_token']}",
+        "Accept": "text/csv"
+    }
+
+    results = {}
+    endpoints = {
+        'successful_results': f"{base}/successfulResults",
+        'failed_results': f"{base}/failedResults",
+        'unprocessed_records': f"{base}/unprocessedrecords",
+    }
+
+    for key, url in endpoints.items():
+        try:
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()
+            results[key] = response.text
+            logger.debug(f"Fetched {key} for job {job_id}: {len(response.text)} bytes")
+        except requests.exceptions.HTTPError as e:
+            if e.response is not None and e.response.status_code in (400, 404):
+                results[key] = ''
+            else:
+                raise
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error fetching {key} for job {job_id}: {e}")
+            raise
+
+    return results
