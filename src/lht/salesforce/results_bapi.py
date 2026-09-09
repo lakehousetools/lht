@@ -63,11 +63,14 @@ def create_success_table(session: Session):
         CREATED BOOLEAN,
         SUCCESS BOOLEAN,
         ERRORS VARCHAR(16777216),
+        MATCH_FIELD VARCHAR(255),
+        MATCH_ID VARCHAR(16777216),
         CREATED_AT TIMESTAMP_LTZ DEFAULT CURRENT_TIMESTAMP()
     )
     """
     try:
         session.sql(create_table_sql).collect()
+        _add_match_columns(session, 'LOGS.SUCCESS')
         logger.info("✅ SUCCESS table created/verified successfully")
     except Exception as e:
         logger.warning(f"⚠️ Warning: Could not create SUCCESS table: {e}")
@@ -80,14 +83,29 @@ def create_failure_table(session: Session):
         JOB_ID VARCHAR(255) NOT NULL,
         SF_ID VARCHAR(255),
         SF_ERROR VARCHAR(16777216),
+        MATCH_FIELD VARCHAR(255),
+        MATCH_ID VARCHAR(16777216),
         CREATED_AT TIMESTAMP_LTZ DEFAULT CURRENT_TIMESTAMP()
     )
     """
     try:
         session.sql(create_table_sql).collect()
+        _add_match_columns(session, 'LOGS.FAILURE')
         logger.info("✅ FAILURE table created/verified successfully")
     except Exception as e:
         logger.warning(f"⚠️ Warning: Could not create FAILURE table: {e}")
+
+def _add_match_columns(session: Session, table: str):
+    """Backfill MATCH_FIELD/MATCH_ID onto a log table created before they existed."""
+    try:
+        session.sql(
+            f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS MATCH_FIELD VARCHAR(255)"
+        ).collect()
+        session.sql(
+            f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS MATCH_ID VARCHAR(16777216)"
+        ).collect()
+    except Exception as e:
+        logger.warning(f"⚠️ Warning: Could not add match columns to {table}: {e}")
 
 def get_job_info(access_info: dict, job_id: str) -> dict:
     """Retrieve job information from Salesforce Bulk API 2.0."""
@@ -289,105 +307,129 @@ def insert_job_info(session: Session, job_data: dict, job_id: str):
         logger.error(f"❌ Error inserting job info: {e}")
         logger.error(f"📋 SQL that failed: {insert_sql}")
 
-def insert_success_records(session: Session, job_id: str, success_data: list):
-    """Insert successful records into the SUCCESS table."""
+def _sql_literal(value):
+    """Render a value as a SQL string literal, escaping quotes; empty means NULL."""
+    if value is None or value == '':
+        return 'NULL'
+    return "'{}'".format(str(value).replace("'", "''"))
+
+
+def _sql_boolean(value):
+    """Render Salesforce's string booleans as SQL TRUE/FALSE/NULL."""
+    raw = str(value).strip().lower()
+    if raw in ('true', '1'):
+        return 'TRUE'
+    if raw in ('false', '0'):
+        return 'FALSE'
+    return 'NULL'
+
+
+def _lookup(record: dict, field):
+    """Read a result column case-insensitively, since Salesforce echoes the submitted casing."""
+    if not field:
+        return None
+    if field in record:
+        return record[field]
+    target = str(field).strip().lower()
+    for key, value in record.items():
+        if str(key).strip().lower() == target:
+            return value
+    return None
+
+
+def _insert_rows(session: Session, table: str, columns, rows, chunk_size: int = 500):
+    """
+    Insert pre-rendered literal rows using multi-row VALUES statements.
+
+    One INSERT per record makes a 25k batch 25k round trips, which is why result
+    logging never finished on large jobs; chunking keeps it to a handful.
+    """
+    if not rows:
+        return
+    column_list = ', '.join(columns)
+    for start in range(0, len(rows), chunk_size):
+        chunk = rows[start:start + chunk_size]
+        values = ', '.join('({})'.format(', '.join(row)) for row in chunk)
+        session.sql(f"INSERT INTO {table} ({column_list}) VALUES {values}").collect()
+
+
+def insert_success_records(session: Session, job_id: str, success_data: list, match_field: str = None):
+    """
+    Insert successful records into the SUCCESS table.
+
+    `match_field` names the external ID column that was submitted; Salesforce echoes
+    it back in the results, and storing it is what links a Salesforce ID to its source record.
+    """
     if not success_data:
         logger.info("ℹ️ No successful records to insert")
         return
-    
+
+    columns = ('JOB_ID', 'SF_ID', 'CREATED', 'SUCCESS', 'ERRORS', 'MATCH_FIELD', 'MATCH_ID')
+    rows = []
+    for record in success_data:
+        errors = record.get('sf__Errors')
+        match_value = _lookup(record, match_field)
+        rows.append((
+            _sql_literal(job_id),
+            _sql_literal(record.get('sf__Id')),
+            _sql_boolean(record.get('sf__Created')),
+            _sql_boolean(record.get('sf__Success')),
+            _sql_literal(json.dumps(errors)) if errors else 'NULL',
+            _sql_literal(match_field) if match_value is not None else 'NULL',
+            _sql_literal(match_value),
+        ))
+
     try:
-        for record in success_data:
-            # Safely escape string values and handle NULLs properly
-            sf_id = f"'{str(record.get('sf__Id', '')).replace(chr(39), chr(39)+chr(39))}'" if record.get('sf__Id') else 'NULL'
-            
-            # sf__Created is a boolean (true = new record created, false = existing record updated)
-            created_raw = record.get('sf__Created', '')
-            created = 'TRUE' if str(created_raw).lower() == 'true' else 'FALSE' if created_raw else 'NULL'
-            
-            # sf__Success is also a boolean
-            success_raw = record.get('sf__Success', '')
-            success = 'TRUE' if str(success_raw).lower() == 'true' else 'FALSE' if success_raw else 'NULL'
-            
-            errors = f"'{json.dumps(record.get('sf__Errors')).replace(chr(39), chr(39)+chr(39))}'" if record.get('sf__Errors') else 'NULL'
-            
-            insert_sql = f"""
-            INSERT INTO LOGS.SUCCESS (
-                JOB_ID, SF_ID, CREATED, SUCCESS, ERRORS
-            ) VALUES (
-                '{job_id}',
-                {sf_id},
-                {created},
-                {success},
-                {errors}
-            )
-            """
-            
-            session.sql(insert_sql).collect()
-        
-        logger.info(f"✅ Inserted {len(success_data)} successful records for job {job_id}")
-        
+        _insert_rows(session, 'LOGS.SUCCESS', columns, rows)
+        logger.info(f"✅ Inserted {len(rows)} successful records for job {job_id}")
+
     except Exception as e:
         logger.error(f"❌ Error inserting success records: {e}")
 
-def insert_failure_records(session: Session, job_id: str, failure_data: list):
-    """Insert failed records into the FAILURE table."""
+def insert_failure_records(session: Session, job_id: str, failure_data: list, match_field: str = None):
+    """
+    Insert failed records into the FAILURE table.
+
+    `match_field` names the external ID column that was submitted, so a failure can be
+    traced back to the source record that caused it rather than only to a Salesforce ID
+    (which is often blank on a failed insert).
+    """
     if not failure_data:
         logger.info("ℹ️ No failed records to insert")
         return
-    
+
     logger.info(f"📋 Starting to insert {len(failure_data)} failed records for job {job_id}")
-    
+
+    columns = ('JOB_ID', 'SF_ID', 'SF_ERROR', 'MATCH_FIELD', 'MATCH_ID')
+    rows = []
+    for record in failure_data:
+        match_value = _lookup(record, match_field)
+        rows.append((
+            _sql_literal(job_id),
+            _sql_literal(record.get('sf__Id')),
+            _sql_literal(record.get('sf__Error')),
+            _sql_literal(match_field) if match_value is not None else 'NULL',
+            _sql_literal(match_value),
+        ))
+
     try:
-        for i, record in enumerate(failure_data):
-            logger.debug(f"📋 Processing failed record {i+1}/{len(failure_data)}")
-            logger.debug(f"   Raw record: {record}")
-            logger.debug(f"   Record keys: {list(record.keys())}")
-            
-            # Safely escape string values and handle NULLs properly
-            sf_id = f"'{str(record.get('sf__Id', '')).replace(chr(39), chr(39)+chr(39))}'" if record.get('sf__Id') else 'NULL'
-            
-            # Get error information
-            sf_error = f"'{str(record.get('sf__Error', '')).replace(chr(39), chr(39)+chr(39))}'" if record.get('sf__Error') else 'NULL'
-            
-            logger.debug(f"   Processed values:")
-            logger.debug(f"     sf_id: {sf_id}")
-            logger.debug(f"     sf_error: {sf_error}")
-            
-            insert_sql = f"""
-            INSERT INTO LOGS.FAILURE (
-                JOB_ID, SF_ID, SF_ERROR
-            ) VALUES (
-                '{job_id}',
-                {sf_id},
-                {sf_error}
-            )
-            """
-            
-            logger.debug(f"   Generated SQL: {insert_sql}")
-            
-            try:
-                result = session.sql(insert_sql).collect()
-                logger.debug(f"   ✅ SQL execution successful: {result}")
-            except Exception as sql_error:
-                logger.error(f"   ❌ SQL execution failed: {sql_error}")
-                logger.error(f"   SQL that failed: {insert_sql}")
-                raise sql_error
-        
-        logger.info(f"✅ Inserted {len(failure_data)} failed records for job {job_id}")
-        
+        _insert_rows(session, 'LOGS.FAILURE', columns, rows)
+        logger.info(f"✅ Inserted {len(rows)} failed records for job {job_id}")
+
     except Exception as e:
         logger.error(f"❌ Error inserting failure records: {e}")
-        logger.error(f"📋 Last processed record index: {i if 'i' in locals() else 'N/A'}")
         raise
 
-def process_bulk_api_results(session: Session, access_info: dict, job_id: str):
+def process_bulk_api_results(session: Session, access_info: dict, job_id: str, match_field: str = None):
     """
     Main function to process Bulk API 2.0 job results and store them in the database.
-    
+
     Args:
         session: Snowflake session object
         access_info: Salesforce access credentials dictionary
         job_id: The Bulk API 2.0 job ID to process
+        match_field: External ID column submitted with the job. Salesforce echoes it back
+            in the results, so recording it links each outcome to its source record.
     """
     logger.info(f"🚀 Processing Bulk API 2.0 results for job: {job_id}")
     
@@ -410,14 +452,14 @@ def process_bulk_api_results(session: Session, access_info: dict, job_id: str):
         # Step 4: Retrieve and store successful results
         logger.info("📈 Retrieving successful results...")
         success_results = get_successful_results(access_info, job_id)
-        insert_success_records(session, job_id, success_results)
-        
+        insert_success_records(session, job_id, success_results, match_field=match_field)
+
         # Step 5: Retrieve and store failed results
         logger.info("📉 Retrieving failed results...")
         failure_results = get_failed_results(access_info, job_id)
         logger.debug(f"📋 Failure results: {len(failure_results) if failure_results else 0} records")
-        
-        insert_failure_records(session, job_id, failure_results)
+
+        insert_failure_records(session, job_id, failure_results, match_field=match_field)
         
         # Step 6: Summary
         logger.info("✅ BULK API 2.0 RESULTS PROCESSING COMPLETED")

@@ -3,11 +3,26 @@ import requests
 import json
 import logging
 from lht.util import csv
+from lht.util import log_retl
 from lht.sflake import query as q
 from . import ingest_bapi20 as ingest
 import time
 
 logger = logging.getLogger(__name__)
+
+
+def _log_job(session, job_info, schema='LOGS'):
+    """
+    Record a Bulk API job in <schema>.RETL_HISTORY, best-effort.
+
+    Result rows carry the job id as their only link to what produced them, so a
+    missing history row orphans them. Logging must never fail the ingest itself,
+    which is why every error here is swallowed with a warning.
+    """
+    try:
+        log_retl.job(session, job_info, schema=schema)
+    except Exception as e:
+        logger.warning(f"⚠️ Could not log job to {schema}.RETL_HISTORY: {e}")
 
 def upsert(session, access_info, sobject, query, field, batch_size=25000):
     """
@@ -117,6 +132,7 @@ def upsert(session, access_info, sobject, query, field, batch_size=25000):
                 logger.info(f"✅ Job created successfully: {job_info}")
                 job_id = job_info['id']
                 logger.debug(f"🆔 Job ID: {job_id}")
+                _log_job(session, job_info)
 
                 #########################################################
                 ###  SEND BATCH FILE
@@ -243,7 +259,7 @@ def update(session, access_info, sobject, query):
     logger.debug("creating job")
     response = requests.post(bulk_api_url, headers=headers, data=json.dumps(job_data))
     job_info = response.json()
-    #log_retl.job(session, job_info)
+    _log_job(session, job_info)
 
     job_id = job_info['id']
     logger.info(f"✅ Job created: {job_id}")
@@ -307,7 +323,7 @@ def insert(session, access_info, sobject, query):
     logger.debug("creating job")
     response = requests.post(bulk_api_url, headers=headers, data=json.dumps(job_data))
     job_info = response.json()
-    #log_retl.job(session, job_info)
+    _log_job(session, job_info)
 
     job_id = job_info['id']
     logger.info(f"✅ Job created: {job_id}")
@@ -384,7 +400,7 @@ def delete(session, access_info, sobject, query, field):
     response = requests.post(bulk_api_url, headers=headers, data=json.dumps(job_data))
     job_info = response.json()
     logger.debug(f"JOB: {job_info}")
-    #log_retl.job(session, job_info)
+    _log_job(session, job_info)
 
     job_id = job_info['id']
     logger.info(f"✅ Job created: {job_id}")

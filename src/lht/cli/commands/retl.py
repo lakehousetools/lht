@@ -153,7 +153,7 @@ def retl(
             for job_id in job_ids:
                 print(f"📋 Processing results for job: {job_id}")
                 try:
-                    log_result = process_bulk_api_results(session, access_info, job_id)
+                    log_result = process_bulk_api_results(session, access_info, job_id, match_field=match_field)
                     if log_result.get('success'):
                         print(f"   ✅ Logged: {log_result.get('success_count', 0)} success, {log_result.get('failure_count', 0)} failures")
                     else:
