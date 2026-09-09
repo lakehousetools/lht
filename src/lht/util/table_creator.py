@@ -36,23 +36,30 @@ def create_salesforce_table(
         Exception: If table creation fails
     """
     try:
+        # Tables/schemas are assumed uppercase and are never quoted - Snowflake
+        # folds unquoted identifiers to uppercase anyway, so enforcing it here
+        # keeps this table's name consistent with every other place that
+        # references it (existence checks, merges, last-modified lookups).
+        schema = schema.upper()
+        table = table.upper()
+
         logger.debug(f"🔍 create_salesforce_table called with force_full_sync={force_full_sync}")
-        
+
         # Auto-detect database if not provided
         if database is None:
             database = session.sql('SELECT CURRENT_DATABASE()').collect()[0][0]
             logger.debug(f"Auto-detected database: {database}")
-        
+
         # Set the current database and schema context
         session.sql(f"USE DATABASE {database}").collect()
         session.sql(f"USE SCHEMA {schema}").collect()
-        
+
         # Check if table already exists
         try:
             logger.debug(f"🔍 Checking if table {schema}.{table} exists...")
-            
-            table_check = session.sql(f'SHOW TABLES IN SCHEMA "{schema}"').collect()
-            table_names = [row['name'] for row in table_check]
+
+            table_check = session.sql(f"SHOW TABLES IN SCHEMA {schema}").collect()
+            table_names = [row['name'].upper() for row in table_check]
             
             if table in table_names:
                 logger.debug(f"🔍 Table {table} EXISTS in schema {schema}")
@@ -140,22 +147,27 @@ def _build_create_table_sql(schema: str, table: str, snowflake_fields: Dict[str,
     Returns:
         str: CREATE TABLE SQL statement
     """
-    # Build column definitions
+    # Build column definitions. Identifiers are never quoted - tables/columns
+    # are assumed uppercase, and leaving them unquoted lets Snowflake fold
+    # them to uppercase consistently with every other unquoted reference to
+    # this table (existence checks, merges, last-modified lookups).
+    schema = schema.upper()
+    table = table.upper()
     columns = []
     for field_name, snowflake_type in snowflake_fields.items():
         # Convert field name to uppercase to match DataFrame
         field_upper = field_name.upper()
-        
+
         # Use the Snowflake type directly (already mapped from Salesforce field types)
-        columns.append(f'"{field_upper}" {snowflake_type}')
-    
+        columns.append(f'{field_upper} {snowflake_type}')
+
     # Build CREATE TABLE statement
     column_defs = ',\n\t'.join(columns)
     # Always use CREATE TABLE (not CREATE OR REPLACE) since we handle DROP separately
-    create_sql = f"""CREATE TABLE "{schema}"."{table}" (
+    create_sql = f"""CREATE TABLE {schema}.{table} (
 	{column_defs}
 )"""
-    
+
     return create_sql
 
 
@@ -190,7 +202,9 @@ def ensure_table_exists_for_dataframe(
     """
     try:
         # Ensure table exists for DataFrame
-        
+        schema = schema.upper()
+        table = table.upper()
+
         # Filter snowflake_fields to only include fields we're actually using
         missing_in_snowflake = [k for k in df_fields.keys() if k not in snowflake_fields]
         if missing_in_snowflake:

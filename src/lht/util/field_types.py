@@ -3,6 +3,7 @@ import numpy as np
 import tempfile
 import re
 import logging
+from lht.exceptions import UnknownFieldTypeError
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +75,11 @@ def salesforce_field_type(field_type):
 		return 'string(24)'
 	else:
 		logger.error("Unknown field type: {}".format(field_type['type']))
-		exit(0)
+		raise UnknownFieldTypeError(
+			"No Snowflake type mapping for Salesforce field type '{}' (field: {})".format(
+				field_type['type'], field_type.get('name', 'unknown')
+			)
+		)
 	
 def df_field_type(field_type):
 	if field_type['type'] == 'id':

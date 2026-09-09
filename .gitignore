@@ -66,6 +66,12 @@ coverage.xml
 .pytest_cache/
 cover/
 
+# Integration test output (real run logs/reports -- see tests/integration/README.md)
+tests/integration/reports/
+tests/integration/state/
+tests/integration/*.toml
+!tests/integration/config.toml
+
 # Translations
 *.mo
 *.pot
