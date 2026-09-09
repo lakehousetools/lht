@@ -70,13 +70,24 @@ class IntelligentSync:
         Returns:
             Dictionary containing sync results and metadata
         """
+        # Tables/schemas are assumed uppercase and are never quoted when
+        # referenced later - Snowflake folds unquoted identifiers to
+        # uppercase anyway, so enforcing it here up front keeps every query
+        # downstream (table creation, existence checks, last-modified-date
+        # lookups, merges) referring to the same object.
+        schema = schema.upper()
+        table = table.upper()
+        match_field = match_field.upper()
+
         logger.debug(f"🔄 Starting intelligent sync for {sobject} -> {schema}.{table}")
-        
-        # Store force_full_sync, existing_job_id, delete_job, and where_clause as instance attributes for use in other methods
+
+        # Store force_full_sync, existing_job_id, delete_job, where_clause, and
+        # match_field as instance attributes for use in other methods
         self.force_full_sync = force_full_sync
         self.existing_job_id = existing_job_id
         self.delete_job = delete_job
         self.where_clause = where_clause
+        self.match_field = match_field
         logger.debug(f"🔧 Force full sync: {self.force_full_sync}")
 
         if existing_job_id:
@@ -806,7 +817,8 @@ class IntelligentSync:
             result = query_bapi20.get_bulk_results(
                 self.session, self.access_info, job_id, sobject, schema, table,
                 snowflake_fields=snowflake_fields, use_stage=use_stage, stage_name=stage_name,
-                force_full_sync=self.force_full_sync  # Pass the force_full_sync parameter
+                force_full_sync=self.force_full_sync,  # Pass the force_full_sync parameter
+                match_field=self.match_field
             )
             logger.info(f"✅ Bulk API results retrieved successfully")
         except Exception as e:
@@ -936,7 +948,8 @@ class IntelligentSync:
             result = query_bapi20.get_bulk_results(
                 self.session, self.access_info, job_id, sobject, schema, table,
                 snowflake_fields=snowflake_fields, use_stage=use_stage, stage_name=stage_name,
-                force_full_sync=self.force_full_sync  # Pass the force_full_sync parameter
+                force_full_sync=self.force_full_sync,  # Pass the force_full_sync parameter
+                match_field=self.match_field
             )
             logger.info(f"✅ Bulk API results retrieved successfully")
         except Exception as e:

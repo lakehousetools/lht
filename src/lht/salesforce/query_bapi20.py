@@ -10,6 +10,7 @@ from lht.util import stage
 from lht.util import table_creator
 import os
 from lht.util import merge
+from lht.exceptions import SalesforceAuthError, SalesforceAPIError
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +58,8 @@ def query_status(access_info, job_type, job_id):
 	Raises:
 		requests.exceptions.RequestException: If the API request fails (e.g., invalid token, network error).
 		json.JSONDecodeError: If the response is not valid JSON.
-		SystemExit: If the API returns a non-200 status code indicating authentication failure.
+		SalesforceAuthError: If the API returns HTTP 401 (invalid/expired session).
+		SalesforceAPIError: If the API returns any other non-2xx status code.
 	"""
 	if job_id == 'None':
 		job_id = None
@@ -71,24 +73,33 @@ def query_status(access_info, job_type, job_id):
 		url = access_info['instance_url']+"/services/data/v58.0/jobs/query/"
 	else:
 		url = access_info['instance_url']+"/services/data/v58.0/jobs/query/{}".format(job_id)
-	#results = requests.get(url, headers=headers)
 	query_statuses = []
 
 	while True:
 		results = requests.get(url, headers=headers)
-		if isinstance(results.json(), dict):
-			query_statuses.append(results.json())
+
+		if results.status_code == 401:
+			logger.error("Salesforce session is invalid or expired (query_status)")
+			raise SalesforceAuthError(
+				"Salesforce authentication failed while checking job status (HTTP 401). "
+				"The access token is invalid or expired."
+			)
+		if results.status_code >= 300:
+			logger.error(f"Salesforce query_status request failed: HTTP {results.status_code}")
+			raise SalesforceAPIError(
+				f"Salesforce query_status request failed with HTTP {results.status_code}: {results.text[:500]}"
+			)
+
+		response_json = results.json()
+		if isinstance(response_json, dict):
+			query_statuses.append(response_json)
 			break
-		if results.status_code > 200:
-			logger.error(f"Status code: {results.status_code}")
-			logger.error("not logged in")
-			exit(0)
-		records = len(results.json()['records'])
-		for result in results.json()['records']:
+
+		for result in response_json['records']:
 			if result['jobType'] == job_type:
 				query_statuses.append(result)
-		if results.json()['nextRecordsUrl'] is not None:
-				url = access_info['instance_url']+results.json()['nextRecordsUrl']
+		if response_json['nextRecordsUrl'] is not None:
+				url = access_info['instance_url']+response_json['nextRecordsUrl']
 		else:
 			break
 	return query_statuses
@@ -158,12 +169,7 @@ def get_query_ids(access_info):
 
 	return jobs
 
-def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table, snowflake_fields=None, database=None, force_full_sync=False):
-	logger.debug(f"🔍 get_bulk_results_direct called with force_full_sync={force_full_sync}")
-	
-	# Auto-detect database if not provided
-	if database is None:
-		database = session.sql('SELECT CURRENT_DATABASE()').collect()[0][0]
+def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table, snowflake_fields=None, database=None, force_full_sync=False, match_field='ID'):
 	"""Fetches and processes bulk query results from Salesforce, loading them directly into a Snowflake table.
 
 	Args:
@@ -175,6 +181,7 @@ def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table
 		schema (str): Snowflake schema name (e.g., 'RAW').
 		table (str): Snowflake table name to load results into.
 		database (str, optional): Snowflake database name. If not provided, uses current database.
+		match_field (str): Column used to match existing rows for the merge (default 'ID').
 
 	Returns:
 		requests.Response: HTTP response object from the last API request, or None if the job is not ready.
@@ -184,6 +191,20 @@ def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table
 		pandas.errors.EmptyDataError: If the CSV data is empty or malformed.
 		snowflake.snowpark.exceptions.SnowparkSQLException: If Snowflake write operation fails.
 	"""
+	logger.debug(f"🔍 get_bulk_results_direct called with force_full_sync={force_full_sync}, match_field={match_field}")
+
+	# Tables/schemas are assumed uppercase and are never quoted - Snowflake
+	# folds unquoted identifiers to uppercase anyway, so enforcing it here
+	# keeps every query in this function (and the tables it created earlier)
+	# referring to the same object.
+	schema = schema.upper()
+	table = table.upper()
+	match_field = match_field.upper()
+
+	# Auto-detect database if not provided
+	if database is None:
+		database = session.sql('SELECT CURRENT_DATABASE()').collect()[0][0]
+
 	headers = {
 			"Authorization":"Bearer {}".format(access_info['access_token']),
 			"Content-Type": "application/json"
@@ -230,9 +251,8 @@ def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table
 		logger.debug(f"📊 Processing first batch of data")
 		session.write_pandas(df_str, schema=schema, table_name="tmp_"+table, auto_create_table=True, overwrite=True, quote_identifiers=False, table_type="temporary")
 		df_str = None
-		transformed_data = merge.transform_and_match_datatypes(session, "tmp_"+table, table)
-		session.sql(f"Insert into {table} select {transformed_data} from tmp_{table}").collect()
-		logger.info(f"✅ First batch loaded successfully")
+		merge.merge_into_target(session, "tmp_"+table, table, match_field)
+		logger.info(f"✅ First batch merged successfully")
 	except Exception as e:
 		logger.error(f"❌ Failed to create table or load data: {e}")
 		raise Exception(f"Failed to load data into table {schema}.{table}: {e}")
@@ -260,17 +280,16 @@ def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table
 		df = None
 		logger.debug(f"📊 Processing batch {counter}")
 		session.write_pandas(df_str, schema=schema, table_name="tmp_"+table, auto_create_table=True, overwrite=True, quote_identifiers=False, table_type="temporary")
-		transformed_data = merge.transform_and_match_datatypes(session, "tmp_"+table, table)
-		session.sql(f"Insert into {table} select {transformed_data} from tmp_{table}").collect()
-		logger.info(f"✅ Batch {counter} loaded successfully using save_as_table")
+		merge.merge_into_target(session, "tmp_"+table, table, match_field)
+		logger.info(f"✅ Batch {counter} merged successfully")
 		df_str = None
 		counter += 1
 	
 	return results
 
-def get_bulk_results(session, access_info, job_id, sobject, schema, table, snowflake_fields=None, use_stage=False, stage_name=None, database=None, force_full_sync=False):
+def get_bulk_results(session, access_info, job_id, sobject, schema, table, snowflake_fields=None, use_stage=False, stage_name=None, database=None, force_full_sync=False, match_field='ID'):
 	"""Fetches and processes bulk query results from Salesforce, loading them into a Snowflake table.
-	
+
 	This function now uses direct DataFrame-to-table loading for optimal performance.
 
 	Args:
@@ -284,6 +303,7 @@ def get_bulk_results(session, access_info, job_id, sobject, schema, table, snowf
 		use_stage (bool, optional): Deprecated - kept for backward compatibility. Default False.
 		stage_name (str, optional): Deprecated - kept for backward compatibility.
 		database (str, optional): Snowflake database name. If not provided, uses current database.
+		match_field (str): Column used to match existing rows for the merge (default 'ID').
 
 	Returns:
 		requests.Response: HTTP response object from the last API request, or None if the job is not ready.
@@ -293,8 +313,8 @@ def get_bulk_results(session, access_info, job_id, sobject, schema, table, snowf
 		pandas.errors.EmptyDataError: If the CSV data is empty or malformed.
 		snowflake.snowpark.exceptions.SnowparkSQLException: If Snowflake write operation fails.
 	"""
-	logger.debug(f"🔍 get_bulk_results called with force_full_sync={force_full_sync}")
-	return get_bulk_results_direct(session, access_info, job_id, sobject, schema, table, snowflake_fields, database, force_full_sync)
+	logger.debug(f"🔍 get_bulk_results called with force_full_sync={force_full_sync}, match_field={match_field}")
+	return get_bulk_results_direct(session, access_info, job_id, sobject, schema, table, snowflake_fields, database, force_full_sync, match_field)
 
 def delete_query(access_info, job_id):
 	"""Deletes a Salesforce query job by ID using the Bulk Query API.

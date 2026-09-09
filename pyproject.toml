@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lht"
-version = "2.0.73"
+version = "2.0.80"
 authors = [
   { name="LHT Author", email="dan@solomo.io" },
 ]
@@ -13,7 +13,7 @@ readme = {file = "README.md", content-type = "text/markdown"}
 requires-python = ">=3.9"
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
 ]
 dependencies = [
@@ -25,9 +25,19 @@ dependencies = [
     "tabulate>=0.9.0"
 ]
 
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
 [project.scripts]
 lht = "lht.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/pypa/lht"
 Issues = "https://github.com/pypa/lht/issues"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: live test against a real Salesforce org and Snowflake warehouse; requires a configured connection and network access. Excluded by default -- run explicitly with `pytest -m integration`.",
+]
+addopts = "-m 'not integration'"

@@ -1,0 +1,17 @@
+# Configuration for the integration test suite.
+# `org` must match a connection name already created via `lht create-connection --salesforce`.
+
+[salesforce]
+org = "acp_uat"
+
+[snowflake]
+database = "BTSG_DEMO"
+# Pinned explicitly: this account has ~20 saved lht connections across several
+# unrelated projects, and the primary Snowflake connection is "radnet_prod" (a
+# different project entirely). Without this, anything that falls back to the
+# primary connection would try the wrong Snowflake account/database.
+connection = "BTSG_DEMO"
+# schema = "INT"  # uncomment to override; otherwise uses the connection's default schema
+
+[sync]
+sobject = "Account"

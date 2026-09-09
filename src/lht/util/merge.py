@@ -4,103 +4,47 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def format_filter_condition(snowpark_session, src_table, tgt_table,src_filter, tgt_filter):
-  filter_cond = list()
-  split_src = src_filter.split(',')
-  split_tgt = tgt_filter.split(',')
-  
-  # -- Check Both source and targer filter condition are same length
-  # -- Note : Filter condition order matters here:
-  if len(split_src) == len(split_tgt):
-    for i in range(len(split_src)):
-        #print(i)
-        filter_cond.append('src.'+ '"' + split_src[i]+ '"' + '= tgt.'+ '"' +split_tgt[i]+ '"')
-  else:
-    return "Error"
-  
-  s_filter_cond = " AND ".join(filter_cond)
-  
-  # -- Call the function to generate the merge statement
-  s_merge_stament = format_insert_upsert(snowpark_session, src_table, tgt_table, s_filter_cond)
-  
-  # -- Execute the Merge Statement
-  s_final_result = ""
-  #if s_merge_stament.upper() != 'ERROR':
-  if s_merge_stament != 'Error':
-    #print("\n\n@@@ {}".format(s_merge_stament))
-    #src_table_col = snowpark_session.sql(s_merge_stament).collect()
-    #s_final_result = "Number of Rows Inserted: {0} Updated:{1}".format(str(src_table_col[0][0]), str(src_table_col[0][1]))
-    return s_merge_stament
-  else:
-    logger.error("error generating merge statement")
-    #s_final_result = "Error"
-    return "Error"
-  
-  #return s_final_result;
- 
-def format_insert_upsert(snowpark_session, src_table, tgt_table, s_filter_cond):
+def merge_into_target(session, temp_table, target_table, match_field):
     """
-        Function query the snowflake metadata and generate the Merge
+    Merge casted rows from temp_table into target_table, keyed on match_field.
+
+    Rows whose match_field value already exists in target_table are updated in
+    place; rows that don't are inserted. This is what keeps a sync from
+    appending a duplicate row every time a record it has already loaded shows
+    up again (e.g. re-synced because it changed in Salesforce).
+
+    All identifiers are assumed uppercase and are never quoted, so they match
+    however the target table's columns were actually created.
     """
-    sel_colum = list()
-    update_col = list()
-    insert_sel = list()
-    insert_val = list()
-    # Get current database and schema for proper table references
-    current_db = snowpark_session.sql("SELECT CURRENT_DATABASE()").collect()[0][0]
-    schema_name = snowpark_session.get_current_schema().replace('"','')
-    
-    # Use fully qualified table names for temporary table queries
-    src_table_col = snowpark_session.sql("select COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '{0}' AND TABLE_SCHEMA = \'{1}\' ORDER BY ORDINAL_POSITION".format(src_table, schema_name)).collect()
-    tgt_table_col = snowpark_session.sql("select COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '{0}' AND TABLE_SCHEMA = \'{1}\' ORDER BY ORDINAL_POSITION".format(tgt_table, schema_name)).collect()
-    logger.info("\n\nsrc_table_col: {}".format(src_table_col))
-    logger.info("\n\ntgt_table_col: {}".format(tgt_table_col))
-    if len(src_table_col) != 0:
-        for idx_value in range(len(src_table_col)):
-            sel_colum.append('"'+src_table_col[idx_value][0]+'"')
-            insert_val.append("src." + '"' + str(src_table_col[idx_value][0]) + '"')
-            insert_sel.append("tgt." + '"' + str(tgt_table_col[idx_value][0]) + '"')
-            update_col.append("tgt." + '"' + str(tgt_table_col[idx_value][0]) + '"' + ' = ' + "src." + '"' + str(src_table_col[idx_value][0]) + '"')
+    match_field = match_field.upper()
 
-        # DEBUG: Log the column lists before generating SQL
-        logger.debug("🔍 DEBUG: Column lists being used in merge statement:")
-        logger.debug(f"   sel_colum (SELECT columns): {sel_colum}")
-        logger.debug(f"   insert_val (INSERT VALUES): {insert_val}")
-        logger.debug(f"   insert_sel (INSERT columns): {insert_sel}")
-        logger.debug(f"   update_col (UPDATE SET): {update_col}")
-        logger.debug(f"   s_filter_cond (ON condition): {s_filter_cond}")
-        logger.debug(f"   tgt_table: {tgt_table}")
-        logger.debug(f"   src_table: {src_table}")
+    # Casted, aliased SELECT list against temp_table, one expression per
+    # target column - this is what makes the merge tolerant of temp_table
+    # loading everything as strings (see get_bulk_results_direct).
+    casted_columns = transform_and_match_datatypes(session, temp_table, target_table)
+    casted_columns = casted_columns.strip().rstrip(',')
 
-        s_merge_stmt = """
-                    MERGE INTO
-                       {0} tgt
-                    USING
-                        (SELECT {1} FROM {2}) src
-                    ON
-                        {3}
-                    WHEN MATCHED THEN UPDATE SET
-                        {4}
-                    WHEN NOT MATCHED THEN INSERT
-                         ({5})
-                    VALUES
-                        ({6})
-                """.format(
-                    tgt_table,
-                    ",".join(sel_colum),
-                    src_table,
-                    s_filter_cond,
-                    ",".join(update_col),
-                    ",".join(insert_sel),
-                    ",".join(insert_val)
-                )
-        
-        # DEBUG: Log the complete generated SQL statement
-        logger.debug("🔍 DEBUG: Generated merge SQL statement:")
-        logger.debug(f"   {s_merge_stmt}")   
-    else:
-        return "Error---"
-    return s_merge_stmt
+    target_schema_info = session.sql(f"DESCRIBE TABLE {target_table}").collect()
+    target_columns = [row['name'].upper() for row in target_schema_info]
+
+    if match_field not in target_columns:
+        raise ValueError(f"match_field '{match_field}' is not a column of {target_table}")
+
+    update_set = ",\n    ".join(f"{col} = src.{col}" for col in target_columns if col != match_field)
+    insert_cols = ", ".join(target_columns)
+    insert_vals = ", ".join(f"src.{col}" for col in target_columns)
+
+    merge_sql = f"""
+MERGE INTO {target_table} tgt
+USING (SELECT {casted_columns} FROM {temp_table}) src
+ON tgt.{match_field} = src.{match_field}
+WHEN MATCHED THEN UPDATE SET
+    {update_set}
+WHEN NOT MATCHED THEN INSERT ({insert_cols})
+VALUES ({insert_vals})
+"""
+    logger.debug(f"🔍 Executing merge into {target_table} on {match_field}:\n{merge_sql}")
+    return session.sql(merge_sql).collect()
 
 #method to transform temp table and match datatypes with permanent table
 def transform_and_match_datatypes(session, temp_table, permanent_table, temp_schema=None, perm_schema=None):
