@@ -133,6 +133,27 @@ release, not by line count. Check items off as they're fixed.
   credentials (they use fakes, `tmp_path`, and connection *names* from `config.toml`), and
   left for a deliberate `git add` since they are the author's work, not part of this fix.
 
+- [x] **Bulk CSV responses decoded as Latin-1.** Fixed 2026-09-11. Salesforce sends Bulk
+  API 2.0 results as UTF-8 under `Content-Type: text/csv` with no charset, and requests
+  falls back to ISO-8859-1 for text/* without one — so every `response.text` turned
+  multi-byte characters into mojibake. A synced Account named `ACME – NORTH` landed in
+  Snowflake as `ACME â€“ NORTH`. Affected the query path (`query_bapi20`, i.e. every
+  `lht sync`) and the job-result paths (`results_bapi`, `jobs`, `log_retl`). All now go
+  through `util.csv.bulk_csv_text`, which decodes the bytes as UTF-8.
+  `tests/unit/test_bulk_csv_encoding.py`. Rows synced before the fix keep the corrupted
+  text until a `--force-full-sync`, since their LastModifiedDate has not moved.
+
+- [x] **`retl.upsert` could skip or repeat rows above one batch.** Fixed 2026-09-11. It
+  paged the query with `LIMIT/OFFSET` around a subquery, re-running it per batch with no
+  outer `ORDER BY`; Snowflake does not promise the same order twice. It now reads the
+  query once and cuts the batches in memory. `tests/unit/test_retl.py`.
+
+- [x] **`retl` could never clear a field.** Added 2026-09-11: `--clear-nulls`
+  (`clear_nulls=` on `upsert`/`update`). NULL goes out as an empty cell, which Bulk API
+  treats as "leave unchanged", so a value the source had emptied stayed in Salesforce. The
+  flag sends `#N/A`, which clears it. Opt-in so callers relying on NULL-means-untouched are
+  unaffected.
+
 ## Medium
 
 - [ ] **Redundant Salesforce API call.** Result-fetching re-runs `sobjects.describe()`
