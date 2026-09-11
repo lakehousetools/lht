@@ -10,6 +10,7 @@ from lht.util import stage
 from lht.util import table_creator
 import os
 from lht.util import merge
+from lht.util.csv import bulk_csv_text
 from lht.exceptions import SalesforceAuthError, SalesforceAPIError
 
 logger = logging.getLogger(__name__)
@@ -220,7 +221,7 @@ def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table
 	query_string, df_fields, snowflake_fields = sobjects.describe(access_info, sobject)
 	
 	# Process first batch
-	csv_content = results.text
+	csv_content = bulk_csv_text(results)
 	logger.info("PROCESSING BATCH 1")
 	
 	# Load and process data directly (no stage upload needed)
@@ -268,7 +269,7 @@ def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table
 
 		url = access_info['instance_url']+"/services/data/v58.0/jobs/query/{}/results?locator={}".format(job_id, results.headers['Sforce-Locator'])
 		results = requests.get(url, headers=headers)
-		csv_content = results.text
+		csv_content = bulk_csv_text(results)
 		logger.info(f"PROCESSING BATCH {counter}")
 		
 		# CRITICAL: Force string reading to prevent pandas from converting numeric strings to floats

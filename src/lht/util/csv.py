@@ -6,6 +6,20 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
+def bulk_csv_text(response):
+    """
+    The body of a Salesforce Bulk API CSV response, decoded as UTF-8.
+
+    Bulk API 2.0 always encodes CSV as UTF-8 but answers with `Content-Type: text/csv` and no
+    charset, and requests falls back to ISO-8859-1 for a text/* type without one. So
+    `response.text` decodes every multi-byte character wrongly -- an en dash comes out as
+    'â\x80\x93' -- and a sync writes that into Snowflake as the record's value. Decode the bytes
+    ourselves instead. utf-8-sig so a byte-order mark, if one ever appears, is dropped rather than
+    glued onto the first column name.
+    """
+    return response.content.decode('utf-8-sig')
+
 def json_to_csv(json_data):
     if isinstance(json_data, str):
         json_data = json.loads(json_data)

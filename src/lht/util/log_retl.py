@@ -60,7 +60,7 @@ def successful_results(access_info, job_id, match_field=None):
         'Accept': 'text/csv'
     }
     response = requests.get(url, headers=headers)
-    results = csv.success_upserts(response.text, job_id, match_field=match_field)
+    results = csv.success_upserts(csv.bulk_csv_text(response), job_id, match_field=match_field)
 
     return results
 
@@ -72,7 +72,7 @@ def failed_results(access_info, job_id, match_field=None):
         'Accept': 'text/csv'
     }
     response = requests.get(url, headers=headers)
-    results = csv.fail_upserts(response.text, job_id, match_field=match_field)
+    results = csv.fail_upserts(csv.bulk_csv_text(response), job_id, match_field=match_field)
 
     return results
 

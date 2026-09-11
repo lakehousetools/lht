@@ -4,6 +4,7 @@ Bulk API 2.0 jobs operations from Salesforce.
 
 import requests
 import logging
+from lht.util.csv import bulk_csv_text
 from typing import Dict, Any, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -254,8 +255,8 @@ def get_ingest_job_results(access_info: Dict[str, str], job_id: str, api_version
         try:
             response = requests.get(url, headers=headers)
             response.raise_for_status()
-            results[key] = response.text
-            logger.debug(f"Fetched {key} for job {job_id}: {len(response.text)} bytes")
+            results[key] = bulk_csv_text(response)
+            logger.debug(f"Fetched {key} for job {job_id}: {len(response.content)} bytes")
         except requests.exceptions.HTTPError as e:
             if e.response is not None and e.response.status_code in (400, 404):
                 results[key] = ''
