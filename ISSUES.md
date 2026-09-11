@@ -6,6 +6,26 @@ release, not by line count. Check items off as they're fixed.
 
 ## High
 
+- [ ] **Vulnerable dependency pins in `requirements.txt`.** Found 2026-09-11: GitHub Dependabot
+  reports 7 open alerts on the default branch, all from exact pins in `requirements.txt`.
+
+  | Severity | Package | Pinned | Fixed in | Issue |
+  |---|---|---|---|---|
+  | High | urllib3 | 2.5.0 | 2.7.0 | sensitive headers forwarded across origins on proxied redirects |
+  | High | urllib3 | 2.5.0 | 2.6.3 | decompression-bomb safeguards bypassed when following redirects |
+  | High | urllib3 | 2.5.0 | 2.6.0 | streaming API mishandles highly compressed data |
+  | High | urllib3 | 2.5.0 | 2.6.0 | unbounded number of links in the decompression chain |
+  | Moderate | requests | 2.32.4 | 2.33.0 | insecure temp file reuse in `extract_zipped_paths()` |
+  | Moderate | idna | 3.10 | 3.15 | crafted input bypasses the CVE-2024-3651 fix |
+  | Low | Pygments | 2.19.2 | 2.20.0 | ReDoS in the GUID-matching regex |
+
+  Exposure is anyone who installs from `requirements.txt`. The published package declares its
+  runtime deps in `pyproject.toml`, which only floors `requests>=2.32.3`, so a normal install
+  resolves to current versions. Two ways to clear it: raise the pins to at least the fixed
+  versions above, or fix the Low item "`requirements.txt` doesn't match runtime deps" properly,
+  which would drop most of these pins anyway. Alerts:
+  https://github.com/lakehousetools/lht/security/dependabot (visible only when signed in with
+  admin or security access; others get a 404).
 - [x] **License mismatch.** `LICENSE` was Apache 2.0 while `pyproject.toml` declared
   MIT. Resolved 2026-08-18: standardized on Apache 2.0 (matches the existing LICENSE
   file; patent grant is a better fit for enterprise-facing integration tooling).
