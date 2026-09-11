@@ -50,18 +50,27 @@ def login_user_flow(clientid: str, clientsecret: str, my_domain: str) -> Dict[st
     Raises:
         requests.RequestException: If authentication request fails
     """
-    headers = {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json'
-    }
-    
-    url = f"https://{my_domain}.my.salesforce.com/services/oauth2/token?grant_type=client_credentials&client_id={clientid}&client_secret={clientsecret}"
-    
-    r = requests.post(url, headers=headers)
-    r.raise_for_status()  # Raise exception for bad status codes
-    
+    # Credentials go in a form-encoded body, never the query string. A query string is recorded
+    # by proxies, load balancers and server access logs, where a body is not -- and
+    # raise_for_status() below puts the full URL into the HTTPError message, so with the secret
+    # in the URL any failed login printed it into whatever handled the exception. The token
+    # endpoint expects application/x-www-form-urlencoded, which requests sets itself for `data=`.
+    url = f"https://{my_domain}.my.salesforce.com/services/oauth2/token"
+
+    r = requests.post(
+        url,
+        data={
+            "grant_type": "client_credentials",
+            "client_id": clientid,
+            "client_secret": clientsecret,
+        },
+        headers={"Accept": "application/json"},
+        timeout=60,
+    )
+    r.raise_for_status()  # Safe to surface now: the URL carries no credential
+
     response_data = r.json()
-    
+
     return response_data
 
 

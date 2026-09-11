@@ -72,7 +72,12 @@ release, not by line count. Check items off as they're fixed.
   still there and will keep tripping up anyone who runs `python -m` from the
   repo root; consider deleting it now that `lht = "lht.cli:main"` gives the
   same thing via a properly installed console script.
-- [ ] **Client secret sent in the token URL's query string.** Found 2026-09-11 while
+- [x] **Client secret sent in the token URL's query string.** Fixed 2026-09-11:
+  credentials now travel as a form-encoded POST body to the bare token URL, the wrong
+  `Content-Type: application/json` header is gone, and the request has a 60s timeout.
+  `tests/unit/test_salesforce_auth.py` (5 tests) pins it: nothing in the URL, the body
+  carries all three parameters, and a failed login's exception text holds no secret.
+  Verified against a live sandbox — token issued. Original report below. Found 2026-09-11 while
   wiring the RadNet sync. `login_user_flow()` builds the client-credentials request as
   `…/oauth2/token?grant_type=client_credentials&client_id=…&client_secret=…` and POSTs
   it with no body. Query strings are routinely captured by proxies, load balancers and
@@ -91,6 +96,42 @@ release, not by line count. Check items off as they're fixed.
     `Content-Type: application/json` header is wrong for it and should go.
   - Only occurrence in the package (checked with a grep for secrets and tokens in
     URLs). Rotate any secret that has been through a failed login since this shipped.
+
+- [ ] **In-place Cython builds silently shadow edited source.** Found 2026-09-11.
+  `BUILD_AND_DISTRIBUTION.md` tells you to run `python setup.py build_ext --inplace`,
+  which drops a `.so` next to every `.py` in `src/lht/`. Python imports a compiled
+  extension ahead of source in the same directory, and the dev venv is an editable
+  install, so **after any later edit the venv keeps running the old compiled code** —
+  no error, no warning. Found because a fix to `salesforce_auth.py` had no effect: its
+  `.so` dated from 2026-08-19. Six modules were stale that way, five of them carrying
+  fixes committed on 2026-09-09 that had therefore never run locally:
+  `cli/commands/retl.py`, `salesforce/results_bapi.py`, `salesforce/retl.py`,
+  `user/salesforce_auth.py`, `util/csv.py`, `util/log_retl.py`. The stale `.so` files
+  were moved out of `src/` so those modules now import from source.
+  - It also means **unit tests can pass against stale compiled code** rather than the
+    source under test. None of the four stale modules with 2026-09-09 fixes has a unit
+    test, so nothing caught it.
+  - Published wheels are unaffected as long as they are built fresh by `python -m build`.
+  - Fix options: stop building in place in the working tree (build only into `build/`
+    for distribution, and let the editable install run source); or add a guard — a
+    test, or a check in `publish.sh` — that fails when any `src/lht/**/*.so` is older
+    than its `.py`.
+
+- [x] **`.gitignore` swallowed the test suites.** Fixed 2026-09-11. The rule
+  `test_*.py`, commented "Test files in root directory", had no leading slash and so
+  matched at every depth. **No test file under `tests/` has ever been committed** — the
+  repo holds `tests/README.md`, the integration harness and `config.toml`, but none of the
+  suites they describe:
+  - `tests/unit/test_connections.py`, `test_field_types.py`, `test_merge.py` — the 35
+    unit tests that "No automated unit tests" above records as resolved on 2026-08-19.
+  - `tests/integration/test_sync_scenario.py` — the 10-test live integration suite.
+
+  They exist only in the working copy they were written in; a fresh clone runs zero tests
+  and any CI would pass vacuously. Anchored the rule to `/test_*.py`, which is what its
+  comment always meant. `tests/unit/test_salesforce_auth.py` is committed. **The other four
+  are now visible to git but deliberately not committed** — each scanned clean of
+  credentials (they use fakes, `tmp_path`, and connection *names* from `config.toml`), and
+  left for a deliberate `git add` since they are the author's work, not part of this fix.
 
 ## Medium
 
