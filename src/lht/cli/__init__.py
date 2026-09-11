@@ -232,6 +232,12 @@ Examples:
         help='Salesforce connection name (defaults to primary connection)'
     )
     retl_parser.add_argument(
+        '--clear-nulls',
+        action='store_true',
+        help="Send NULL as #N/A so Salesforce clears the field (upsert/update). Without it a NULL "
+             "is an empty cell, which Salesforce treats as 'leave unchanged'"
+    )
+    retl_parser.add_argument(
         '--log-results',
         action='store_true',
         help='(Best-effort) Log ingest results into Snowflake LOGS schema tables'
@@ -414,6 +420,7 @@ def main(args: Optional[List[str]] = None) -> int:
             snowflake_connection=parsed_args.snowflake,
             salesforce_connection=parsed_args.salesforce,
             log_results=parsed_args.log_results,
+            clear_nulls=parsed_args.clear_nulls,
             verbose=parsed_args.verbose
         )
     

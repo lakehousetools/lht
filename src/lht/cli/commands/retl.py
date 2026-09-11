@@ -37,6 +37,7 @@ def retl(
     snowflake_connection: Optional[str] = None,
     salesforce_connection: Optional[str] = None,
     log_results: bool = False,
+    clear_nulls: bool = False,
     verbose: bool = False,
 ) -> int:
     """
@@ -57,7 +58,7 @@ def retl(
     try:
         op = operation.lower().strip()
         sql_text = _read_sql(sql, sql_file).strip()
-        # Normalize so LIMIT/OFFSET concatenation in retl.upsert stays valid
+        # A trailing semicolon is harmless to Snowflake but not to anything that wraps the query
         sql_text = sql_text.rstrip(";")
 
         # Resolve connections (use primary if not provided)
@@ -100,6 +101,7 @@ def retl(
             print(f"Match Field: {match_field}")
             print(f"Batch Size: {batch_size:,}")
         print(f"Log Results: {'Yes' if log_results else 'No'}")
+        print(f"Clear NULLs: {'Yes (#N/A)' if clear_nulls else 'No (empty cell)'}")
         print("=" * 60)
         if verbose:
             print("\nSQL Query:")
@@ -122,6 +124,7 @@ def retl(
                 query=sql_text,
                 field=match_field,
                 batch_size=batch_size,
+                clear_nulls=clear_nulls,
             )
             # Extract job IDs from batch results
             if result and 'batch_results' in result:
@@ -133,7 +136,7 @@ def retl(
             if result and 'id' in result:
                 job_ids.append(result['id'])
         elif op == "update":
-            result = retl_mod.update(session, access_info, sobject, sql_text)
+            result = retl_mod.update(session, access_info, sobject, sql_text, clear_nulls=clear_nulls)
             if result and 'id' in result:
                 job_ids.append(result['id'])
         elif op == "delete":
