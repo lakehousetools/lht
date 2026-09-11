@@ -3,6 +3,7 @@ import json
 import csv as csv_module
 import io
 import logging
+from lht.util.csv import bulk_csv_text
 from snowflake.snowpark import Session
 from snowflake.snowpark.exceptions import SnowparkSQLException
 
@@ -146,7 +147,7 @@ def get_successful_results(access_info: dict, job_id: str) -> list:
         response.raise_for_status()
         
         # Parse CSV response
-        csv_content = response.text
+        csv_content = bulk_csv_text(response)
         if not csv_content.strip():
             logger.info("ℹ️ No CSV content received for successful results")
             return []
@@ -188,7 +189,7 @@ def get_failed_results(access_info: dict, job_id: str) -> list:
         response.raise_for_status()
         
         # Parse CSV response
-        csv_content = response.text
+        csv_content = bulk_csv_text(response)
         if not csv_content.strip():
             logger.info("ℹ️ No CSV content received for failed results")
             return []
