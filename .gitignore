@@ -182,5 +182,7 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-# Test files in root directory
-test_*.py
+# Test files in root directory. Anchored with a leading slash: unanchored, this matched at
+# every depth and silently ignored tests/unit/ and tests/integration/ -- new tests had to be
+# force-added, and tests/integration/test_sync_scenario.py was never committed at all.
+/test_*.py
