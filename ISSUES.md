@@ -176,6 +176,22 @@ release, not by line count. Check items off as they're fixed.
   - `src/lht/salesforce/sobject_sync.py`
   - `src/lht/salesforce/sobject_query.py`
   - `src/lht/salesforce/sobject_create.py`
+- [ ] **`retl update` / `insert` / `delete` with no rows still start a Bulk job.** Found
+  2026-09-11. Only `upsert` returns early on an empty result. The others call
+  `csv.json_to_csv([])`, which logs "no data to process" and returns `None`, then create the
+  job and send that `None` as the upload, so the job cannot succeed. Callers currently have to
+  count the query's rows themselves before calling. Found by reading the code; the failure
+  itself has not been reproduced live. Fix: return early, as `upsert` does.
+  `src/lht/salesforce/retl.py` (`update`, `insert`, `delete`)
+- [ ] **reverse-ETL log tables that nothing creates.** Found 2026-09-11. `retl._log_job` inserts
+  every job into `LOGS.RETL_HISTORY`, and `log_retl.log_results` writes to
+  `LOGS.RETL_RESULTS` / `LOGS.RETL_FAILURES` with `auto_create_table=False` — but nothing in lht
+  creates any of the three. On a fresh database the history insert fails and is swallowed as a
+  warning on every run, so no job history is kept; `log_results` would fail outright. The
+  `--log-results` path is unaffected: `results_bapi` creates its own `LOGS.JOB_INFO` / `SUCCESS` /
+  `FAILURE`. Either create the tables (`CREATE TABLE IF NOT EXISTS`, as `results_bapi` does) or
+  retire them in favour of the `results_bapi` tables, which cover the same ground.
+  `src/lht/salesforce/retl.py` (`_log_job`), `src/lht/util/log_retl.py`
 
 ## Low
 
@@ -198,6 +214,14 @@ release, not by line count. Check items off as they're fixed.
   - `src/lht/salesforce/intelligent_sync.py`
   - `src/lht/util/field_types.py`
   - `src/lht/util/data_writer.py`
+- [ ] **`lht sync` reports records it does not write.** Found 2026-09-11. A Contact sync with
+  `--where "RecordType.Name IN (...)"` reports "Sync completed: 1 records" / "Actual Records: 1"
+  on every run, while the target table stays at 0 rows. The org holds exactly one Contact, and
+  it has no record type, so the `--where` correctly excludes it. The count appears to be taken
+  without the `--where` predicate while the data query applies it — cause not yet traced. The
+  data is right; the reported count is not, which makes a sync's output untrustworthy as a check.
+  Also: because the table stays empty, `MAX(LASTMODIFIEDDATE)` stays NULL and every run is a full
+  query rather than an incremental one.
 
 ## Bugs found during manual testing (2026-08-19)
 
