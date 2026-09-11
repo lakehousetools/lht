@@ -72,6 +72,25 @@ release, not by line count. Check items off as they're fixed.
   still there and will keep tripping up anyone who runs `python -m` from the
   repo root; consider deleting it now that `lht = "lht.cli:main"` gives the
   same thing via a properly installed console script.
+- [ ] **Client secret sent in the token URL's query string.** Found 2026-09-11 while
+  wiring the RadNet sync. `login_user_flow()` builds the client-credentials request as
+  `…/oauth2/token?grant_type=client_credentials&client_id=…&client_secret=…` and POSTs
+  it with no body. Query strings are routinely captured by proxies, load balancers and
+  server access logs, which a request body is not.
+  - `src/lht/user/salesforce_auth.py:58`
+  - **The sharper problem is the failure path.** The next line is
+    `r.raise_for_status()`, and `requests.HTTPError` includes the full URL in its
+    message (`400 Client Error: Bad Request for url: https://…&client_secret=…`). So
+    any failed login — wrong secret, expired app, bad domain — puts the secret into
+    the exception text, and from there into whatever prints or logs it: the terminal,
+    a log file, CI output. That is far more likely to leak it than a proxy log.
+  - Fix: POST to the bare token URL with the parameters as a form body —
+    `requests.post(url, data={"grant_type": "client_credentials", "client_id": …,
+    "client_secret": …})`. `requests` sets `application/x-www-form-urlencoded` itself,
+    which is also what the OAuth token endpoint expects; the current
+    `Content-Type: application/json` header is wrong for it and should go.
+  - Only occurrence in the package (checked with a grep for secrets and tokens in
+    URLs). Rotate any secret that has been through a failed login since this shipped.
 
 ## Medium
 
