@@ -77,3 +77,24 @@ def test_update_honours_clear_nulls():
         retl.update(session, {"access_token": "t", "instance_url": "https://x"}, "Account",
                     "SELECT 1", clear_nulls=True)
     assert captured["csv"].strip().splitlines()[1] == "001A,#N/A"
+
+
+def test_clear_nulls_leaves_a_blank_match_field_blank_so_the_row_is_created():
+    # Upserting on Id, a new record has no Id. '#N/A' there would be an invalid Id and fail the
+    # row; only an empty cell means "create". Every other NULL still clears its field.
+    rows = [_Row(Id=None, Name="New", Floor_Suite__c=None),
+            _Row(Id="001A", Name="Old", Floor_Suite__c=None)]
+    sent = []
+    posted = mock.Mock(status_code=200, json=mock.Mock(return_value={"id": "750z"}))
+    with mock.patch.object(retl.requests, "post", return_value=posted), \
+         mock.patch.object(retl.ingest, "send_file", side_effect=lambda a, j, data: sent.append(data)), \
+         mock.patch.object(retl.ingest, "job_close", return_value={}), \
+         mock.patch.object(retl.ingest, "job_status", return_value={"id": "750z", "state": "JobComplete"}), \
+         mock.patch.object(retl, "_log_job"):
+        session = mock.Mock()
+        session.sql.return_value.collect.return_value = rows
+        retl.upsert(session, {"access_token": "t", "instance_url": "https://x"}, "Account",
+                    "SELECT 1", "Id", clear_nulls=True)
+    lines = sent[0].strip().splitlines()
+    assert lines[1] == ",New,#N/A"
+    assert lines[2] == "001A,Old,#N/A"
