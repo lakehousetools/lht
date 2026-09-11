@@ -10,6 +10,22 @@ import time
 
 logger = logging.getLogger(__name__)
 
+# Bulk API 2.0 reads an empty CSV cell as "leave the field unchanged". Only this sets it to null.
+BULK_NULL = '#N/A'
+
+
+def _to_records(rows, clear_nulls=False):
+    """
+    Snowpark rows to dicts for the CSV payload.
+
+    NULL goes out as an empty cell by default, which Salesforce ignores on update -- a field the
+    source has emptied keeps its old value. `clear_nulls` sends '#N/A' instead, which clears it.
+    Opt-in, because callers that rely on NULL meaning "don't touch" would otherwise start wiping
+    fields.
+    """
+    null = BULK_NULL if clear_nulls else ''
+    return [{k: (null if v is None else v) for k, v in row.asDict().items()} for row in rows]
+
 
 def _log_job(session, job_info, schema='LOGS'):
     """
@@ -24,7 +40,7 @@ def _log_job(session, job_info, schema='LOGS'):
     except Exception as e:
         logger.warning(f"⚠️ Could not log job to {schema}.RETL_HISTORY: {e}")
 
-def upsert(session, access_info, sobject, query, field, batch_size=25000):
+def upsert(session, access_info, sobject, query, field, batch_size=25000, clear_nulls=False):
     """
     Upsert records to Salesforce using data from a SQL query executed against Snowflake.
     Processes records in batches to handle large datasets efficiently.
@@ -36,6 +52,7 @@ def upsert(session, access_info, sobject, query, field, batch_size=25000):
         query: SQL query string to execute against Snowflake
         field: External ID field name for upsert operation
         batch_size: Number of records to process per batch (default: 25000)
+        clear_nulls: Send NULL as '#N/A' so Salesforce clears the field (default: leave it)
     """
     logger.info("🚀 STARTING SALESFORCE UPSERT WITH BATCH PROCESSING")
     logger.info(f"📋 Parameters: SObject={sobject}, Field={field}, Batch Size={batch_size:,}")
@@ -43,22 +60,19 @@ def upsert(session, access_info, sobject, query, field, batch_size=25000):
     try:
         access_token = access_info['access_token']
         
-        # Wrap the user query in a subquery so we can safely add LIMIT/OFFSET
-        # This handles cases where the user's query already has LIMIT
-        base_query = f"SELECT * FROM ({query}) AS _retl_source"
-        
-        logger.debug("🔍 STEP 1: Getting total record count...")
-        # First, get the total count of records to determine number of batches
-        count_query = f"SELECT COUNT(*) as total_count FROM ({query})"
-        count_result = session.sql(count_query).collect()
-        total_records = count_result[0][0] if count_result else 0
-        
+        # Read the query once and split it here. Paging it with LIMIT/OFFSET re-ran the query per
+        # batch with no ORDER BY around it, and Snowflake does not promise the same order twice,
+        # so above one batch rows could be sent twice or never.
+        logger.debug("🔍 STEP 1: Reading source rows...")
+        all_rows = session.sql(query).collect()
+        total_records = len(all_rows)
+
         logger.info(f"📊 Total records to process: {total_records:,}")
-        
+
         if total_records == 0:
             logger.warning("⚠️ No records found to process")
             return None
-        
+
         # Calculate number of batches needed
         num_batches = (total_records + batch_size - 1) // batch_size
         logger.info(f"📦 Will process {total_records:,} records in {num_batches} batch(es) of up to {batch_size:,} records each")
@@ -81,32 +95,16 @@ def upsert(session, access_info, sobject, query, field, batch_size=25000):
         failed_batches = 0
         total_processed = 0
 
-        # Process records in batches - query each batch separately
+        # One Bulk job per batch, cut from the rows read above
         for batch_num in range(num_batches):
             offset = batch_num * batch_size
-            limit = batch_size
-            
+
             logger.debug(f"🔍 STEP 2.{batch_num + 1}: Processing batch {batch_num + 1}/{num_batches}")
             logger.debug(f"📊 Batch range: records {offset + 1:,} to {min(offset + batch_size, total_records):,}")
-            
+
             try:
-                # Query only the records for this batch using LIMIT and OFFSET on the wrapped query
-                batch_query = f"{base_query} LIMIT {limit} OFFSET {offset}"
-                logger.debug(f"🔍 Executing batch query: {batch_query[:100]}...")
-                
-                results = session.sql(batch_query).collect()
-                
-                # Convert results to the expected format
-                batch_records = []
-                for result in results:
-                    record = {}
-                    for key, value in result.asDict().items():
-                        if value is None:
-                            record[key] = ''
-                        else:
-                            record[key] = value
-                    batch_records.append(record)
-                
+                batch_records = _to_records(all_rows[offset:offset + batch_size], clear_nulls)
+
                 actual_batch_size = len(batch_records)
                 total_processed += actual_batch_size
                 logger.debug(f"📊 Retrieved {actual_batch_size:,} records for this batch (Total processed: {total_processed:,}/{total_records:,})")
@@ -221,24 +219,13 @@ def upsert(session, access_info, sobject, query, field, batch_size=25000):
         logger.error(f"Error type: {type(e).__name__}")
         raise
 
-def update(session, access_info, sobject, query):
+def update(session, access_info, sobject, query, clear_nulls=False):
     access_token = access_info['access_token']
 
     logger.info("🚀 STARTING SALESFORCE UPDATE")
     logger.info(f"📋 Parameters: SObject={sobject}")
 
-    #records = q.get_records(session, query)
-    results = session.sql(query).collect()
-    # Convert results to the expected format
-    records = []
-    for result in results:
-        record = {}
-        for key, value in result.asDict().items():
-            if value is None:
-                record[key] = ''
-            else:
-                record[key] = value
-        records.append(record)
+    records = _to_records(session.sql(query).collect(), clear_nulls)
 
     logger.info(f"📊 Records to update: {len(records):,}")
 
