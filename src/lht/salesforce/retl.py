@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 BULK_NULL = '#N/A'
 
 
-def _to_records(rows, clear_nulls=False):
+def _to_records(rows, clear_nulls=False, match_field=None):
     """
     Snowpark rows to dicts for the CSV payload.
 
@@ -22,9 +22,20 @@ def _to_records(rows, clear_nulls=False):
     source has emptied keeps its old value. `clear_nulls` sends '#N/A' instead, which clears it.
     Opt-in, because callers that rely on NULL meaning "don't touch" would otherwise start wiping
     fields.
+
+    The upsert's match field is never '#N/A'. A blank match value is how a row says "no existing
+    record: create one" -- upserting on Id, that is every new row -- and '#N/A' there is not
+    blank but an invalid value, so the row would fail instead of being created.
     """
     null = BULK_NULL if clear_nulls else ''
-    return [{k: (null if v is None else v) for k, v in row.asDict().items()} for row in rows]
+    match = match_field.lower() if match_field else None
+
+    def cell(key, value):
+        if value is not None:
+            return value
+        return '' if match is not None and key.lower() == match else null
+
+    return [{k: cell(k, v) for k, v in row.asDict().items()} for row in rows]
 
 
 def _log_job(session, job_info, schema='LOGS'):
@@ -103,7 +114,7 @@ def upsert(session, access_info, sobject, query, field, batch_size=25000, clear_
             logger.debug(f"📊 Batch range: records {offset + 1:,} to {min(offset + batch_size, total_records):,}")
 
             try:
-                batch_records = _to_records(all_rows[offset:offset + batch_size], clear_nulls)
+                batch_records = _to_records(all_rows[offset:offset + batch_size], clear_nulls, field)
 
                 actual_batch_size = len(batch_records)
                 total_processed += actual_batch_size
