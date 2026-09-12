@@ -227,7 +227,7 @@ def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table
 	# Load and process data directly (no stage upload needed)
 	# CRITICAL: Force string reading to prevent pandas from converting numeric strings to floats
 	# This prevents "20" from becoming 20.0 and then "20.0"
-	df = pd.read_csv(io.StringIO(csv_content), dtype=str)
+	df = pd.read_csv(io.StringIO(csv_content), dtype=str, keep_default_na=False, na_values=[''])
 	
 	# Set the current database and schema context
 	session.sql(f"USE DATABASE {database}").collect()
@@ -274,7 +274,7 @@ def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table
 		
 		# CRITICAL: Force string reading to prevent pandas from converting numeric strings to floats
 		# This prevents "20" from becoming 20.0 and then "20.0"
-		df = pd.read_csv(io.StringIO(csv_content), dtype=str)
+		df = pd.read_csv(io.StringIO(csv_content), dtype=str, keep_default_na=False, na_values=[''])
 		
 
 		df_str = df.astype(str)
