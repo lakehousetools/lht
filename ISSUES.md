@@ -174,6 +174,14 @@ release, not by line count. Check items off as they're fixed.
   flag sends `#N/A`, which clears it. Opt-in so callers relying on NULL-means-untouched are
   unaffected.
 
+- [x] **Sync turns the strings `NA`, `N/A`, `None`, `nan` and `null` into NULL.** Found 2026-09-12
+  on RadNet: two contacts whose FirstName is literally `NA` synced as NULL, so every push saw them
+  as changed. `pd.read_csv(..., dtype=str)` still applies pandas' default NA strings. The Bulk API
+  CSV writes a real null as an empty cell, so only `''` means missing. Fixed 2026-09-12 with
+  `keep_default_na=False, na_values=['']`.
+  - `src/lht/salesforce/query_bapi20.py` (both `read_csv` calls)
+  - `src/lht/util/stage.py`
+
 ## Medium
 
 - [ ] **Redundant Salesforce API call.** Result-fetching re-runs `sobjects.describe()`
@@ -212,6 +220,13 @@ release, not by line count. Check items off as they're fixed.
   `FAILURE`. Either create the tables (`CREATE TABLE IF NOT EXISTS`, as `results_bapi` does) or
   retire them in favour of the `results_bapi` tables, which cover the same ground.
   `src/lht/salesforce/retl.py` (`_log_job`), `src/lht/util/log_retl.py`
+
+- [x] **`retl --log-results` never creates `LOGS.RETL_HISTORY`.** Found 2026-09-12: every RadNet
+  push logged `Could not log job to LOGS.RETL_HISTORY ... does not exist`. `log_retl.job` inserts
+  into a table nothing creates (unlike `LOGS.JOB_INFO`), and the error is swallowed as a warning,
+  so the job history stayed empty without anyone noticing. Fixed 2026-09-12: `job` runs
+  `CREATE TABLE IF NOT EXISTS` first.
+  - `src/lht/util/log_retl.py` (`job`)
 
 ## Low
 

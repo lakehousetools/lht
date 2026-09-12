@@ -28,6 +28,10 @@ def job(session, json_data, schema='LOGS'):
 
     Without this row, the per-record rows in RETL_RESULTS/RETL_FAILURES have no
     parent to join to and the audit trail is unusable.
+
+    The table is created on first use, as LOGS.JOB_INFO is. Before that the insert
+    failed wherever nobody had created it by hand, and because the caller swallows
+    logging errors, the job history silently stayed empty.
     """
     if not isinstance(json_data, dict) or not json_data.get('id'):
         logger.warning(f"Skipping job log; no job id in response: {json_data}")
@@ -46,6 +50,11 @@ def job(session, json_data, schema='LOGS'):
         _literal(json_data.get('externalIdFieldName')),
         _literal(json_data.get('contentUrl')),
     )
+    session.sql(
+        "CREATE TABLE IF NOT EXISTS {}.RETL_HISTORY ("
+        "ID VARCHAR, OPERATION VARCHAR, OBJECT VARCHAR, CREATEDBYID VARCHAR, "
+        "CREATEDDATE TIMESTAMP_NTZ, EXTERNALIDFIELDNAME VARCHAR, CONTENTURL VARCHAR)".format(schema)
+    ).collect()
     query = "INSERT INTO {}.RETL_HISTORY ({}) SELECT {}".format(
         schema, ', '.join(columns), ', '.join(values)
     )

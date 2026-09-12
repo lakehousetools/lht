@@ -131,7 +131,7 @@ def put_csv_content_to_stage(session, stage_name, csv_content, filename=None, sc
     
     # Convert CSV string to DataFrame with proper data type handling
     csv_buffer = io.StringIO(csv_content)
-    df = pd.read_csv(csv_buffer, low_memory=False, dtype=str)
+    df = pd.read_csv(csv_buffer, low_memory=False, dtype=str, keep_default_na=False, na_values=[''])
     
     # Use the DataFrame method to write to stage
     return put_dataframe_to_stage(session, stage_name, df, filename, schema)
