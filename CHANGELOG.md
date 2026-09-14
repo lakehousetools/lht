@@ -45,9 +45,22 @@ change is in its commit message; open and resolved findings are tracked in `ISSU
 - `src/lht/exceptions.py`, `publish.sh`, and build/local-install notes in
   `BUILD_AND_DISTRIBUTION.md` (`9ff19a2`, `b93a0ce`).
 
+### Added: `lht merge`
+- **`lht merge`** (`8b3e675`, `1f8275f`): merges Salesforce records in Salesforce from a Snowflake
+  query returning `MasterId` / `LoserId` pairs, via SOAP `merge()` (the Bulk API cannot merge).
+  Pairs are validated before anything is sent (malformed or missing Ids, self-merge by 15-character
+  Id, a loser listed twice, a record that is both master and loser); losers are grouped two per
+  request and 200 requests per call; `--dry-run` validates without calling Salesforce; exits
+  non-zero if any merge fails. Unit tests in `test_merge_records.py`.
+- Behaviour confirmed in a sandbox: the loser goes to the Recycle Bin with `MasterRecordId` set, its
+  related records (relationships, Tasks) move to the master, and **the master keeps only its own
+  field values** — none of the loser's fields are copied, blanks included. Salesforce refuses to
+  merge two accounts that both relate to the same contact (`MERGE_FAILED`); remove the loser's
+  redundant AccountContactRelation first.
+
 ### Tests
 - Unit: `test_salesforce_auth.py` (credentials never in the URL or exception text),
-  `test_bulk_csv_encoding.py`, `test_retl.py` (single read, NULL handling, match field), plus the
+  `test_bulk_csv_encoding.py`, `test_retl.py` (single read, NULL handling, match field), `test_merge_records.py`, plus the
   previously uncommitted `test_connections.py`, `test_field_types.py`, `test_merge.py`.
 - Integration: `tests/integration/` (live Salesforce + Snowflake; connection names only in
   `config.toml`).
@@ -61,17 +74,3 @@ change is in its commit message; open and resolved findings are tracked in `ISSU
   edited `.py` source in an editable install — edits silently do not run.
 - lht's integration-test hard-delete helper calls `DELETE /sobjects/RecycleBin`, which returns 404;
   purging the Recycle Bin needs SOAP `emptyRecycleBin`. (Not in `ISSUES.md`.)
-
-## On branch `feature/merge` — pushed, not merged into `main`
-
-- **`lht merge`** (`8b3e675`, `1f8275f`): merges Salesforce records in Salesforce from a Snowflake
-  query returning `MasterId` / `LoserId` pairs, via SOAP `merge()` (the Bulk API cannot merge).
-  Pairs are validated before anything is sent (malformed or missing Ids, self-merge by 15-character
-  Id, a loser listed twice, a record that is both master and loser); losers are grouped two per
-  request and 200 requests per call; `--dry-run` validates without calling Salesforce; exits
-  non-zero if any merge fails. Unit tests in `test_merge_records.py`.
-- Behaviour confirmed in a sandbox: the loser goes to the Recycle Bin with `MasterRecordId` set, its
-  related records (relationships, Tasks) move to the master, and **the master keeps only its own
-  field values** — none of the loser's fields are copied, blanks included. Salesforce refuses to
-  merge two accounts that both relate to the same contact (`MERGE_FAILED`); remove the loser's
-  redundant AccountContactRelation first.
