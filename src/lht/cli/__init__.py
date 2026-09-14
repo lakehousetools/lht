@@ -32,6 +32,7 @@ Examples:
   lht set-primary CONNECTION           Set a connection as primary
   lht sync --sobject Account --table ACCOUNT  Sync Salesforce Account to Snowflake
   lht retl upsert --sobject Account --match-field External_Id__c --sql "SELECT ..."  Push data from Snowflake into Salesforce
+  lht merge --sobject Account --sql-file pairs.sql --dry-run                       Merge Salesforce records (MasterId, LoserId)
   lht list-jobs                        List Bulk API 2.0 jobs from Salesforce
   lht show-job <JOB_ID>                Show details about a specific Bulk API 2.0 job
   lht delete-job <JOB_ID>              Delete a specific Bulk API 2.0 job
@@ -248,6 +249,50 @@ Examples:
         help='Show detailed progress and debug output'
     )
     
+    # merge command
+    merge_parser = subparsers.add_parser(
+        'merge',
+        help='Merge Salesforce records in Salesforce, with master/loser pairs from a Snowflake query',
+        description='Merge Salesforce records inside Salesforce using the SOAP API merge() call. The '
+                    'query returns one row per record to merge away: MasterId survives, LoserId is '
+                    'merged into it. The master keeps its field values; the loser\'s related records '
+                    'move to it. Exits non-zero if any merge fails.'
+    )
+    merge_parser.add_argument(
+        '--sobject',
+        required=True,
+        help='Salesforce object whose records are merged (Account, Contact or Lead)'
+    )
+    merge_sql_group = merge_parser.add_mutually_exclusive_group(required=True)
+    merge_sql_group.add_argument(
+        '--sql',
+        help='Snowflake SQL SELECT returning MasterId and LoserId columns'
+    )
+    merge_sql_group.add_argument(
+        '--sql-file',
+        help='Path to a file containing the Snowflake SQL SELECT'
+    )
+    merge_parser.add_argument(
+        '--snowflake',
+        metavar='NAME',
+        help='Snowflake connection name (defaults to primary connection)'
+    )
+    merge_parser.add_argument(
+        '--salesforce',
+        metavar='NAME',
+        help='Salesforce connection name (defaults to primary connection)'
+    )
+    merge_parser.add_argument(
+        '--dry-run',
+        action='store_true',
+        help='Validate the pairs and report the merge requests without sending anything to Salesforce'
+    )
+    merge_parser.add_argument(
+        '-v', '--verbose',
+        action='store_true',
+        help='Show detailed progress and debug output'
+    )
+
     # list-jobs command
     list_jobs_parser = subparsers.add_parser(
         'list-jobs',
@@ -421,6 +466,17 @@ def main(args: Optional[List[str]] = None) -> int:
             salesforce_connection=parsed_args.salesforce,
             log_results=parsed_args.log_results,
             clear_nulls=parsed_args.clear_nulls,
+            verbose=parsed_args.verbose
+        )
+    elif parsed_args.command == 'merge':
+        from lht.cli.commands.merge import merge
+        return merge(
+            sobject=parsed_args.sobject,
+            sql=parsed_args.sql,
+            sql_file=parsed_args.sql_file,
+            snowflake_connection=parsed_args.snowflake,
+            salesforce_connection=parsed_args.salesforce,
+            dry_run=parsed_args.dry_run,
             verbose=parsed_args.verbose
         )
     
