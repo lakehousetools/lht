@@ -6,6 +6,11 @@ record to merge away: "MasterId" is the record that survives, "LoserId" is merge
 Salesforce moves the loser's related records (activities, child records) to the master and puts
 the loser in the Recycle Bin with MasterRecordId set. Only the master's type and Id are sent, so
 the master keeps all of its own field values.
+
+Salesforce refuses to merge two accounts that both have a relationship (AccountContactRelation) to
+the same contact: MERGE_FAILED "These accounts have the same related contact". Remove the redundant
+relationship from the loser before merging. Verified in a sandbox, 2026-09-14; the refused request is
+reported as a failure and nothing is changed.
 """
 
 import logging
