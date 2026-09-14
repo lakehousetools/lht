@@ -256,7 +256,9 @@ Examples:
         description='Merge Salesforce records inside Salesforce using the SOAP API merge() call. The '
                     'query returns one row per record to merge away: MasterId survives, LoserId is '
                     'merged into it. The master keeps its field values; the loser\'s related records '
-                    'move to it. Exits non-zero if any merge fails.'
+                    'move to it. Exits non-zero if any merge fails. Salesforce refuses to merge accounts '
+                    'that both relate to the same contact: remove the loser\'s redundant '
+                    'AccountContactRelation first.'
     )
     merge_parser.add_argument(
         '--sobject',
