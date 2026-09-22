@@ -140,7 +140,7 @@ else
 fi
 [ -n "$pypi_token" ] || die "No token entered."
 
-TWINE_USERNAME="__token__" TWINE_PASSWORD="$pypi_token" python3 -m twine upload "${repo_args[@]}" dist/*
+TWINE_USERNAME="__token__" TWINE_PASSWORD="$pypi_token" python3 -m twine upload "${repo_args[@]+"${repo_args[@]}"}" dist/*
 unset pypi_token
 
 echo
