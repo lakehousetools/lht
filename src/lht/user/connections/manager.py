@@ -151,6 +151,31 @@ def _save_connections_file(connections: Dict[str, Any]) -> None:
                 f.write("\n")
 
 
+def _copy_private_key_to_solomo(private_key_file: str, solomo_dir: Path, copy_key: bool) -> str:
+    """Copies a private key file into .solomo (Snowflake JWT and Salesforce
+    JWT bearer both need this exact same treatment), and returns the path
+    to use going forward -- the copy if one was made, the original path
+    otherwise (e.g. copy_key=False, or empty/missing input)."""
+    if not (copy_key and private_key_file and os.path.isfile(private_key_file)):
+        return str(private_key_file).strip()
+
+    key_filename = os.path.basename(private_key_file)
+    dest_key_path = solomo_dir / key_filename
+
+    src_path = os.path.abspath(private_key_file)
+    dst_path = os.path.abspath(dest_key_path)
+
+    if src_path != dst_path:
+        shutil.copy2(private_key_file, dest_key_path)
+        os.chmod(dest_key_path, 0o600)
+        print(f"✓ Copied private key to {dest_key_path}")
+    else:
+        os.chmod(dest_key_path, 0o600)
+        print(f"✓ Private key already in .solomo directory")
+
+    return str(dest_key_path)
+
+
 def save_connection_config(connection_name: str, credentials: Dict[str, Any], connection_type: str = 'snowflake', copy_key: bool = True) -> None:
     """
     Save connection credentials to connections.toml file.
@@ -230,22 +255,39 @@ def save_connection_config(connection_name: str, credentials: Dict[str, Any], co
             'role': str(credentials.get('role', '')).strip(),
         })
     elif connection_type == 'salesforce':
+        auth_flow = str(credentials.get('auth_flow', 'client_credentials')).strip().lower()
+
         # Add Salesforce-specific fields
         connection_entry.update({
+            'auth_flow': auth_flow,
             'client_id': str(credentials.get('client_id', '')).strip(),
             'client_key': str(credentials.get('client_key', '')).strip(),
             'sandbox': credentials.get('sandbox', False),
             'my_domain': str(credentials.get('my_domain', '')).strip(),
             'redirect_url': str(credentials.get('redirect_url', 'https://localhost:1717//OauthRedirect')).strip(),
         })
+
+        if auth_flow == 'jwt_bearer':
+            # Same copy-into-.solomo treatment as Snowflake's private_key_file --
+            # the file the user points us at lives outside .solomo, so we make
+            # our own copy rather than depending on that file staying put.
+            private_key_file = _copy_private_key_to_solomo(
+                credentials.get('private_key_file', ''), solomo_dir, copy_key
+            )
+            connection_entry.update({
+                'username': str(credentials.get('username', '')).strip(),
+                'private_key_file': private_key_file,
+                'private_key_passphrase': str(credentials.get('private_key_passphrase', '')).strip(),
+                'login_url': str(credentials.get('login_url', '')).strip(),
+            })
     else:
         raise ValueError(f"Unknown connection type: {connection_type}. Must be 'snowflake' or 'salesforce'")
-    
+
     connections[connection_name] = connection_entry
-    
+
     # Save connections back to file
     _save_connections_file(connections)
-    
+
     print(f"✓ Saved connection '{connection_name}' ({connection_type}) to {connections_file}")
 
 
@@ -302,13 +344,18 @@ def load_connection(connection_name: str) -> Optional[Dict[str, Any]]:
     elif connection_type == 'salesforce':
         # Load Salesforce-specific fields
         credentials.update({
+            'auth_flow': str(conn_data.get('auth_flow', 'client_credentials')).strip().lower(),
             'client_id': str(conn_data.get('client_id', '')).strip(),
             'client_key': str(conn_data.get('client_key', '')).strip(),
             'sandbox': conn_data.get('sandbox', False),
             'my_domain': str(conn_data.get('my_domain', '')).strip(),
             'redirect_url': str(conn_data.get('redirect_url', 'https://localhost:1717//OauthRedirect')).strip(),
+            'username': str(conn_data.get('username', '')).strip(),
+            'private_key_file': str(conn_data.get('private_key_file', '')).strip(),
+            'private_key_passphrase': str(conn_data.get('private_key_passphrase', '')).strip() or None,
+            'login_url': str(conn_data.get('login_url', '')).strip(),
         })
-    
+
     return credentials
 
 
@@ -432,17 +479,31 @@ def update_connection(connection_name: str, credentials: Dict[str, Any], connect
             'role': str(credentials.get('role', '')).strip(),
         })
     elif connection_type == 'salesforce':
+        auth_flow = str(credentials.get('auth_flow', 'client_credentials')).strip().lower()
+
         # Update connection entry with Salesforce fields
         connection_entry.update({
+            'auth_flow': auth_flow,
             'client_id': str(credentials.get('client_id', '')).strip(),
             'client_key': str(credentials.get('client_key', '')).strip(),
             'sandbox': credentials.get('sandbox', False),
             'my_domain': str(credentials.get('my_domain', '')).strip(),
             'redirect_url': str(credentials.get('redirect_url', 'https://localhost:1717//OauthRedirect')).strip(),
         })
-    
+
+        if auth_flow == 'jwt_bearer':
+            private_key_file = _copy_private_key_to_solomo(
+                credentials.get('private_key_file', ''), solomo_dir, copy_key
+            )
+            connection_entry.update({
+                'username': str(credentials.get('username', '')).strip(),
+                'private_key_file': private_key_file,
+                'private_key_passphrase': str(credentials.get('private_key_passphrase', '')).strip(),
+                'login_url': str(credentials.get('login_url', '')).strip(),
+            })
+
     connections[connection_name] = connection_entry
-    
+
     # Save connections back to file
     _save_connections_file(connections)
     

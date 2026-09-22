@@ -113,6 +113,17 @@ def parse_response(xml_text, merge_requests):
     results = root.findall(f".//{{{_PARTNER}}}result")
     if len(results) != len(merge_requests):
         raise RuntimeError(f"expected {len(merge_requests)} merge results, got {len(results)}")
+    status_code_tag = f"{{{_PARTNER}}}statusCode"
+    message_tag = f"{{{_PARTNER}}}message"
+
+    def _format_error(error_el):
+        # Split out from the comprehension below: a doubly-nested f-string
+        # inside a list comprehension (an f-string calling findtext(), whose
+        # own argument was also an f-string) compiled incorrectly under
+        # Cython -- both findtext() calls silently returned None. Precomputed
+        # tag strings + a plain function call sidestep the nesting entirely.
+        return f"{error_el.findtext(status_code_tag)}: {error_el.findtext(message_tag)}"
+
     parsed = []
     for (master, losers), result in zip(merge_requests, results):
         parsed.append({
@@ -121,10 +132,7 @@ def parse_response(xml_text, merge_requests):
             "success": result.findtext(f"{{{_PARTNER}}}success") == "true",
             "merged_ids": [e.text for e in result.findall(f"{{{_PARTNER}}}mergedRecordIds")],
             "updated_related_ids": [e.text for e in result.findall(f"{{{_PARTNER}}}updatedRelatedIds")],
-            "errors": [
-                f"{e.findtext(f'{{{_PARTNER}}}statusCode')}: {e.findtext(f'{{{_PARTNER}}}message')}"
-                for e in result.findall(f"{{{_PARTNER}}}errors")
-            ],
+            "errors": [_format_error(e) for e in result.findall(f"{{{_PARTNER}}}errors")],
         })
     return parsed
 
