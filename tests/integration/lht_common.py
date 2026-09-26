@@ -13,7 +13,10 @@ import logging
 import subprocess
 import sys
 import time
-import tomllib
+try:
+    import tomllib  # Python 3.11+
+except ImportError:  # 3.9/3.10: lht depends on tomli there
+    import tomli as tomllib
 from pathlib import Path
 from typing import Optional
 
