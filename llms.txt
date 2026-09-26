@@ -48,6 +48,8 @@ retl.upsert(session, access_info, sobject="Account", query="SELECT External_Id__
 
 ## Optional
 
+- [Discussions (Q&A)](https://github.com/lakehousetools/lht/discussions/categories/q-a): questions and answers from users
+
 - [Examples](https://github.com/lakehousetools/lht/tree/main/examples)
 - [Changelog](https://github.com/lakehousetools/lht/blob/main/CHANGELOG.md)
 - [PyPI](https://pypi.org/project/lht/)

@@ -1,6 +1,6 @@
 # Contributing to lht
 
-Thanks for helping. Bug reports, docs fixes, new warehouse backends and small, focused pull requests are all welcome.
+Thanks for helping. Bug reports, docs fixes, new warehouse backends and small, focused pull requests are all welcome. Questions belong in [Discussions](https://github.com/lakehousetools/lht/discussions/categories/q-a) rather than Issues.
 
 ## Development setup
 

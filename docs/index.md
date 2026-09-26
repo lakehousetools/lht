@@ -28,4 +28,6 @@ pip install lht
 
 ## Support
 
-Open an issue at [github.com/lakehousetools/lht/issues](https://github.com/lakehousetools/lht/issues). Report security problems privately as described in [SECURITY.md](https://github.com/lakehousetools/lht/blob/main/SECURITY.md).
+- **Questions and setup help:** [GitHub Discussions → Q&A](https://github.com/lakehousetools/lht/discussions/categories/q-a)
+- **Bugs and feature requests:** [GitHub Issues](https://github.com/lakehousetools/lht/issues/new/choose)
+- **Security vulnerabilities:** report privately; see [SECURITY.md](https://github.com/lakehousetools/lht/blob/main/SECURITY.md)
