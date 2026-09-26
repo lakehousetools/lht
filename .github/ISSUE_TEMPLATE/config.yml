@@ -1,5 +1,11 @@
-blank_issues_enabled: true
+blank_issues_enabled: false
 contact_links:
+  - name: Ask a question
+    url: https://github.com/lakehousetools/lht/discussions/categories/q-a
+    about: How-to questions, setup help and "is this expected?" go to Discussions, not Issues.
+  - name: Suggest or discuss an idea
+    url: https://github.com/lakehousetools/lht/discussions/categories/ideas
+    about: Early-stage ideas and use cases. Open a feature request once it's concrete.
   - name: Report a security vulnerability
     url: https://github.com/lakehousetools/lht/security/advisories/new
     about: Please report security issues privately, not as a public issue.

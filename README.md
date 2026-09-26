@@ -211,13 +211,24 @@ To report a vulnerability, see [SECURITY.md](SECURITY.md).
 - [Intelligent sync internals](docs/intelligent_sync_guide.md)
 - [FAQ](docs/faq.md)
 
+## Getting help
+
+| I want to… | Go to |
+|---|---|
+| Ask a question or get setup help | [Discussions → Q&A](https://github.com/lakehousetools/lht/discussions/categories/q-a) |
+| Share an idea or how you use lht | [Discussions → Ideas](https://github.com/lakehousetools/lht/discussions/categories/ideas) / [Show and tell](https://github.com/lakehousetools/lht/discussions/categories/show-and-tell) |
+| Report a bug or request a feature | [Issues](https://github.com/lakehousetools/lht/issues/new/choose) |
+| Report a security vulnerability | [Private report](https://github.com/lakehousetools/lht/security/advisories/new) (see [SECURITY.md](SECURITY.md)) |
+
+Please remove credentials, org names and customer data from anything you post.
+
 ## Roadmap
 
 - Additional warehouses (Databricks, BigQuery, Postgres) behind the same CLI
 - Hard-delete detection for incremental sync
 - Scheduling recipes (Airflow, Dagster, Snowflake Tasks)
 
-Ideas and pull requests are welcome in [GitHub Issues](https://github.com/lakehousetools/lht/issues).
+Ideas are welcome in [Discussions](https://github.com/lakehousetools/lht/discussions/categories/ideas); pull requests are welcome too.
 
 ## Contributing
 
