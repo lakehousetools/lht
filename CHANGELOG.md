@@ -2,7 +2,7 @@
 
 All notable changes to lht. Versions follow [semantic versioning](https://semver.org/).
 
-## 2.1.0 — Unreleased
+## 2.1.1 — 2026-09-26
 
 lht is now developed in the open under the Apache 2.0 license. Tagline: **Bring Your Own Data Warehouse**.
 
@@ -26,7 +26,7 @@ lht is now developed in the open under the Apache 2.0 license. Tagline: **Bring 
 ## 2.0.81 – 2.0.82
 
 ### Security
-- **Salesforce credentials go in the request body, not the URL** (`3bae355`). `login_user_flow()`
+- **Salesforce credentials go in the request body, not the URL** (`bd1ef0b`). `login_user_flow()`
   put `client_id` and `client_secret` in the token request's query string, where proxies and access
   logs keep them, and `raise_for_status()` echoed the full URL into the exception, so a failed login
   printed the secret. Now a form-encoded POST to the bare token URL, the wrong
@@ -34,40 +34,40 @@ lht is now developed in the open under the Apache 2.0 license. Tagline: **Bring 
   through a failed login before this should rotate it.
 
 ### Fixed
-- **Bulk API CSV decoded as UTF-8** (`df2308c`). Salesforce sends `text/csv` with no charset and
+- **Bulk API CSV decoded as UTF-8** (`58eee64`). Salesforce sends `text/csv` with no charset and
   `requests` falls back to ISO-8859-1, so non-ASCII text (an en dash, accented names) was stored as
   mojibake by every `lht sync`, and by the retl result paths. All go through
   `util.csv.bulk_csv_text`. Rows synced before the fix stay corrupted until a `--force-full-sync`.
-- **`retl upsert` could skip or repeat rows** (`8404203`). It paged the query with `LIMIT/OFFSET`
+- **`retl upsert` could skip or repeat rows** (`b79104d`). It paged the query with `LIMIT/OFFSET`
   and no outer `ORDER BY`, re-running it per batch. It now reads the query once and batches in memory.
-- **Sync kept the strings `NA`, `N/A`, `None`, `nan`, `null`** (`e1db8c8`). pandas' default NA
+- **Sync kept the strings `NA`, `N/A`, `None`, `nan`, `null`** (`7643c64`). pandas' default NA
   parsing turned them into NULL. Only an empty cell is NULL now, which is how the Bulk API writes one.
-- **`LOGS.RETL_HISTORY` is created on first use** (`e1db8c8`); the insert used to fail silently.
-- **Reverse-ETL results traceable to source records** (`b93a0ce`). Result parsing read columns by
+- **`LOGS.RETL_HISTORY` is created on first use** (`7643c64`); the insert used to fail silently.
+- **Reverse-ETL results traceable to source records** (`55ad79e`). Result parsing read columns by
   position and dropped the external ID Salesforce echoes back; both parsers now match by header name
   and record `MATCH_FIELD` / `MATCH_ID`. Also: `RETL_HISTORY` logging re-enabled at all call sites
   (a logging failure cannot abort an ingest), a hard-coded database name removed from
   `history_query`, DataFrames aligned to the destination table before `write_pandas`, and per-record
   INSERTs replaced with chunked multi-row VALUES.
-- **Sync path threads `database`, `force_full_sync` and `match_field` through** (`9ff19a2`);
+- **Sync path threads `database`, `force_full_sync` and `match_field` through** (`c707c2b`);
   `merge.py` reduced to one `merge_into_target` helper.
-- **`.gitignore` hid every test file** (`3bae355`, `d1dfe97`): `test_*.py` matched at all depths.
+- **`.gitignore` hid every test file** (`bd1ef0b`, `a137a5f`): `test_*.py` matched at all depths.
   Anchored to the repo root, and the unit and integration suites that had never been committed are
   now tracked.
 
 ### Added
-- **Salesforce JWT bearer flow** (`8a287a7`): `get_salesforce_access_info_from_credentials()` accepts
+- **Salesforce JWT bearer flow** (`c620853`): `get_salesforce_access_info_from_credentials()` accepts
   `auth_flow='jwt_bearer'` for unattended jobs that authenticate with a certificate and pass
   credentials directly instead of reading `connections.toml`.
-- **`lht retl --clear-nulls`** (`8404203`, `20246b6`; `clear_nulls=` on `retl.upsert` / `update`).
+- **`lht retl --clear-nulls`** (`b79104d`, `ded68de`; `clear_nulls=` on `retl.upsert` / `update`).
   A NULL is sent as `#N/A`, which clears the field; without the flag it is an empty cell, which the
   Bulk API treats as "leave unchanged". Opt-in, so existing callers are unaffected. The upsert's
   match field is never turned into `#N/A` — a blank match value is how a row asks to be created
   (e.g. upserting on `Id`).
-- `src/lht/exceptions.py` and `publish.sh` (`9ff19a2`, `b93a0ce`).
+- `src/lht/exceptions.py` and `publish.sh` (`c707c2b`, `55ad79e`).
 
 ### Added: `lht merge`
-- **`lht merge`** (`8b3e675`, `1f8275f`): merges Salesforce records in Salesforce from a Snowflake
+- **`lht merge`** (`b34474e`, `1906f86`): merges Salesforce records in Salesforce from a Snowflake
   query returning `MasterId` / `LoserId` pairs, via SOAP `merge()` (the Bulk API cannot merge).
   Pairs are validated before anything is sent (malformed or missing Ids, self-merge by 15-character
   Id, a loser listed twice, a record that is both master and loser); losers are grouped two per

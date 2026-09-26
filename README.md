@@ -48,7 +48,7 @@ pip install lht
 lht --help
 ```
 
-To upgrade: `pip install --upgrade lht`. To pin a version: `pip install "lht==2.1.0"`.
+To upgrade: `pip install --upgrade lht`. To pin a version: `pip install "lht==2.1.1"`.
 
 ### From source
 
