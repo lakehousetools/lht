@@ -7,6 +7,7 @@ across multiple sync functions.
 import logging
 from typing import Dict, Optional
 from snowflake.snowpark import Session
+from lht.util.sql import identifier
 
 logger = logging.getLogger(__name__)
 
@@ -51,14 +52,14 @@ def create_salesforce_table(
             logger.debug(f"Auto-detected database: {database}")
 
         # Set the current database and schema context
-        session.sql(f"USE DATABASE {database}").collect()
-        session.sql(f"USE SCHEMA {schema}").collect()
+        session.sql(f"USE DATABASE {identifier(database)}").collect()
+        session.sql(f"USE SCHEMA {identifier(schema)}").collect()
 
         # Check if table already exists
         try:
             logger.debug(f"🔍 Checking if table {schema}.{table} exists...")
 
-            table_check = session.sql(f"SHOW TABLES IN SCHEMA {schema}").collect()
+            table_check = session.sql(f"SHOW TABLES IN SCHEMA {identifier(schema)}").collect()
             table_names = [row['name'].upper() for row in table_check]
             
             if table in table_names:
@@ -68,7 +69,7 @@ def create_salesforce_table(
                     logger.info(f"Table {schema}.{table} exists and force_full_sync=True, recreating it...")
                     # Drop existing table first
                     logger.info(f"🗑️ Dropping existing table {schema}.{table}...")
-                    session.sql(f"DROP TABLE IF EXISTS {schema}.{table}").collect()
+                    session.sql(f"DROP TABLE IF EXISTS {identifier(schema)}.{identifier(table)}").collect()
                     logger.info(f"✅ Dropped existing table {schema}.{table}")
                     logger.info(f"Dropped existing table {schema}.{table}")
                 else:
@@ -114,7 +115,7 @@ def create_salesforce_table(
                 
                 # Now drop it and recreate with correct schema
                 logger.info(f"Dropping auto-created table to recreate with correct schema...")
-                session.sql(f"DROP TABLE IF EXISTS {schema}.{table}").collect()
+                session.sql(f"DROP TABLE IF EXISTS {identifier(schema)}.{identifier(table)}").collect()
                 
                 # Create table with correct schema
                 create_table_sql = _build_create_table_sql(schema, table, snowflake_fields, force_full_sync)
@@ -164,7 +165,7 @@ def _build_create_table_sql(schema: str, table: str, snowflake_fields: Dict[str,
     # Build CREATE TABLE statement
     column_defs = ',\n\t'.join(columns)
     # Always use CREATE TABLE (not CREATE OR REPLACE) since we handle DROP separately
-    create_sql = f"""CREATE TABLE {schema}.{table} (
+    create_sql = f"""CREATE TABLE {identifier(schema)}.{identifier(table)} (
 	{column_defs}
 )"""
 

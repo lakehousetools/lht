@@ -5,6 +5,7 @@ from snowflake.snowpark.dataframe import DataFrame
 import pandas as pd
 import numpy as np
 from . import table_creator
+from lht.util.sql import identifier
 
 logger = logging.getLogger(__name__)
 
@@ -580,7 +581,7 @@ def write_batch_to_temp_table(
     # Create temporary table with schema copied from main table if provided
     if main_table:
         try:
-            create_temp_query = f"CREATE OR REPLACE TEMPORARY TABLE {temp_table} LIKE {main_table}"
+            create_temp_query = f"CREATE OR REPLACE TEMPORARY TABLE {identifier(temp_table)} LIKE {identifier(main_table)}"
             logger.debug(f"🔍 Creating temp table with schema copy: {create_temp_query}")
             session.sql(create_temp_query).collect()
             logger.debug(f"✅ Temp table created with schema from {main_table}")

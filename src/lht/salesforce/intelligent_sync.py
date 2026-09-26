@@ -6,6 +6,8 @@ import logging
 from typing import Optional, Dict, Any, Tuple, List
 from . import sobjects
 from lht.util import merge, data_writer
+from lht.util.http import DEFAULT_TIMEOUT
+from lht.util.sql import identifier
 
 logger = logging.getLogger(__name__)
 
@@ -160,7 +162,7 @@ class IntelligentSync:
         """Check if the target table exists in Snowflake."""
         try:
             # First check if schema exists
-            schema_query = f"SHOW SCHEMAS LIKE '{schema}'"
+            schema_query = f"SHOW SCHEMAS LIKE '{identifier(schema)}'"
             #logger.debug(f"🔍 Checking if schema exists: {schema_query}")
             #print(f"🔍 Checking if schema exists: {schema_query}")
             schema_result = sql_execution(self.session, schema_query, "schema_check")
@@ -172,7 +174,7 @@ class IntelligentSync:
             
             # Then check if table exists in schema - use more specific query
             current_db = self.session.sql('SELECT CURRENT_DATABASE()').collect()[0][0]
-            query = f"SELECT COUNT(*) as table_count FROM information_schema.tables WHERE table_schema = '{schema}' AND table_name = '{table}' AND table_type = 'BASE TABLE'"
+            query = f"SELECT COUNT(*) as table_count FROM information_schema.tables WHERE table_schema = '{identifier(schema)}' AND table_name = '{identifier(table)}' AND table_type = 'BASE TABLE'"
             #logger.debug(f"🔍 Executing table existence check: {query}")
             #print(f"🔍 Executing table existence check: {query}")
             result = sql_execution(self.session, query, "table_check")
@@ -199,13 +201,13 @@ class IntelligentSync:
     def _ensure_schema_exists(self, schema: str) -> bool:
         """Ensure the schema exists in Snowflake, create it if it doesn't."""
         try:
-            schema_query = f"SHOW SCHEMAS LIKE '{schema}'"
+            schema_query = f"SHOW SCHEMAS LIKE '{identifier(schema)}'"
             logger.debug(f"🔍 Checking if schema exists: {schema_query}")
             schema_result = sql_execution(self.session, schema_query, "schema_exists_check")
             
             if not schema_result or len(schema_result) == 0:
                 #logger.debug(f"📋 Schema {schema} does not exist, creating it...")
-                create_schema_query = f"CREATE SCHEMA IF NOT EXISTS {schema}"
+                create_schema_query = f"CREATE SCHEMA IF NOT EXISTS {identifier(schema)}"
                 #logger.debug(f"🔍 Creating schema: {create_schema_query}")
                 sql_execution(self.session, create_schema_query, "create_schema")
                 #logger.debug(f"✅ Schema {schema} created successfully")
@@ -277,7 +279,7 @@ class IntelligentSync:
             # Try a more robust approach to get the last modified date
             try:
                 # First, try to get the last modified date with error handling
-                query = f"SELECT MAX(LASTMODIFIEDDATE) as LAST_MODIFIED FROM {current_db}.{schema}.{table}"
+                query = f"SELECT MAX(LASTMODIFIEDDATE) as LAST_MODIFIED FROM {identifier(current_db)}.{identifier(schema)}.{identifier(table)}"
                 #logger.debug(f"🔍 Executing last modified date query: {query}")
                 #print(f"🔍 Executing SQL: {query}")
                 
@@ -323,7 +325,7 @@ class IntelligentSync:
                 
                 try:
                     # Alternative: try to get the last modified date without casting
-                    query = f"SELECT MAX(LASTMODIFIEDDATE) as LAST_MODIFIED FROM {current_db}.{schema}.{table}"
+                    query = f"SELECT MAX(LASTMODIFIEDDATE) as LAST_MODIFIED FROM {identifier(current_db)}.{identifier(schema)}.{identifier(table)}"
                     #logger.debug(f"🔍 Executing alternative query: {query}")
                     #print(f"🔍 Executing alternative query: {query}")
                     
@@ -424,7 +426,7 @@ class IntelligentSync:
             url = f"{self.access_info['instance_url']}/services/data/v58.0/query?q={query}"
             
             logger.debug(f"🌐 Making API request to: {url}")
-            response = requests.get(url, headers=headers)
+            response = requests.get(url, headers=headers, timeout=DEFAULT_TIMEOUT)
             response.raise_for_status()
             
             result = response.json()

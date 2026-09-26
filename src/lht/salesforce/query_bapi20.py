@@ -12,6 +12,8 @@ import os
 from lht.util import merge
 from lht.util.csv import bulk_csv_text
 from lht.exceptions import SalesforceAuthError, SalesforceAPIError
+from lht.util.http import DEFAULT_TIMEOUT
+from lht.util.sql import identifier
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +42,7 @@ def create_batch_query(access_info, query):
 			"query": query
 			}
 	url = access_info['instance_url']+"/services/data/v58.0/jobs/query"
-	results = requests.post(url, headers=headers, data=json.dumps(body))
+	results = requests.post(url, headers=headers, data=json.dumps(body), timeout=DEFAULT_TIMEOUT)
 	
 	return results.json()
 
@@ -77,7 +79,7 @@ def query_status(access_info, job_type, job_id):
 	query_statuses = []
 
 	while True:
-		results = requests.get(url, headers=headers)
+		results = requests.get(url, headers=headers, timeout=DEFAULT_TIMEOUT)
 
 		if results.status_code == 401:
 			logger.error("Salesforce session is invalid or expired (query_status)")
@@ -124,7 +126,7 @@ def delete_query(access_info, job_id):
 			"Content-Type": "application/json"
 	}
 	url = access_info['instance_url']+"/services/data/v58.0/jobs/query/{}".format(job_id)
-	results = requests.delete(url, headers=headers)
+	results = requests.delete(url, headers=headers, timeout=DEFAULT_TIMEOUT)
 
 	return results
 
@@ -149,7 +151,7 @@ def get_query_ids(access_info):
 	}
 	url = access_info['instance_url']+"/services/data/v58.0/jobs/query/"
 	while True:
-		results = requests.get(url, headers=headers)
+		results = requests.get(url, headers=headers, timeout=DEFAULT_TIMEOUT)
 		jobs = []
 		job = {}
 		for result in results.json()['records']:
@@ -212,7 +214,7 @@ def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table
 	}
 	
 	url = access_info['instance_url']+"/services/data/v58.0/jobs/query/{}/results".format(job_id)
-	results = requests.get(url, headers=headers)
+	results = requests.get(url, headers=headers, timeout=DEFAULT_TIMEOUT)
 	if results.status_code != 200:
 		logger.warning('The job is not ready.  Retry in a few minutes')
 		return None
@@ -230,8 +232,8 @@ def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table
 	df = pd.read_csv(io.StringIO(csv_content), dtype=str, keep_default_na=False, na_values=[''])
 	
 	# Set the current database and schema context
-	session.sql(f"USE DATABASE {database}").collect()
-	session.sql(f"USE SCHEMA {schema}").collect()
+	session.sql(f"USE DATABASE {identifier(database)}").collect()
+	session.sql(f"USE SCHEMA {identifier(schema)}").collect()
 	
 	# Use centralized table creation utility
 	try:
@@ -268,7 +270,7 @@ def get_bulk_results_direct(session, access_info, job_id, sobject, schema, table
 			break
 
 		url = access_info['instance_url']+"/services/data/v58.0/jobs/query/{}/results?locator={}".format(job_id, results.headers['Sforce-Locator'])
-		results = requests.get(url, headers=headers)
+		results = requests.get(url, headers=headers, timeout=DEFAULT_TIMEOUT)
 		csv_content = bulk_csv_text(results)
 		logger.info(f"PROCESSING BATCH {counter}")
 		
@@ -339,7 +341,7 @@ def delete_query(access_info, job_id):
 			"Content-Type": "application/json"
 	}
 	url = access_info['instance_url']+"/services/data/v58.0/jobs/query/{}".format(job_id)
-	results = requests.delete(url, headers=headers)
+	results = requests.delete(url, headers=headers, timeout=DEFAULT_TIMEOUT)
 
 	return results
 
@@ -368,7 +370,7 @@ def get_query_ids(access_info):
 	}
 	url = access_info['instance_url']+"/services/data/v58.0/jobs/query/"
 	while True:
-		results = requests.get(url, headers=headers)
+		results = requests.get(url, headers=headers, timeout=DEFAULT_TIMEOUT)
 		jobs = []
 		job = {}
 		for result in results.json()['records']:
@@ -396,8 +398,8 @@ def test_snowflake_permissions(session, schema, table, database=None):
 		database = session.sql('SELECT CURRENT_DATABASE()').collect()[0][0]
 	
 	# Set the current database and schema context
-	session.sql(f"USE DATABASE {database}").collect()
-	session.sql(f"USE SCHEMA {schema}").collect()
+	session.sql(f"USE DATABASE {identifier(database)}").collect()
+	session.sql(f"USE SCHEMA {identifier(schema)}").collect()
 
 def cleanup_completed_jobs(access_info, max_age_hours=24):
 	"""Deletes completed Salesforce Bulk API 2.0 jobs that are older than the specified age.
@@ -428,7 +430,7 @@ def cleanup_completed_jobs(access_info, max_age_hours=24):
 	
 	try:
 		while True:
-			results = requests.get(url, headers=headers)
+			results = requests.get(url, headers=headers, timeout=DEFAULT_TIMEOUT)
 			results.raise_for_status()
 			
 			for job in results.json()['records']:
@@ -461,7 +463,7 @@ def cleanup_completed_jobs(access_info, max_age_hours=24):
 		for job in completed_jobs:
 			try:
 				delete_url = access_info['instance_url'] + f"/services/data/v58.0/jobs/query/{job['id']}"
-				delete_response = requests.delete(delete_url, headers=headers)
+				delete_response = requests.delete(delete_url, headers=headers, timeout=DEFAULT_TIMEOUT)
 				
 				if delete_response.status_code == 204:  # Success
 					deleted_count += 1
@@ -520,7 +522,7 @@ def delete_specific_job(access_info, job_id):
 	
 	try:
 		delete_url = access_info['instance_url'] + f"/services/data/v58.0/jobs/query/{job_id}"
-		delete_response = requests.delete(delete_url, headers=headers)
+		delete_response = requests.delete(delete_url, headers=headers, timeout=DEFAULT_TIMEOUT)
 		
 		if delete_response.status_code == 204:
 			logger.info(f"🗑️ Successfully deleted job {job_id}")

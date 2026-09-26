@@ -1,10 +1,29 @@
 # Changelog
 
-Changes since **2.0.80** (the version on TestPyPI). Nothing below has been released yet;
-`pyproject.toml` still says 2.0.80. Commit hashes are in this repository. The reasoning for each
-change is in its commit message; open and resolved findings are tracked in `ISSUES.md`.
+All notable changes to lht. Versions follow [semantic versioning](https://semver.org/).
 
-## Unreleased — on `main`
+## 2.1.0 — Unreleased
+
+lht is now developed in the open under the Apache 2.0 license. Tagline: **Bring Your Own Data Warehouse**.
+
+### Changed
+- **Readable Python on PyPI.** The wheel is now pure Python (`py3-none-any`). It is no longer Cython-compiled, and the source is no longer stripped. One wheel works on every platform, and editable installs can't be shadowed by stale `.so` files.
+- `pyarrow` now comes from `snowflake-snowpark-python[pandas]`, so its version always matches what the Snowflake connector supports. `tomli` is added on Python < 3.11.
+- `python -m lht` runs the CLI. `lht.__version__` is available.
+- Project metadata: correct GitHub URLs, author, keywords and classifiers, and an SPDX license expression.
+
+### Security
+- `~/.solomo/connections.toml` is written with mode `0600`, and `~/.solomo/` is tightened to `0700` on every save. Previously the file was created with the default umask, often world-readable, although it holds client secrets and key passphrases.
+- Every Salesforce HTTP call now has a timeout (`lht.util.http.DEFAULT_TIMEOUT`). A dropped connection used to hang a sync forever.
+- Database, schema and table names are validated by `lht.util.sql.identifier()` before being formatted into SQL. Job Ids written to `LOGS.JOB_INFO` are escaped.
+- Removed exact-pinned `requirements.txt`, which was the source of the Dependabot alerts.
+
+### Docs
+- New README, a docs site (`mkdocs.yml`, `docs/`), CONTRIBUTING, SECURITY, CODE_OF_CONDUCT, `AGENTS.md`, `llms.txt`, examples, and GitHub CI, issue and PR templates.
+- Removed `docs/salesforce_sync_guide.md`, which documented classes that don't exist, and the unused Sphinx scaffolding.
+- Integration tests read `tests/integration/config.toml`, now gitignored, from the tracked `config.example.toml`.
+
+## 2.0.81 – 2.0.82
 
 ### Security
 - **Salesforce credentials go in the request body, not the URL** (`3bae355`). `login_user_flow()`
@@ -37,13 +56,15 @@ change is in its commit message; open and resolved findings are tracked in `ISSU
   now tracked.
 
 ### Added
+- **Salesforce JWT bearer flow** (`8a287a7`): `get_salesforce_access_info_from_credentials()` accepts
+  `auth_flow='jwt_bearer'` for unattended jobs that authenticate with a certificate and pass
+  credentials directly instead of reading `connections.toml`.
 - **`lht retl --clear-nulls`** (`8404203`, `20246b6`; `clear_nulls=` on `retl.upsert` / `update`).
   A NULL is sent as `#N/A`, which clears the field; without the flag it is an empty cell, which the
   Bulk API treats as "leave unchanged". Opt-in, so existing callers are unaffected. The upsert's
   match field is never turned into `#N/A` — a blank match value is how a row asks to be created
   (e.g. upserting on `Id`).
-- `src/lht/exceptions.py`, `publish.sh`, and build/local-install notes in
-  `BUILD_AND_DISTRIBUTION.md` (`9ff19a2`, `b93a0ce`).
+- `src/lht/exceptions.py` and `publish.sh` (`9ff19a2`, `b93a0ce`).
 
 ### Added: `lht merge`
 - **`lht merge`** (`8b3e675`, `1f8275f`): merges Salesforce records in Salesforce from a Snowflake
@@ -65,12 +86,9 @@ change is in its commit message; open and resolved findings are tracked in `ISSU
 - Integration: `tests/integration/` (live Salesforce + Snowflake; connection names only in
   `config.toml`).
 
-### Logged in `ISSUES.md`, not yet fixed
+### Known issues
 - `retl update` / `insert` / `delete` with no rows still start a Bulk job, which cannot succeed.
 - `log_retl.log_results` writes `LOGS.RETL_RESULTS` / `RETL_FAILURES`, which nothing creates.
 - `lht sync` reports a record count that ignores `--where`.
-- Dependabot: 7 alerts from exact pins in `requirements.txt` (4 high, urllib3).
-- In-place Cython builds (`python setup.py build_ext --inplace`) leave `.so` files that shadow
-  edited `.py` source in an editable install — edits silently do not run.
 - lht's integration-test hard-delete helper calls `DELETE /sobjects/RecycleBin`, which returns 404;
-  purging the Recycle Bin needs SOAP `emptyRecycleBin`. (Not in `ISSUES.md`.)
+  purging the Recycle Bin needs SOAP `emptyRecycleBin`.

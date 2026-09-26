@@ -1,0 +1,59 @@
+site_name: lht — Bring Your Own Data Warehouse
+site_description: Open-source Salesforce to Snowflake sync, reverse ETL and record merge using the Salesforce Bulk API 2.0.
+site_url: https://lakehousetools.github.io/lht/
+repo_url: https://github.com/lakehousetools/lht
+repo_name: lakehousetools/lht
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  features:
+    - content.code.copy
+    - content.tabs.link
+    - navigation.sections
+    - search.suggest
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle: { icon: material/brightness-7, name: Switch to dark mode }
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle: { icon: material/brightness-4, name: Switch to light mode }
+
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - Authentication: authentication.md
+  - CLI reference: cli.md
+  - Python API: python-api.md
+  - Reverse ETL: reverse-etl.md
+  - Merging records: merge.md
+  - Intelligent sync internals: intelligent_sync_guide.md
+  - FAQ: faq.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc: { permalink: true }
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.tabbed: { alternate_style: true }
+
+plugins:
+  - search
+  - llmstxt:
+      markdown_description: >
+        lht is an open-source Python library and CLI that syncs Salesforce data into
+        Snowflake (full + incremental via Bulk API 2.0), pushes Snowflake query results
+        back into Salesforce (reverse ETL), and merges duplicate Salesforce records.
+      sections:
+        Docs:
+          - index.md
+          - getting-started.md
+          - authentication.md
+          - cli.md
+          - python-api.md
+          - reverse-etl.md
+          - merge.md
+          - faq.md

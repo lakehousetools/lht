@@ -1,14 +1,13 @@
-examples/
+# Local-only files: credentials, scratch data, editor and agent settings
 .pypirc
 data/
-venv/
-dist/
-25.1.1
-.DS_Store
-src/.DS_Store
-src/lht/.DS_Store
-.DS_Store
 archive/
+.DS_Store
+.claude/
+.vscode/
+.idea/
+ISSUES.md
+BUILD_AND_DISTRIBUTION.md
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -70,7 +69,7 @@ cover/
 tests/integration/reports/
 tests/integration/state/
 tests/integration/*.toml
-!tests/integration/config.toml
+!tests/integration/config.example.toml
 
 # Translations
 *.mo
@@ -172,8 +171,11 @@ dmypy.json
 # pytype static type analyzer
 .pytype/
 
-# Cython debug symbols
+# Cython debug symbols and in-place build output (lht no longer compiles with
+# Cython, but stale .c/.so files would shadow the .py sources)
 cython_debug/
+src/**/*.c
+src/**/*.html
 
 # PyCharm
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can

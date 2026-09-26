@@ -1,6 +1,7 @@
 from snowflake.snowpark import Session
 from snowflake.snowpark import functions as F
 import logging
+from lht.util.sql import identifier
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ def merge_into_target(session, temp_table, target_table, match_field):
     casted_columns = transform_and_match_datatypes(session, temp_table, target_table)
     casted_columns = casted_columns.strip().rstrip(',')
 
-    target_schema_info = session.sql(f"DESCRIBE TABLE {target_table}").collect()
+    target_schema_info = session.sql(f"DESCRIBE TABLE {identifier(target_table)}").collect()
     target_columns = [row['name'].upper() for row in target_schema_info]
 
     if match_field not in target_columns:
@@ -65,9 +66,9 @@ def transform_and_match_datatypes(session, temp_table, permanent_table, temp_sch
 
   fields = ""
   # Get schema info for both tables
-  temp_schema_info = session.sql(f"DESCRIBE TABLE {temp_table}").collect()
+  temp_schema_info = session.sql(f"DESCRIBE TABLE {identifier(temp_table)}").collect()
 
-  perm_schema_info = session.sql(f"DESCRIBE TABLE {permanent_table}").collect()
+  perm_schema_info = session.sql(f"DESCRIBE TABLE {identifier(permanent_table)}").collect()
 
   # Create mapping of column name to data type for permanent table
   perm_types = {row['name'].upper(): row['type'] for row in perm_schema_info}

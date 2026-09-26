@@ -1,6 +1,7 @@
 import io
 import os
 import pandas as pd
+from lht.util.sql import identifier
 
 def put_file(session, stage, file, filename=None):
     # Create an in-memory file object
@@ -98,14 +99,14 @@ def put_dataframe_to_stage(session, stage_name, df, filename=None, schema=None):
         session.sql(copy_command).collect()
         
         # Clean up temporary table
-        session.sql(f"DROP TABLE IF EXISTS {full_temp_table_name}").collect()
+        session.sql(f"DROP TABLE IF EXISTS {identifier(full_temp_table_name)}").collect()
         
         return filename
         
     except Exception as e:
         # Clean up temporary table on error
         try:
-            session.sql(f"DROP TABLE IF EXISTS {full_temp_table_name}").collect()
+            session.sql(f"DROP TABLE IF EXISTS {identifier(full_temp_table_name)}").collect()
         except:
             pass
         raise Exception(f"Failed to write DataFrame to stage {stage_name}: {e}")

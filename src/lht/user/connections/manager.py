@@ -70,6 +70,8 @@ def initialize_solomo_directory() -> Path:
     
     # Create .solomo directory if it doesn't exist
     solomo_dir.mkdir(mode=0o700, exist_ok=True)
+    # mkdir's mode only applies on creation; tighten a pre-existing directory too.
+    os.chmod(solomo_dir, 0o700)
     
     return solomo_dir
 
@@ -106,6 +108,18 @@ def _load_connections_file() -> Dict[str, Any]:
     return connections
 
 
+def _open_private(path: Path):
+    """Opens path for writing, readable and writable by the owner only.
+
+    connections.toml holds client secrets and key passphrases, so it must
+    never be created with the default umask (often world-readable), and an
+    existing file with looser permissions is tightened on every save.
+    """
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    os.chmod(path, 0o600)
+    return os.fdopen(fd, 'w')
+
+
 def _save_connections_file(connections: Dict[str, Any]) -> None:
     """
     Save connections dictionary to the connections.toml file.
@@ -127,11 +141,11 @@ def _save_connections_file(connections: Dict[str, Any]) -> None:
     # Write back to TOML file
     # Use toml library's dump function if available, otherwise manually format
     if hasattr(tomllib, 'dump'):
-        with open(connections_file, 'w') as f:
+        with _open_private(connections_file) as f:
             tomllib.dump(connections, f)
     else:
         # Manual TOML writing (simple format)
-        with open(connections_file, 'w') as f:
+        with _open_private(connections_file) as f:
             for conn_name, conn_data in connections.items():
                 f.write(f"[{conn_name}]\n\n")
                 for key, value in conn_data.items():

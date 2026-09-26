@@ -4,6 +4,7 @@ import requests
 from snowflake.snowpark import Session
 from snowflake.snowpark.functions import col
 from . import csv
+from lht.util.http import DEFAULT_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +69,7 @@ def successful_results(access_info, job_id, match_field=None):
         'Authorization': f'Bearer {access_token}',
         'Accept': 'text/csv'
     }
-    response = requests.get(url, headers=headers)
+    response = requests.get(url, headers=headers, timeout=DEFAULT_TIMEOUT)
     results = csv.success_upserts(csv.bulk_csv_text(response), job_id, match_field=match_field)
 
     return results
@@ -80,7 +81,7 @@ def failed_results(access_info, job_id, match_field=None):
         'Authorization': f'Bearer {access_token}',
         'Accept': 'text/csv'
     }
-    response = requests.get(url, headers=headers)
+    response = requests.get(url, headers=headers, timeout=DEFAULT_TIMEOUT)
     results = csv.fail_upserts(csv.bulk_csv_text(response), job_id, match_field=match_field)
 
     return results

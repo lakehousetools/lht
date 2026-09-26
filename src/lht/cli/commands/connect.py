@@ -6,6 +6,7 @@ import sys
 from lht.user.auth import create_session
 from lht.user.salesforce_auth import get_salesforce_access_info
 from lht.user.connections import load_connection
+from lht.util.http import DEFAULT_TIMEOUT
 
 
 def connect(connection_name: str) -> int:
@@ -97,7 +98,7 @@ def _verify_salesforce(connection_name: str) -> int:
         }
         url = f"{access_info['instance_url']}/services/data/v58.0/sobjects"
         
-        response = requests.get(url, headers=headers)
+        response = requests.get(url, headers=headers, timeout=DEFAULT_TIMEOUT)
         response.raise_for_status()
         
         print()

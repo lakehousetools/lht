@@ -1,407 +1,228 @@
-# Lake House Tools (LHT) - Salesforce & Snowflake Integration
+# lht: Lakehouse Tools
 
-Bring Salesforce into the fold of your data cloud. LHT is a robust Python library that makes it really easy to extract data from Salesforce and reverse-extract your updates and transformations back into Salesforce. LHT uses Salesforce Bulk API 2.0 for all data synchronizations, providing efficient and consistent data extraction regardless of data volume.
+**Bring Your Own Data Warehouse.**
 
-## 🚀 Features
+lht is an open-source Python library and CLI that moves Salesforce data into Snowflake and pushes it back. It uses the Salesforce Bulk API 2.0 and runs on your own infrastructure, with your own credentials. There is no hosted service and no per-row pricing, and your data doesn't pass through a third party.
 
-### Intelligent Synchronization
-- **Bulk API 2.0**: All syncs use Salesforce Bulk API 2.0 for efficient data extraction
-- **Incremental Sync**: Smart detection of changed records since last sync based on LastModifiedDate
-- **Full Sync**: Complete data synchronization for first-time syncs
-
-### Core Capabilities
-- **Salesforce Bulk API 2.0**: Full support for bulk operations
-- **Snowflake Integration**: Native Snowpark support
-- **Data Type Mapping**: Automatic Salesforce to Snowflake type conversion
-- **Error Handling**: Comprehensive error management and recovery
-- **Performance Optimization**: Efficient processing for large datasets
-
-## 📦 Installation
+[![PyPI](https://img.shields.io/pypi/v/lht.svg)](https://pypi.org/project/lht/)
+[![Python](https://img.shields.io/pypi/pyversions/lht.svg)](https://pypi.org/project/lht/)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![CI](https://github.com/lakehousetools/lht/actions/workflows/ci.yml/badge.svg)](https://github.com/lakehousetools/lht/actions/workflows/ci.yml)
 
 ```bash
 pip install lht
+lht sync --sobject Account --table ACCOUNT
 ```
 
-## 🎯 Quick Start
+**Supported today:** Salesforce ↔ Snowflake. The connection layer is built so more warehouses can be added; see [Roadmap](#roadmap).
 
-### Prerequisites
+---
 
-#### 1. Salesforce Setup
+## What it does
 
-**Option A: Developer Org (Recommended for Testing)**
-- Sign up for a [Salesforce Developer Org](https://developer.salesforce.com/signup) (free)
-- **Important**: Developer Pro or above is preferred for testing LHT
-- **Do NOT use your production Salesforce instance or production data**
+| | |
+|---|---|
+| **Salesforce → Snowflake sync** | Full load on the first run. After that, incremental loads use `LastModifiedDate` and a `MERGE` on the record Id. Tables are created for you, with Salesforce field types mapped to Snowflake types. |
+| **Reverse ETL (Snowflake → Salesforce)** | `upsert`, `insert`, `update` and `delete` records in Salesforce from any Snowflake `SELECT`. Runs through Bulk API 2.0 ingest jobs, with optional result logging back into Snowflake. |
+| **Record merge** | Deduplicate Accounts, Contacts or Leads inside Salesforce from a Snowflake query that returns `MasterId` / `LoserId` pairs. Uses the SOAP `merge()` call, which the Bulk API can't do. `--dry-run` validates the pairs first. |
+| **Bulk job management** | List, inspect and delete Bulk API 2.0 jobs, and download their success, failure and unprocessed results. |
+| **Headless auth** | Supports the OAuth 2.0 Client Credentials flow and JWT bearer flow for Salesforce, and key-pair (JWT) auth for Snowflake. Credentials can come from a local config file or from your own secret store. |
 
-**Option B: Trial Org**
-- Sign up for a [Salesforce Trial](https://www.salesforce.com/trailhead/) (free)
-- Choose a trial that includes the features you want to test
+## Why lht
 
-**Option C: Sandbox**
-- If you have a Developer Pro+ license, create a sandbox from your production org
-- **Never test LHT in production**
+- **You own the pipeline.** It's a `pip install`, not a SaaS contract. Run it from a laptop, cron, Airflow, Dagster, GitHub Actions, or a Snowflake/Databricks job.
+- **Bulk API 2.0 everywhere.** Reads and writes both use Bulk API 2.0, so large objects don't burn through your REST API call limits.
+- **Two directions, one tool.** Sync, reverse ETL and merge share the same saved connections.
+- **Plain Python, Apache 2.0.** Read it, fork it, extend it.
 
-**⚠️ Critical Requirements:**
-- **Administrative access** to the Salesforce instance
+## Installation
 
-**🔧 OAuth2.0 Setup Required:**
-1. **Configure a Connected App** for the OAuth2.0 Client Credentials Flow
-   - [Detailed Connected App Setup Instructions](https://help.salesforce.com/s/articleView?id=xcloud.connected_app_client_credentials_setup.htm&type=5)
-   - **Callback URL**: Enter `https://localhost/callback` (not used in this flow but required)
-   - **Scopes**: Add "Full" scopes for testing (modify for production use)
-2. **Retrieve Credentials**: Once configured, get the Client ID and Client Secret and store them securely
-3. **Get Your Domain**: From Setup, search for "My Domain" and copy the subdomain (everything before '.my.salesforce.com')
-   - **Note**: Sandbox instances will include 'sandbox' in the subdomain
-4. **Store Securely**: Keep Client ID, Client Secret, and subdomain together - you'll need them for LHT configuration
+### From PyPI (recommended)
 
-**🚨 Salesforce Limitations:**
-Since Salesforce was never really architected to deal with any meaningful amount of data, there will be limitations on what you can do:
-- **API rate limits**: 15,000 API calls per 24-hour period (Enterprise), 100,000 (Unlimited)
-- **Bulk API limits**: 10,000 records per batch, 10 concurrent jobs
-- **Query limits**: SOQL queries limited to 50,000 records
-- **Storage limits**: Varies by org type and edition
-  - [Salesforce Storage Limits](https://help.salesforce.com/s/articleView?id=xcloud.overview_storage.htm&type=5)
-  - [Sandbox Storage Limits](https://help.salesforce.com/s/articleView?id=platform.data_sandbox_environments.htm&type=5)
+Requires Python 3.9 or newer.
 
-**This is why we introduced LHT** - to bridge these limitations and provide robust data integration capabilities.
+```bash
+python -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+pip install lht
+lht --help
+```
 
+To upgrade: `pip install --upgrade lht`. To pin a version: `pip install "lht==2.1.0"`.
 
+### From source
 
-#### 2. Snowflake Setup
+```bash
+git clone https://github.com/lakehousetools/lht.git
+cd lht
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"            # editable install, plus pytest/build/twine
+pytest                             # unit tests; no Salesforce or Snowflake needed
+```
 
-**Free Trial Registration:**
-- Sign up for a [Snowflake free trial](https://www.snowflake.com/free-trial/) (free)
-- Choose a cloud provider (AWS, Azure, or GCP)
-- Select a region close to your Salesforce org
+You can also download a release archive from [GitHub Releases](https://github.com/lakehousetools/lht/releases) or the source distribution from [PyPI](https://pypi.org/project/lht/#files) and run `pip install lht-<version>.tar.gz`.
 
-**⚠️ Critical Requirements:**
-- **Account Admin privileges** (required for initial setup)
-- **Security Admin privileges** (required for user and role management)
-- **Database creation permissions**
-- **Warehouse creation permissions**
+## Quickstart
 
-**🔑 Minimum Snowflake Roles Needed:**
+### 1. Prepare Salesforce
+
+Create an External Client App (or Connected App) with the **OAuth 2.0 Client Credentials flow** enabled and a run-as user assigned. Note its **Consumer Key**, **Consumer Secret** and your **My Domain** (the part before `.my.salesforce.com`). See [docs/authentication.md](docs/authentication.md) for step-by-step setup, including the JWT bearer flow.
+
+> Start with a sandbox or Developer Edition org. Reverse ETL and merge change data in Salesforce.
+
+### 2. Prepare Snowflake
+
+Create a user with [key-pair authentication](https://docs.snowflake.com/en/user-guide/key-pair-auth) and a role that can use a warehouse and create tables in your target schema:
+
 ```sql
--- Account Admin (automatically granted)
--- Security Admin
--- Database Admin
--- Warehouse Admin
+CREATE ROLE IF NOT EXISTS LHT_ROLE;
+GRANT USAGE ON WAREHOUSE COMPUTE_WH TO ROLE LHT_ROLE;
+GRANT USAGE ON DATABASE SALESFORCE TO ROLE LHT_ROLE;
+GRANT USAGE, CREATE TABLE ON SCHEMA SALESFORCE.RAW TO ROLE LHT_ROLE;
+GRANT ROLE LHT_ROLE TO USER LHT_USER;
+ALTER USER LHT_USER SET RSA_PUBLIC_KEY = '<contents of rsa_key.pub>';
 ```
 
-### Basic Intelligent Sync
-
-```python
-from lht.salesforce.intelligent_sync import sync_sobject_intelligent
-
-# Sync Account object intelligently
-result = sync_sobject_intelligent(
-    session=session,
-    access_info=access_info,
-    sobject="Account",
-    schema="RAW",
-    table="ACCOUNTS",
-    match_field="ID"
-)
-
-print(f"Synced {result['actual_records']} records using {result['sync_method']}")
-```
-
-## 🔧 How It Works
-
-### Sync Strategy
-
-LHT uses Salesforce Bulk API 2.0 for all synchronizations, providing consistent and efficient data extraction regardless of data volume.
-
-**Full Sync (First-time)**
-- Performed when the target table doesn't exist
-- Extracts all records from the Salesforce object
-- Creates the target table in Snowflake
-
-**Incremental Sync**
-- Performed when the target table already exists
-- Queries `MAX(LASTMODIFIEDDATE)` from the existing table
-- Extracts only records modified since the last sync
-- Uses MERGE logic to update existing records and insert new ones
-
-### Sync Process
-
-1. **Check Table Existence**: Determines if target table exists
-2. **Get Last Modified Date**: Queries `MAX(LASTMODIFIEDDATE)` from existing table (for incremental syncs)
-3. **Create Bulk API 2.0 Job**: Creates a query job in Salesforce
-4. **Process Batches**: Downloads and processes CSV batches from Salesforce
-5. **Write to Temp Table**: Loads data into a temporary Snowflake table
-6. **MERGE to Target**: Merges data from temp table to target table using match field
-7. **Cleanup**: Removes temporary table and Bulk API job
-
-## 💻 Command Line Interface
-
-LHT provides a comprehensive CLI for managing connections and synchronizing data.
-
-### Connection Management
-
-**Create a Snowflake Connection**
+### 3. Save connections
 
 ```bash
-lht create-connection --snowflake
-```
-
-Prompts for:
-- Account identifier (e.g., `xy12345.us-east-1`)
-- Username
-- Role (e.g., `ACCOUNTADMIN`, `SYSADMIN`)
-- Warehouse (e.g., `COMPUTE_WH`)
-- Private key file path (PEM format for JWT authentication)
-- Private key passphrase (optional)
-- Database (optional, can be overridden)
-- Schema (optional, can be overridden)
-- Connection name
-- Set as primary connection (y/n)
-
-**Create a Salesforce Connection**
-
-```bash
-lht create-connection --salesforce
-```
-
-Prompts for:
-- Client ID (from Connected App)
-- Client Key/Secret (from Connected App)
-- My Domain (e.g., `mycompany`)
-- Sandbox (y/n)
-- Redirect URL (optional)
-- Connection name
-- Set as primary connection (y/n)
-
-**Note:** The CLI requires an External App configured for OAuth2.0 Client Credentials flow. See [Salesforce documentation](https://help.salesforce.com/s/articleView?id=xcloud.remoteaccess_oauth_client_credentials_flow.htm) for setup instructions.
-
-**List Connections**
-
-```bash
+lht create-connection --snowflake     # account, user, role, warehouse, private key, database, schema
+lht create-connection --salesforce    # client id, client secret, My Domain, sandbox y/n
 lht list-connections
+lht connect my_salesforce             # verify it works
 ```
 
-**Set Primary Connection**
+Connections are stored in `~/.solomo/connections.toml` with owner-only permissions (`0600`). Snowflake private keys are copied into the same directory.
+
+### 4. Sync
 
 ```bash
-lht set-primary CONNECTION_NAME
+lht sync --sobject Account --table ACCOUNT --schema RAW
+lht sync --sobject Contact --table CONTACT --schema RAW --where "IsDeleted = false"
 ```
 
-Sets a connection as the primary/default connection. `lht` commands will default to the primary connection if one is set.
+Run the same command again to pick up only records changed since the last sync.
 
-**Edit Connection**
+### 5. Push data back (reverse ETL)
 
 ```bash
-lht edit-connection
+lht retl upsert --sobject Account --match-field External_Id__c \
+  --sql "SELECT External_Id__c, Name, Industry FROM ANALYTICS.ACCOUNT_ENRICHED"
 ```
 
-**Test Connection**
+Column names in the query must match Salesforce field API names.
 
-```bash
-lht connect CONNECTION_NAME
-```
-
-### Data Synchronization
-
-**Sync Salesforce Object to Snowflake**
-
-```bash
-lht sync --sobject Account --table ACCOUNT
-```
-
-**Required Arguments:**
-- `--sobject`: Salesforce object name (e.g., `Account`, `Contact`)
-- `--table`: Snowflake table name
-
-**Optional Arguments:**
-- `--schema`: Snowflake schema (defaults to connection if available)
-- `--database`: Snowflake database (defaults to connection if available)
-- `--snowflake NAME`: Snowflake connection name (defaults to primary)
-- `--salesforce NAME`: Salesforce connection name (defaults to primary)
-- `--match-field FIELD`: Field to use for matching records (default: `ID`)
-- `--use-stage`: Use Snowflake stage for large datasets
-- `--stage-name STAGE`: Snowflake stage name (required if `--use-stage` is specified)
-- `--force-full-sync`: Force a full sync regardless of previous sync status
-- `--where WHERE_CLAUSE`: SOQL WHERE clause to filter records (e.g., `"IsPersonAccount = False"`)
-
-**Examples:**
-
-```bash
-# Basic sync
-lht sync --sobject Account --table ACCOUNT
-
-# Sync with custom schema and database
-lht sync --sobject Contact --table CONTACT --schema RAW --database SALESFORCE_DB
-
-# Sync with WHERE clause filter
-lht sync --sobject Account --table ACCOUNT --where "IsPersonAccount = False"
-
-# Force full sync
-lht sync --sobject Account --table ACCOUNT --force-full-sync
-
-# Use specific connections
-lht sync --sobject Account --table ACCOUNT --snowflake my_snowflake --salesforce my_salesforce
-```
-
-### Bulk API 2.0 Job Management
-
-**List All Jobs**
-
-```bash
-lht list-jobs [--salesforce NAME] [--api-version VERSION]
-```
-
-Displays all Bulk API 2.0 query jobs with:
-- Job ID
-- Operation
-- Object
-- Created By
-- Created Date
-- State
-- Concurrency Mode
-- Content Type
-- API Version
-- Job Type
-
-**Show Job Details**
-
-```bash
-lht show-job <JOB_ID> [--salesforce NAME] [--api-version VERSION]
-```
-
-Displays detailed information about a specific job including:
-- Job ID, Operation, Object
-- Created By, Created Date
-- State, API Version, Job Type
-- Number of Records Processed
-- Retries
-- Total Processing Time
-- PK Chunking Support
-
-**Delete Job**
-
-```bash
-lht delete-job <JOB_ID> [--salesforce NAME] [--api-version VERSION]
-```
-
-Deletes a specific Bulk API 2.0 job from Salesforce.
-
-**Examples:**
-
-```bash
-# List all jobs
-lht list-jobs
-
-# Show details for a specific job
-lht show-job 750xx000000abcDAAQ
-
-# Delete a job
-lht delete-job 750xx000000abcDAAQ
-```
-
-## 📚 Documentation
-
-- **[Intelligent Sync Guide](docs/intelligent_sync_guide.md)**: Comprehensive guide to the intelligent sync system
-- **[Salesforce Sync Guide](docs/salesforce_sync_guide.md)**: Detailed Salesforce synchronization guide
-- **[API Documentation](docs/_build/html/index.html)**: Full API reference (build with `make html` in `docs/` directory)
-- **[Examples](examples/)**: Complete working examples
-
-## 📊 Return Values
-
-Sync functions return detailed information:
+## Python API
 
 ```python
-{
-    'sobject': 'Account',
-    'target_table': 'RAW.ACCOUNTS',
-    'sync_method': 'bulk_api_incremental',
-    'estimated_records': 1500,
-    'actual_records': 1487,
-    'sync_duration_seconds': 45.23,
-    'last_modified_date': Timestamp('2024-01-15 10:30:00'),
-    'sync_timestamp': Timestamp('2024-01-16 14:20:00'),
-    'success': True,
-    'error': None
-}
-```
+from lht.user.auth import create_session
+from lht.user.salesforce_auth import get_salesforce_access_info
+from lht.salesforce.intelligent_sync import sync_sobject_intelligent
+from lht.salesforce import retl
 
-## 🚨 Error Handling
+session = create_session(connection_name="my_snowflake")           # Snowpark session
+access_info = get_salesforce_access_info("my_salesforce")          # {'access_token', 'instance_url'}
 
-The system includes comprehensive error handling for:
-- Authentication errors
-- Network issues
-- Job failures
-- Data errors
-
-Errors are captured in the return value:
-
-```python
-{
-    'success': False,
-    'error': 'Bulk API job failed with state: Failed',
-    'records_processed': 0
-}
-```
-
-## 🔧 Advanced Usage
-
-### Multiple Object Sync
-
-```python
-objects_to_sync = [
-    {"sobject": "Account", "table": "ACCOUNTS"},
-    {"sobject": "Contact", "table": "CONTACTS"},
-    {"sobject": "Opportunity", "table": "OPPORTUNITIES"}
-]
-
-results = []
-for obj in objects_to_sync:
-    result = sync_sobject_intelligent(
-        session=session,
-        access_info=access_info,
-        sobject=obj['sobject'],
-        schema="RAW",
-        table=obj['table'],
-        match_field="ID"
-    )
-    results.append(result)
-```
-
-### Force Full Sync
-
-```python
-# Useful for data refresh or after schema changes
 result = sync_sobject_intelligent(
     session=session,
     access_info=access_info,
-    sobject="Account",
+    sobject="Opportunity",
     schema="RAW",
-    table="ACCOUNTS",
-    match_field="ID",
-    force_full_sync=True  # Overwrites entire table
+    table="OPPORTUNITY",
+)
+print(result["sync_method"], result["actual_records"])
+
+retl.upsert(
+    session, access_info,
+    sobject="Account",
+    query="SELECT External_Id__c, Rating FROM ANALYTICS.ACCOUNT_SCORES",
+    field="External_Id__c",
 )
 ```
 
-## 📈 Performance Considerations
+To run without a local config file (CI, Airflow, Snowflake tasks), pass credentials from your secret store directly:
 
-### Bulk API 2.0 Benefits
-- **Efficient Processing**: Processes data in batches, reducing memory usage
-- **Scalability**: Handles datasets of any size efficiently
-- **Consistency**: All syncs use the same method, ensuring predictable behavior
-- **Built-in Retry Logic**: Automatic retry handling for transient failures
+```python
+from lht.user.salesforce_auth import get_salesforce_access_info_from_credentials
 
-### Optimization Tips
-- Use appropriate warehouse size for large datasets
-- Consider using `--use-stage` for very large datasets
-- Monitor Bulk API job status using `lht list-jobs` and `lht show-job`
+access_info = get_salesforce_access_info_from_credentials({
+    "auth_flow": "jwt_bearer",
+    "client_id": os.environ["SF_CLIENT_ID"],
+    "username": "integration@example.com",
+    "private_key_pem": os.environ["SF_PRIVATE_KEY"],
+    "sandbox": True,
+})
+```
 
-## 🤝 Contributing
+More in [docs/python-api.md](docs/python-api.md) and [examples/](examples/).
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests
-5. Submit a pull request
+## CLI reference
 
-## 📄 License
+| Command | Purpose |
+|---|---|
+| `lht create-connection --snowflake \| --salesforce` | Save a connection interactively |
+| `lht list-connections` / `edit-connection` / `set-primary NAME` / `connect NAME` | Manage and test connections |
+| `lht sync --sobject OBJ --table TABLE [--schema --database --where --force-full-sync --use-stage --stage-name]` | Salesforce → Snowflake |
+| `lht retl {upsert,insert,update,delete} --sobject OBJ (--sql SQL \| --sql-file FILE) [--match-field --batch-size --clear-nulls --log-results]` | Snowflake → Salesforce |
+| `lht merge --sobject {Account,Contact,Lead} (--sql \| --sql-file) [--dry-run]` | Merge duplicate records in Salesforce |
+| `lht list-jobs` / `show-job ID` / `get-job-results ID` / `delete-job ID` | Bulk API 2.0 job management |
 
-This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+Every command accepts `--snowflake NAME` / `--salesforce NAME` to override the primary connection. Full details are in [docs/cli.md](docs/cli.md), or run `lht <command> --help`.
+
+## How incremental sync works
+
+1. If the target table doesn't exist, lht creates it from the SObject describe and runs a full Bulk API 2.0 query.
+2. If it exists, lht reads `MAX(LASTMODIFIEDDATE)` from the table and queries only newer records.
+3. Result batches load into a temporary table and are `MERGE`d into the target on `ID`.
+4. The Bulk API job is deleted afterwards unless you pass `--no-delete-job`.
+
+Queries use `queryAll`, so records deleted in Salesforce arrive with `IsDeleted = true` while they're in the Recycle Bin. Records that are hard-deleted or purged before the next sync aren't seen; run `--force-full-sync` periodically if that matters to you.
+
+## How lht compares
+
+| | lht | Managed ELT services | Hand-written scripts |
+|---|---|---|---|
+| Where it runs | Your infrastructure | Vendor cloud | Your infrastructure |
+| Cost model | Free (Apache 2.0) + your warehouse compute | Subscription / usage-based | Engineering time |
+| Salesforce → warehouse | ✅ Bulk API 2.0, incremental | ✅ | You build it |
+| Warehouse → Salesforce (reverse ETL) | ✅ Built in | Often a separate product | You build it |
+| Record merge / dedupe in Salesforce | ✅ `lht merge` | Rare | You build it |
+| Data leaves your control | No | Yes, transits the vendor | No |
+
+lht is a good fit if you already run Snowflake, want Salesforce data there on your own schedule, and want reverse ETL without adding another vendor.
+
+## Security
+
+- Credentials are stored locally in `~/.solomo/` (directory `0700`, files `0600`), or passed in from your own secret store.
+- Salesforce secrets are sent in POST bodies, never URLs, and are never logged.
+- Every HTTP call has a timeout, and database, schema and table names are validated before they go into SQL.
+
+To report a vulnerability, see [SECURITY.md](SECURITY.md).
+
+## Documentation
+
+- [Getting started](docs/getting-started.md)
+- [Authentication (Salesforce & Snowflake)](docs/authentication.md)
+- [CLI reference](docs/cli.md)
+- [Python API](docs/python-api.md)
+- [Reverse ETL](docs/reverse-etl.md)
+- [Merging records](docs/merge.md)
+- [Intelligent sync internals](docs/intelligent_sync_guide.md)
+- [FAQ](docs/faq.md)
+
+## Roadmap
+
+- Additional warehouses (Databricks, BigQuery, Postgres) behind the same CLI
+- Hard-delete detection for incremental sync
+- Scheduling recipes (Airflow, Dagster, Snowflake Tasks)
+
+Ideas and pull requests are welcome in [GitHub Issues](https://github.com/lakehousetools/lht/issues).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, tests and the release process. By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+## License
+
+[Apache License 2.0](LICENSE)

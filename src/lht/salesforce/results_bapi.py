@@ -6,6 +6,8 @@ import logging
 from lht.util.csv import bulk_csv_text
 from snowflake.snowpark import Session
 from snowflake.snowpark.exceptions import SnowparkSQLException
+from lht.util.http import DEFAULT_TIMEOUT
+from lht.util.sql import identifier
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +121,7 @@ def get_job_info(access_info: dict, job_id: str) -> dict:
     }
     
     try:
-        response = requests.get(url, headers=headers)
+        response = requests.get(url, headers=headers, timeout=DEFAULT_TIMEOUT)
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:
@@ -143,7 +145,7 @@ def get_successful_results(access_info: dict, job_id: str) -> list:
     }
     
     try:
-        response = requests.get(url, headers=headers)
+        response = requests.get(url, headers=headers, timeout=DEFAULT_TIMEOUT)
         response.raise_for_status()
         
         # Parse CSV response
@@ -185,7 +187,7 @@ def get_failed_results(access_info: dict, job_id: str) -> list:
     }
     
     try:
-        response = requests.get(url, headers=headers)
+        response = requests.get(url, headers=headers, timeout=DEFAULT_TIMEOUT)
         response.raise_for_status()
         
         # Parse CSV response
@@ -236,7 +238,7 @@ def insert_job_info(session: Session, job_data: dict, job_id: str):
                 NUMBER_BATCHES_FAILED, NUMBER_BATCHES_PENDING, BYTES_PROCESSED,
                 ERROR_CODE, ERROR_MESSAGE
             ) VALUES (
-                '{job_id}',
+                {_sql_literal(job_id)},
                 NULL, NULL, NULL, NULL, NULL,
                 '{job_data.get('state', 'Failed')}',
                 NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
@@ -273,7 +275,7 @@ def insert_job_info(session: Session, job_data: dict, job_id: str):
                 NUMBER_BATCHES_FAILED, NUMBER_BATCHES_PENDING, BYTES_PROCESSED,
                 ERROR_CODE, ERROR_MESSAGE
             ) VALUES (
-                '{job_id}',
+                {_sql_literal(job_id)},
                 {operation},
                 {object_name},
                 {created_by_id},
@@ -351,7 +353,7 @@ def _insert_rows(session: Session, table: str, columns, rows, chunk_size: int = 
     for start in range(0, len(rows), chunk_size):
         chunk = rows[start:start + chunk_size]
         values = ', '.join('({})'.format(', '.join(row)) for row in chunk)
-        session.sql(f"INSERT INTO {table} ({column_list}) VALUES {values}").collect()
+        session.sql(f"INSERT INTO {identifier(table)} ({column_list}) VALUES {values}").collect()
 
 
 def insert_success_records(session: Session, job_id: str, success_data: list, match_field: str = None):

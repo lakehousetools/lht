@@ -6,6 +6,7 @@ import requests
 import logging
 from lht.util.csv import bulk_csv_text
 from typing import Dict, Any, List, Optional
+from lht.util.http import DEFAULT_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +15,7 @@ def _fetch_jobs_from_endpoint(headers: Dict[str, str], url: str, instance_url: s
     """Fetch all jobs from a paginated Bulk API 2.0 endpoint."""
     jobs = []
     while url:
-        response = requests.get(url, headers=headers)
+        response = requests.get(url, headers=headers, timeout=DEFAULT_TIMEOUT)
         response.raise_for_status()
         result = response.json()
         jobs.extend(result.get('records', []))
@@ -126,7 +127,7 @@ def get_bulk_api_job(access_info: Dict[str, str], job_id: str, api_version: str 
     for job_type in ('query', 'ingest'):
         url = f"{base_url}/jobs/{job_type}/{job_id}"
         try:
-            response = requests.get(url, headers=headers)
+            response = requests.get(url, headers=headers, timeout=DEFAULT_TIMEOUT)
             if response.status_code == 404:
                 continue
             response.raise_for_status()
@@ -183,7 +184,7 @@ def delete_bulk_api_job(access_info: Dict[str, str], job_id: str, api_version: s
     # Determine correct endpoint (query vs ingest) by probing
     url = None
     for job_type in ('query', 'ingest'):
-        probe = requests.get(f"{base_url}/jobs/{job_type}/{job_id}", headers=headers)
+        probe = requests.get(f"{base_url}/jobs/{job_type}/{job_id}", headers=headers, timeout=DEFAULT_TIMEOUT)
         if probe.status_code != 404:
             url = f"{base_url}/jobs/{job_type}/{job_id}"
             break
@@ -192,7 +193,7 @@ def delete_bulk_api_job(access_info: Dict[str, str], job_id: str, api_version: s
         return {'success': False, 'job_id': job_id, 'error': f'Job not found: {job_id}'}
 
     try:
-        response = requests.delete(url, headers=headers)
+        response = requests.delete(url, headers=headers, timeout=DEFAULT_TIMEOUT)
         
         if response.status_code == 204:
             logger.info(f"Successfully deleted Bulk API 2.0 job: {job_id}")
@@ -253,7 +254,7 @@ def get_ingest_job_results(access_info: Dict[str, str], job_id: str, api_version
 
     for key, url in endpoints.items():
         try:
-            response = requests.get(url, headers=headers)
+            response = requests.get(url, headers=headers, timeout=DEFAULT_TIMEOUT)
             response.raise_for_status()
             results[key] = bulk_csv_text(response)
             logger.debug(f"Fetched {key} for job {job_id}: {len(response.content)} bytes")

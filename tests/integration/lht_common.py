@@ -49,7 +49,13 @@ class Config:
 
 
 def load_config(path: str = "config.toml") -> Config:
-    return Config(PROJECT_DIR / path)
+    config_path = PROJECT_DIR / path
+    if not config_path.exists():
+        raise FileNotFoundError(
+            f"{config_path} not found. Copy config.example.toml to config.toml "
+            "and set your own connection names."
+        )
+    return Config(config_path)
 
 
 def load_field_toml(sobject: str, path: Optional[str] = None) -> dict:

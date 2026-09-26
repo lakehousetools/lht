@@ -3,6 +3,7 @@ import requests
 import pandas as pd
 import logging
 from urllib.parse import unquote_plus
+from lht.util.http import DEFAULT_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
@@ -170,7 +171,7 @@ def query_records(access_info, query, batch_size=1000, incremental=False):
 
     url = f"{access_info['instance_url']}/services/data/v58.0/queryAll?q={query}"
     
-    results = requests.get(url, headers=headers)
+    results = requests.get(url, headers=headers, timeout=DEFAULT_TIMEOUT)
     
     # Check for INVALID_FIELD errors and retry with cleaned query
     if results.status_code == 400:
@@ -224,7 +225,7 @@ def query_records(access_info, query, batch_size=1000, incremental=False):
 
     while json_data.get('nextRecordsUrl'):
         url = f"{access_info['instance_url']}{json_data['nextRecordsUrl']}"
-        results = requests.get(url, headers=headers)
+        results = requests.get(url, headers=headers, timeout=DEFAULT_TIMEOUT)
         results.raise_for_status()
         json_data = results.json()
 

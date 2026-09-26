@@ -7,13 +7,12 @@
 | Unit | `tests/unit/` | Nothing -- no network, no credentials | Yes -- plain `pytest` |
 | Integration: full sync lifecycle | `tests/integration/` | A configured Salesforce + Snowflake connection, network access | No -- `pytest -m integration` only |
 
-**Run with the `pytest` console script, not `python -m pytest`, from the repo
-root.** `python -m pytest` prepends the current directory to `sys.path`, and
-the dev-convenience `lht.py` at the repo root then shadows the real `lht`
-package (`src/lht/`), so imports resolve to the wrong module and tests fail
-or behave inconsistently depending on collection order. `venv/bin/pytest` (or
-just `pytest` inside an activated venv) doesn't have this problem. See
-`ISSUES.md` ("`python -m pytest` imports the wrong `lht`").
+Run from the repo root after `pip install -e ".[dev]"`:
+
+```bash
+pytest                    # unit tests only
+pytest -m integration     # live tests; needs tests/integration/config.toml
+```
 
 ## `tests/unit/` -- fast, no live credentials
 
@@ -96,5 +95,6 @@ Files:
   `<Sobject>.toml`
 - `cleanup_test_records.py` -- standalone script to hard-delete leftover test
   records from a failed or `--keep-test-records` run
-- `config.toml` -- which org/database/sobject to run against (tracked in
-  git); `<Sobject>.toml` is generated per-org and gitignored
+- `config.example.toml` -- template for `config.toml`, which sets the
+  org/database/sobject to run against; `config.toml` and `<Sobject>.toml`
+  are per-developer and gitignored

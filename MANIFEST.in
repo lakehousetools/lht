@@ -1,14 +1,8 @@
-# Include all source files for compilation
-include src/lht/**/*.py
-include setup.py
-include pyproject.toml
-include README.md
-include LICENSE
+# Extra files for the source distribution (sdist). The package itself is
+# picked up from src/ by setuptools.
+include README.md LICENSE CHANGELOG.md CONTRIBUTING.md SECURITY.md llms.txt
+recursive-include docs *.md
+recursive-include examples *.py *.sql
+recursive-include tests *.py *.md *.example.toml
 
-# Exclude build artifacts
-global-exclude *.pyc
-global-exclude *.so
-global-exclude *.pyd
-global-exclude __pycache__
-recursive-exclude * __pycache__
-
+global-exclude *.pyc *.so *.pyd __pycache__ .DS_Store

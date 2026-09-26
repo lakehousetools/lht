@@ -2,6 +2,7 @@ import requests
 import logging
 from . import sobjects as sobj
 from lht.util import field_types
+from lht.util.http import DEFAULT_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +17,7 @@ def create(session, access_info, sobject, local_table):
 	except Exception as e:
 		logger.error(e)
 		return None
-	sobject_data = requests.get(url, headers=headers)
+	sobject_data = requests.get(url, headers=headers, timeout=DEFAULT_TIMEOUT)
 
 	for field_data in sobject_data.json()['fields']:
 		if field_data['type'] == 'complexvalue':

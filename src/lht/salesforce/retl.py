@@ -7,6 +7,7 @@ from lht.util import log_retl
 from lht.sflake import query as q
 from . import ingest_bapi20 as ingest
 import time
+from lht.util.http import DEFAULT_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +131,7 @@ def upsert(session, access_info, sobject, query, field, batch_size=25000, clear_
 
                 # Create a new job for this batch
                 logger.debug("🔍 Creating Salesforce Bulk API job for this batch...")
-                response = requests.post(bulk_api_url, headers=headers, data=json.dumps(job_data_template))
+                response = requests.post(bulk_api_url, headers=headers, data=json.dumps(job_data_template), timeout=DEFAULT_TIMEOUT)
                 
                 if response.status_code != 200:
                     logger.error(f"❌ Job creation failed with status {response.status_code}")
@@ -255,7 +256,7 @@ def update(session, access_info, sobject, query, clear_nulls=False):
 
     # Create the job
     logger.debug("creating job")
-    response = requests.post(bulk_api_url, headers=headers, data=json.dumps(job_data))
+    response = requests.post(bulk_api_url, headers=headers, data=json.dumps(job_data), timeout=DEFAULT_TIMEOUT)
     job_info = response.json()
     _log_job(session, job_info)
 
@@ -319,7 +320,7 @@ def insert(session, access_info, sobject, query):
 
     # Create the job
     logger.debug("creating job")
-    response = requests.post(bulk_api_url, headers=headers, data=json.dumps(job_data))
+    response = requests.post(bulk_api_url, headers=headers, data=json.dumps(job_data), timeout=DEFAULT_TIMEOUT)
     job_info = response.json()
     _log_job(session, job_info)
 
@@ -395,7 +396,7 @@ def delete(session, access_info, sobject, query, field):
 
     # Create the job
     logger.debug("creating job")
-    response = requests.post(bulk_api_url, headers=headers, data=json.dumps(job_data))
+    response = requests.post(bulk_api_url, headers=headers, data=json.dumps(job_data), timeout=DEFAULT_TIMEOUT)
     job_info = response.json()
     logger.debug(f"JOB: {job_info}")
     _log_job(session, job_info)

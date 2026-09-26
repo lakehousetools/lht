@@ -2,6 +2,7 @@ import requests
 import logging
 from lht.util import field_types
 from lht.exceptions import SalesforceAuthError, SalesforceAPIError
+from lht.util.http import DEFAULT_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +19,7 @@ def describe(access_info, sobject, lmd=None):
 	except Exception as e:
 		logger.error(e)
 		return None
-	results = requests.get(url, headers=headers)
+	results = requests.get(url, headers=headers, timeout=DEFAULT_TIMEOUT)
 
 	# Check the HTTP status before touching the body - an auth failure or other
 	# error response won't have a 'retrieveable' key, so parsing it first raises

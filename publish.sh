@@ -3,7 +3,7 @@
 #
 # Order: read current version -> propose a bump -> confirm with the user ->
 # clean old build artifacts -> build -> ask test or prod -> ask for the
-# PyPI token -> upload. See BUILD_AND_DISTRIBUTION.md for the manual steps
+# PyPI token -> upload. See CONTRIBUTING.md ("Releasing") for the manual steps
 # this automates.
 set -euo pipefail
 
@@ -104,6 +104,7 @@ python3 -m build || die "python3 -m build failed (see output above) - the script
 echo
 echo "Built:"
 ls -1 dist/
+python3 -m twine check dist/* || die "twine check failed; PyPI would reject or mis-render this release."
 
 # --- 5. test or prod ---
 echo

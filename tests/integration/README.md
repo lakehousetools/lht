@@ -29,12 +29,11 @@ for them explicitly.
    venv/bin/lht list-connections   # confirm names
    ```
 
-   If your account has multiple saved connections for either type (this one
-   does -- ~20, across several unrelated projects), **don't rely on the
-   primary connection**. `config.toml` in this directory pins both by name
-   explicitly for exactly that reason.
+   If you have more than one saved connection of either type, **don't rely
+   on the primary connection**: pin both by name in `config.toml`.
 
-3. **`config.toml`** in this directory -- edit `[salesforce] org`,
+3. **`config.toml`** in this directory -- copy `config.example.toml` to
+   `config.toml` (gitignored) and edit `[salesforce] org` and
    `[snowflake] database`/`connection` to match your setup.
 
 4. **`<Sobject>.toml`** (e.g. `Account.toml`) -- generate it by querying the

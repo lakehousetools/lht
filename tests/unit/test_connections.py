@@ -106,3 +106,15 @@ def test_primary_connection_is_tracked_independently_per_type(isolated_solomo_di
 
     assert conn_manager.get_primary_connection("snowflake") == "sf_conn"
     assert conn_manager.get_primary_connection("salesforce") == "sfdc_conn"
+
+
+def test_connections_file_is_readable_by_owner_only(isolated_solomo_dir):
+    # It holds client secrets; the default umask would often leave it world-readable.
+    connections_file = conn_manager.get_connections_file()
+    connections_file.write_text("")
+    connections_file.chmod(0o644)  # a file saved by an older lht
+    conn_manager.save_connection_config(
+        "secret_holder", {"client_id": "id", "client_key": "secret", "my_domain": "d"},
+        connection_type="salesforce",
+    )
+    assert connections_file.stat().st_mode & 0o777 == 0o600

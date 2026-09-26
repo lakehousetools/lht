@@ -1,6 +1,7 @@
 import requests
 import json
 import logging
+from lht.util.http import DEFAULT_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
@@ -13,7 +14,7 @@ def job_close(access_info, job_id):
         'Content-Type': 'application/json'
     }
     close = {"state":"UploadComplete"}
-    response = requests.patch(url, headers=headers, data=json.dumps(close))
+    response = requests.patch(url, headers=headers, data=json.dumps(close), timeout=DEFAULT_TIMEOUT)
     #response.raise_for_status()
     logger.debug(f"Response status: {response.status_code}")
 
@@ -23,7 +24,7 @@ def job_status(access_info, job_id):
     headers = {
         'Authorization': f'Bearer {access_token}'
     }
-    response = requests.get(url, headers=headers)
+    response = requests.get(url, headers=headers, timeout=DEFAULT_TIMEOUT)
     response.raise_for_status()
     return response.json()
 
@@ -35,6 +36,6 @@ def send_file(access_info, job_id, data):
         'Authorization': f'Bearer {access_token}',
         'Content-Type': 'text/csv'
     }
-    response = requests.put(url, headers=headers, data=data)
+    response = requests.put(url, headers=headers, data=data, timeout=DEFAULT_TIMEOUT)
     logger.debug(f"Response status: {response.status_code}")
 
