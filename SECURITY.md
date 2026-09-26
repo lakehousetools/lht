@@ -6,7 +6,7 @@ Security fixes go into the latest release on [PyPI](https://pypi.org/project/lht
 
 ## Reporting a vulnerability
 
-**Don't open a public issue for a security problem.** Report it privately through GitHub's [private vulnerability reporting](https://github.com/lakehousetools/lht/security/advisories/new), or email **dan@solomo.io** with "lht security" in the subject.
+**Don't open a public issue for a security problem.** Report it privately through GitHub's [private vulnerability reporting](https://github.com/lakehousetools/lht/security/advisories/new), or email **dan@lakehousetools.com** with "lht security" in the subject.
 
 Please include the affected version, steps to reproduce, and the impact you expect. You'll get an acknowledgement within 3 business days. We'll agree a disclosure date with you once a fix is available.
 
