@@ -18,7 +18,7 @@ pytest -m integration     # live tests; needs tests/integration/config.toml
 
 Pure function / logic tests against `lht`'s internals, with Salesforce and
 Snowflake faked out where needed (no real API calls, no real database, no
-`~/.solomo/connections.toml` ever touched). Runs as part of a plain `pytest`
+real `connections.toml` ever touched). Runs as part of a plain `pytest`
 invocation.
 
 - `test_field_types.py` -- Salesforce -> Snowflake/pandas type mapping
@@ -35,7 +35,10 @@ invocation.
 - `test_connections.py` -- `user/connections/manager.py`'s save/load/list/
   delete/primary-connection round-trip against `connections.toml`, with
   `get_solomo_dir()` monkeypatched to a pytest `tmp_path` for every test so
-  nothing is ever read from or written to the real `~/.solomo` directory.
+  nothing is ever read from or written to the real config directory. Also
+  covers directory-resolution precedence (`LHT_HOME`, `~/.lakehousetools`,
+  `~/.solomo` fallback) and the in-memory `register_connection()` registry,
+  each with their own isolation (see the file's own comments).
 
 ## `tests/integration/` -- full sync lifecycle
 

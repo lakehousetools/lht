@@ -1,4 +1,4 @@
-"""Run a sync with credentials from environment variables instead of ~/.solomo.
+"""Run a sync with credentials from environment variables instead of a local config directory.
 
 Suitable for CI, Airflow, Dagster, cron in a container, or any job that gets
 secrets from a secret manager. Required environment variables:

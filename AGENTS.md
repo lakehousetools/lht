@@ -31,6 +31,8 @@ Only these public entry points exist; don't invent others:
 - `lht.salesforce.jobs.list_bulk_api_jobs / get_bulk_api_job / delete_bulk_api_job / get_ingest_job_results`
 - `lht.user.auth.create_session(credentials=None, connection_name=None)`
 - `lht.user.salesforce_auth.get_salesforce_access_info(connection_name=None)` and `get_salesforce_access_info_from_credentials(credentials)`
+- `lht.user.connections.register_connection(name, credentials)` and `unregister_connection(name)` — register credentials in memory under a name, so the rest of a process can use `connection_name=...` without a `connections.toml` on disk at all; takes precedence over a same-named file entry.
+- `lht.user.connections.get_lht_home()` (same resolution as `get_solomo_dir()`, kept for backward compat) — the config directory lht is actually using (`LHT_HOME` env var, else `~/.lakehousetools` if present, else `~/.solomo` if present, else `~/.lakehousetools`).
 
 Only Snowflake is supported as the warehouse today.
 
@@ -40,6 +42,6 @@ Only Snowflake is supported as the warehouse today.
 - Setup and tests: `pip install -e ".[dev]" && pytest`.
 - Salesforce HTTP calls must pass `timeout=DEFAULT_TIMEOUT` from `lht.util.http`.
 - Snowflake identifiers formatted into SQL must go through `lht.util.sql.identifier()`.
-- Never log tokens or secrets. Never read or write the real `~/.solomo/connections.toml` in tests.
+- Never log tokens or secrets. Never read or write the real `~/.lakehousetools/connections.toml` or `~/.solomo/connections.toml` in tests — patch `Path.home()` (and clear `LHT_HOME`), not `get_solomo_dir()` directly, when testing directory resolution itself; patch `get_solomo_dir()` directly (see `isolated_solomo_dir` in `tests/unit/test_connections.py`) for everything else.
 - Never put real customer, org or connection names in code, tests, docs or commit messages. Use placeholders.
 - Update `CHANGELOG.md` for user-visible changes.

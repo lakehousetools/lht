@@ -30,12 +30,12 @@ Text, picklist, Id and reference fields become `VARCHAR`; numbers, currency and 
 
 ### Can I run lht inside Snowflake, Airflow or GitHub Actions?
 
-Yes. It's a normal Python package. Use `create_session(credentials_dict)` and `get_salesforce_access_info_from_credentials()` with secrets from your platform instead of `~/.solomo`. See [Python API](python-api.md#headless-credentials).
+Yes. It's a normal Python package. Use `create_session(credentials_dict)` / `get_salesforce_access_info_from_credentials()`, or `register_connection(name, credentials_dict)` if you want to refer to it by name afterward, with secrets from your platform instead of a local config directory. See [Python API](python-api.md#headless-credentials).
 
 ### Where are my credentials stored?
 
-In `~/.solomo/connections.toml` (`0600`), with private keys copied alongside. Nothing is sent anywhere except Salesforce and Snowflake. See [Authentication](authentication.md#where-credentials-live).
+In `connections.toml` under lht's config directory (`0600`), with private keys copied alongside. Nothing is sent anywhere except Salesforce and Snowflake. See [Authentication](authentication.md#where-credentials-live) for exactly which directory that is and how to override it.
 
-### Why is the config directory called `.solomo`?
+### Why was the config directory called `.solomo`?
 
-lht was first built at [Solomo](https://solomo.io), and the directory name is kept so existing installations keep working.
+lht was first built at [Solomo](https://solomo.io). As of this writing the default is `~/.lakehousetools`, matching the project's current name — `~/.solomo` still works if it's what an existing install already has (see [Authentication](authentication.md#where-credentials-live) for the exact precedence), so upgrading doesn't break anything already set up.

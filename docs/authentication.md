@@ -78,16 +78,28 @@ lht connects through Snowpark using [key-pair authentication](https://docs.snowf
    ```bash
    lht create-connection --snowflake
    ```
-   lht copies the private key into `~/.solomo/` with `0600` permissions. It stores the passphrase, if you entered one, in `connections.toml`, which is also `0600`.
+   lht copies the private key into its config directory (see below) with `0600` permissions. It stores the passphrase, if you entered one, in `connections.toml`, which is also `0600`.
 
 For reverse ETL with `--log-results`, the role also needs `CREATE SCHEMA` (for `LOGS`) or ownership of an existing `LOGS` schema.
 
 ## Where credentials live
 
+lht resolves its config directory in this order:
+
+1. **`LHT_HOME` env var**, if set — used exactly as given, no fallback.
+2. **`~/.lakehousetools`**, if it already exists.
+3. **`~/.solomo`**, if it already exists — the pre-2026-10 default, kept so nothing already relying on it breaks on upgrade.
+4. **`~/.lakehousetools`** — the default for everything new.
+
+Call `lht.user.connections.get_lht_home()` to see which directory your install is actually using (`get_solomo_dir()` is the same function, kept for backward compatibility).
+
 | Item | Location | Permissions |
 |---|---|---|
-| Connection settings and secrets | `~/.solomo/connections.toml` | `0600` |
-| Snowflake private keys | `~/.solomo/<key file>` | `0600` |
-| Directory | `~/.solomo/` | `0700` |
+| Connection settings and secrets | `<config dir>/connections.toml` | `0600` |
+| Snowflake private keys | `<config dir>/<key file>` | `0600` |
+| Directory itself | `<config dir>` | `0700` |
 
-To avoid a local file entirely (CI, containers, orchestrators), pass credentials straight to `create_session()` and `get_salesforce_access_info_from_credentials()` from your secret manager. See [Python API](python-api.md#headless-credentials).
+To avoid a local file entirely (CI, containers, orchestrators, a secret pulled from your own secrets manager at process start), you have two options:
+
+- Pass credentials straight to `create_session()` and `get_salesforce_access_info_from_credentials()` — see [Python API](python-api.md#headless-credentials).
+- Or call `lht.user.connections.register_connection(name, credentials)` once, early in your process, then refer to that connection **by name** everywhere else (`create_session(connection_name=...)`, `get_salesforce_access_info(connection_name=...)`) exactly as if it were in `connections.toml` — it never touches the file, and a registered name works even if no `connections.toml` exists at all. Not persisted; call it again in any new process that needs it.

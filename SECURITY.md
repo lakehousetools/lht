@@ -12,7 +12,7 @@ Please include the affected version, steps to reproduce, and the impact you expe
 
 ## How lht handles credentials
 
-- Saved connections live in `~/.solomo/connections.toml`. lht creates the directory with mode `0700` and writes the file and copied private keys with mode `0600`.
+- Saved connections live in `connections.toml` under lht's config directory (`~/.lakehousetools` by default — see [Authentication](docs/authentication.md#where-credentials-live) for the full resolution order, including the `LHT_HOME` override and the `~/.solomo` fallback for existing installs). lht creates the directory with mode `0700` and writes the file and copied private keys with mode `0600`.
 - Salesforce client secrets are sent only in the POST body of the OAuth token request, never in a URL. They are never printed or logged.
 - lht supports passing credentials directly from a secret manager, so no local file is needed.
 - All Salesforce HTTP calls use TLS with certificate verification and a timeout.

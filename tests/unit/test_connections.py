@@ -118,3 +118,109 @@ def test_connections_file_is_readable_by_owner_only(isolated_solomo_dir):
         connection_type="salesforce",
     )
     assert connections_file.stat().st_mode & 0o777 == 0o600
+
+
+# ─── Directory resolution (get_solomo_dir / get_lht_home / LHT_HOME) ───────────
+#
+# These tests cannot use isolated_solomo_dir -- that fixture patches
+# get_solomo_dir() directly, which is exactly the function under test here.
+# Each one patches Path.home() instead and clears LHT_HOME, so they're still
+# fully isolated from the real home directory and from each other.
+
+@pytest.fixture
+def isolated_home(tmp_path, monkeypatch):
+    monkeypatch.setattr(conn_manager.Path, "home", lambda: tmp_path)
+    monkeypatch.delenv("LHT_HOME", raising=False)
+    return tmp_path
+
+
+def test_lht_home_env_var_wins_outright(isolated_home, monkeypatch, tmp_path):
+    # Set even though neither ~/.lakehousetools nor ~/.solomo exist, and even
+    # though it doesn't itself exist -- an explicit override is trusted as-is.
+    override = tmp_path / "wherever"
+    monkeypatch.setenv("LHT_HOME", str(override))
+    assert conn_manager.get_solomo_dir() == override
+
+
+def test_lht_home_env_var_expands_user(isolated_home, monkeypatch):
+    # Path.expanduser() reads the HOME env var directly (not Path.home(),
+    # which isolated_home's monkeypatch doesn't reach) -- patch that too so
+    # this stays isolated from the real home directory.
+    monkeypatch.setenv("HOME", str(isolated_home))
+    monkeypatch.setenv("LHT_HOME", "~/custom-lht-dir")
+    assert conn_manager.get_solomo_dir() == isolated_home / "custom-lht-dir"
+
+
+def test_prefers_new_dir_when_it_exists(isolated_home):
+    (isolated_home / ".lakehousetools").mkdir()
+    (isolated_home / ".solomo").mkdir()  # both exist -- new one must win
+    assert conn_manager.get_solomo_dir() == isolated_home / ".lakehousetools"
+
+
+def test_falls_back_to_old_dir_when_only_it_exists(isolated_home):
+    (isolated_home / ".solomo").mkdir()
+    assert conn_manager.get_solomo_dir() == isolated_home / ".solomo"
+
+
+def test_defaults_to_new_dir_when_neither_exists(isolated_home):
+    assert conn_manager.get_solomo_dir() == isolated_home / ".lakehousetools"
+
+
+def test_get_lht_home_is_the_same_resolution_as_get_solomo_dir(isolated_home):
+    (isolated_home / ".solomo").mkdir()
+    assert conn_manager.get_lht_home() == conn_manager.get_solomo_dir()
+
+
+# ─── register_connection / unregister_connection ───────────────────────────────
+
+@pytest.fixture(autouse=True)
+def _clear_registered_connections():
+    """register_connection() writes to module-level state -- never leak a
+    registration from one test into the next."""
+    conn_manager._registered_connections.clear()
+    yield
+    conn_manager._registered_connections.clear()
+
+
+def test_registered_connection_works_with_no_file_on_disk(isolated_solomo_dir):
+    # No connections.toml exists in isolated_solomo_dir at all -- would raise
+    # FileNotFoundError via _load_connections_file() if this fell through to
+    # the file, which is exactly what register_connection() must prevent.
+    conn_manager.register_connection("from_secrets_manager", {
+        "connection_type": "snowflake", "account": "acct", "user": "u",
+        "role": "r", "warehouse": "w", "private_key_file": "",
+    })
+    loaded = conn_manager.load_connection("from_secrets_manager")
+    assert loaded["account"] == "acct"
+
+
+def test_registered_connection_defaults_connection_type_to_snowflake(isolated_solomo_dir):
+    conn_manager.register_connection("no_type_given", {"account": "a", "user": "u"})
+    loaded = conn_manager.load_connection("no_type_given")
+    assert loaded["connection_type"] == "snowflake"
+
+
+def test_registered_connection_takes_precedence_over_the_file(isolated_solomo_dir):
+    conn_manager.save_connection_config(
+        "dup", {"account": "from_file", "user": "u", "role": "r", "warehouse": "w"},
+        connection_type="snowflake",
+    )
+    conn_manager.register_connection("dup", {
+        "connection_type": "snowflake", "account": "from_registry", "user": "u",
+        "role": "r", "warehouse": "w", "private_key_file": "",
+    })
+    assert conn_manager.load_connection("dup")["account"] == "from_registry"
+
+
+def test_unregister_connection_falls_back_to_the_file(isolated_solomo_dir):
+    conn_manager.save_connection_config(
+        "dup2", {"account": "from_file", "user": "u", "role": "r", "warehouse": "w"},
+        connection_type="snowflake",
+    )
+    conn_manager.register_connection("dup2", {"connection_type": "snowflake", "account": "from_registry"})
+    conn_manager.unregister_connection("dup2")
+    assert conn_manager.load_connection("dup2")["account"] == "from_file"
+
+
+def test_unregister_connection_is_a_noop_if_not_registered():
+    conn_manager.unregister_connection("never_registered")  # must not raise

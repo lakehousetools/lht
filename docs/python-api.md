@@ -16,7 +16,7 @@ Pass no name to use the primary connection of each type.
 
 ### Headless credentials
 
-In CI or an orchestrator, read secrets from your secret manager and pass them in directly. Nothing touches `~/.solomo`.
+In CI or an orchestrator, read secrets from your secret manager and pass them in directly. Nothing touches a local config directory.
 
 ```python
 import os
@@ -51,6 +51,38 @@ access_info = get_salesforce_access_info_from_credentials({
     "sandbox": False,
 })
 ```
+
+### Registering credentials under a name, without a file
+
+The headless pattern above works well when a single call site builds the
+session. When several call sites need the *same* connection by name — the
+way `connection_name="my_snowflake"` works against `connections.toml` —
+register it once instead of threading the credentials dict everywhere:
+
+```python
+import os
+from lht.user.connections import register_connection
+from lht.user.auth import create_session
+
+register_connection("prod_snowflake", {
+    "connection_type": "snowflake",
+    "account": os.environ["SNOWFLAKE_ACCOUNT"],
+    "user": os.environ["SNOWFLAKE_USER"],
+    "role": "LHT_ROLE",
+    "warehouse": "COMPUTE_WH",
+    "private_key_file": "/run/secrets/snowflake_key.p8",
+})
+
+# Anywhere else in this process, by name -- same as a connections.toml entry:
+session = create_session(connection_name="prod_snowflake")
+```
+
+`register_connection` takes precedence over a same-named entry in
+`connections.toml` if one exists, and never touches the file — safe to
+call even when no `connections.toml` is present at all. It's process-local
+and not persisted; call it again in any new process that needs it. Pair it
+with `unregister_connection(name)` if a long-running process needs to
+clear or rotate a registered connection without restarting.
 
 ## Sync Salesforce → Snowflake
 
