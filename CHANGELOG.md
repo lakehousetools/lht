@@ -2,7 +2,7 @@
 
 All notable changes to lht. Versions follow [semantic versioning](https://semver.org/).
 
-## Unreleased
+## 2.2.0 — 2026-10-06
 
 ### Added
 - **Config directory renamed to `~/.lakehousetools`**, matching the project's name. Resolution order: `LHT_HOME` env var (if set, used as-is) → `~/.lakehousetools` (if it exists) → `~/.solomo` (if it exists, for anything upgrading from before this change) → `~/.lakehousetools` (the default for everything new). `get_lht_home()` is the preferred name for this; `get_solomo_dir()` is unchanged and kept for backward compatibility.
