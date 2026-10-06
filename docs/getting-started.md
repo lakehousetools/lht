@@ -55,7 +55,7 @@ lht connect my_salesforce
 lht connect my_snowflake
 ```
 
-Connections are saved in `~/.solomo/connections.toml`. The directory is `0700` and the file is `0600`.
+Connections are saved in `connections.toml` under lht's config directory (`~/.lakehousetools` by default — see [Authentication](authentication.md#where-credentials-live)). The directory is `0700` and the file is `0600`.
 
 ## 4. Run your first sync
 

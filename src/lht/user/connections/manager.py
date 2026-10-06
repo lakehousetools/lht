@@ -33,14 +33,46 @@ except ImportError:
 
 def get_solomo_dir() -> Path:
     """
-    Get the path to the .solomo directory in the user's home directory.
-    
+    Resolve lht's local config directory (connections.toml, copied private
+    keys). The name stays get_solomo_dir() for backward compatibility with
+    existing callers -- get_lht_home() is the preferred name for new code,
+    and calls this.
+
+    Precedence:
+      1. LHT_HOME env var, if set -- used exactly as given (after `~`
+         expansion), no existence check or fallback. An explicit override
+         is trusted as-is, so a misconfigured value fails loudly rather
+         than silently falling through to a default.
+      2. ~/.lakehousetools, if it already exists.
+      3. ~/.solomo, if it already exists -- the pre-2026-10 default, kept
+         so nothing already relying on it breaks on upgrade.
+      4. ~/.lakehousetools -- the default for everything new. Doesn't need
+         to exist yet; initialize_solomo_directory() creates it on first
+         use.
+
     Returns:
-        Path object pointing to ~/.solomo
+        Path object pointing to the resolved config directory.
     """
+    env_override = os.environ.get('LHT_HOME', '').strip()
+    if env_override:
+        return Path(env_override).expanduser()
+
     home_dir = Path.home()
-    solomo_dir = home_dir / '.solomo'
-    return solomo_dir
+    new_dir = home_dir / '.lakehousetools'
+    old_dir = home_dir / '.solomo'
+
+    if new_dir.exists():
+        return new_dir
+    if old_dir.exists():
+        return old_dir
+    return new_dir
+
+
+def get_lht_home() -> Path:
+    """Preferred name for get_solomo_dir() -- same resolution, same
+    LHT_HOME override. Prefer this name in new code; get_solomo_dir() is
+    kept only for callers written before this directory was renamed."""
+    return get_solomo_dir()
 
 
 def get_connections_file() -> Path:
@@ -305,29 +337,74 @@ def save_connection_config(connection_name: str, credentials: Dict[str, Any], co
     print(f"✓ Saved connection '{connection_name}' ({connection_type}) to {connections_file}")
 
 
+# In-memory connections registered via register_connection() -- checked by
+# load_connection() before it ever touches connections.toml. Process-local,
+# never persisted.
+_registered_connections: Dict[str, Dict[str, Any]] = {}
+
+
+def register_connection(connection_name: str, credentials: Dict[str, Any]) -> None:
+    """
+    Register connection credentials in memory for this process, bypassing
+    connections.toml entirely.
+
+    Use this when credentials come from somewhere other than the local
+    file -- an environment variable, a secrets manager, a CI pipeline --
+    so this process never needs a connections.toml on disk at all. A
+    registered connection takes precedence over a same-named entry in the
+    file, and load_connection() for a registered name never touches the
+    file or raises FileNotFoundError even if it's missing entirely.
+
+    Args:
+        connection_name: Name to register the credentials under.
+        credentials: Same shape load_connection() returns -- must include
+            'connection_type' ('snowflake' or 'salesforce'; defaults to
+            'snowflake' if omitted, matching load_connection()'s own
+            default) plus that type's fields (see save_connection_config's
+            docstring for the field list per type).
+
+    Not persisted -- call this again in any new process that needs it.
+    """
+    connection_name = connection_name.strip()
+    credentials = dict(credentials)
+    credentials.setdefault('connection_type', 'snowflake')
+    _registered_connections[connection_name] = credentials
+
+
+def unregister_connection(connection_name: str) -> None:
+    """Remove a connection registered via register_connection(). No-op if
+    the name isn't currently registered."""
+    _registered_connections.pop(connection_name.strip(), None)
+
+
 def load_connection(connection_name: str) -> Optional[Dict[str, Any]]:
     """
-    Load connection credentials from connections.toml file.
-    
+    Load connection credentials, checking in-memory registered connections
+    (see register_connection()) before connections.toml.
+
     Args:
         connection_name: Name of the connection to load (whitespace will be trimmed)
-        
+
     Returns:
         Dictionary containing connection credentials with 'connection_type' field, or None if not found
-        
+
     Raises:
         ValueError: If TOML library is not available
-        FileNotFoundError: If connections.toml doesn't exist
+        FileNotFoundError: If connections.toml doesn't exist and connection_name
+            isn't a registered connection either
     """
     # Trim whitespace from connection name
     connection_name = connection_name.strip()
-    
-    connections = _load_connections_file()
-    
-    if connection_name not in connections:
-        return None
-    
-    conn_data = connections[connection_name]
+
+    if connection_name in _registered_connections:
+        conn_data = _registered_connections[connection_name]
+    else:
+        connections = _load_connections_file()
+
+        if connection_name not in connections:
+            return None
+
+        conn_data = connections[connection_name]
     
     # Get connection type (default to 'snowflake' for backward compatibility)
     connection_type = str(conn_data.get('connection_type', 'snowflake')).strip().lower()

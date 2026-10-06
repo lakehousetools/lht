@@ -10,7 +10,7 @@ Key facts:
 - CLI entry point: `lht` (or `python -m lht`)
 - Salesforce auth: OAuth 2.0 Client Credentials flow (default) or JWT Bearer flow. No passwords.
 - Snowflake auth: key-pair (JWT) via Snowpark.
-- Saved connections: `~/.solomo/connections.toml` (0600). Headless use can pass credentials dicts instead.
+- Saved connections: `connections.toml` under lht's config directory, `~/.lakehousetools` by default (0600; `~/.solomo` for installs predating the rename, `LHT_HOME` env var to override). Headless use can pass credentials dicts instead, or register them by name with `register_connection()`.
 
 Minimal usage:
 

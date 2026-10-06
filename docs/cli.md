@@ -1,6 +1,6 @@
 # CLI reference
 
-Every command reads saved connections from `~/.solomo/connections.toml`. Snowflake and Salesforce commands use the **primary** connection of each type unless you pass `--snowflake NAME` or `--salesforce NAME`.
+Every command reads saved connections from `connections.toml` in lht's config directory (`~/.lakehousetools` by default — see [Authentication](authentication.md#where-credentials-live) for the full resolution order and how to override it). Snowflake and Salesforce commands use the **primary** connection of each type unless you pass `--snowflake NAME` or `--salesforce NAME`.
 
 Run `lht <command> --help` for the same text shown here, or use `python -m lht` in place of `lht`.
 

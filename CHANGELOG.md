@@ -2,6 +2,12 @@
 
 All notable changes to lht. Versions follow [semantic versioning](https://semver.org/).
 
+## Unreleased
+
+### Added
+- **Config directory renamed to `~/.lakehousetools`**, matching the project's name. Resolution order: `LHT_HOME` env var (if set, used as-is) → `~/.lakehousetools` (if it exists) → `~/.solomo` (if it exists, for anything upgrading from before this change) → `~/.lakehousetools` (the default for everything new). `get_lht_home()` is the preferred name for this; `get_solomo_dir()` is unchanged and kept for backward compatibility.
+- `lht.user.connections.register_connection(name, credentials)` and `unregister_connection(name)` — register credentials in memory under a name, so `create_session(connection_name=...)` and `get_salesforce_access_info(connection_name=...)` work without `connections.toml` on disk at all. Takes precedence over a same-named file entry when both exist. Not persisted.
+
 ## 2.1.1 — 2026-09-26
 
 lht is now developed in the open under the Apache 2.0 license. Tagline: **Bring Your Own Data Warehouse**.

@@ -13,7 +13,7 @@ pip install -e ".[dev]"
 pytest
 ```
 
-The unit tests need no network access and no credentials. They must never read or write your real `~/.solomo/connections.toml`; use the `isolated_solomo_dir` fixture pattern in `tests/unit/test_connections.py`.
+The unit tests need no network access and no credentials. They must never read or write your real `connections.toml` (`~/.lakehousetools/` or `~/.solomo/`); use the `isolated_solomo_dir` fixture pattern in `tests/unit/test_connections.py` — or, if the test is specifically about directory resolution itself, patch `Path.home()` and clear `LHT_HOME` instead, since that fixture patches `get_solomo_dir()` directly.
 
 ### Integration tests
 

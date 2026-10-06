@@ -93,7 +93,7 @@ lht list-connections
 lht connect my_salesforce             # verify it works
 ```
 
-Connections are stored in `~/.solomo/connections.toml` with owner-only permissions (`0600`). Snowflake private keys are copied into the same directory.
+Connections are stored in `connections.toml` under lht's config directory (`~/.lakehousetools` by default — see [Authentication](docs/authentication.md#where-credentials-live) for the full resolution order) with owner-only permissions (`0600`). Snowflake private keys are copied into the same directory.
 
 ### 4. Sync
 
@@ -194,7 +194,7 @@ lht is a good fit if you already run Snowflake, want Salesforce data there on yo
 
 ## Security
 
-- Credentials are stored locally in `~/.solomo/` (directory `0700`, files `0600`), or passed in from your own secret store.
+- Credentials are stored locally in lht's config directory (`~/.lakehousetools` by default; directory `0700`, files `0600`), or passed in from your own secret store, or registered in memory by name with `register_connection()`.
 - Salesforce secrets are sent in POST bodies, never URLs, and are never logged.
 - Every HTTP call has a timeout, and database, schema and table names are validated before they go into SQL.
 
