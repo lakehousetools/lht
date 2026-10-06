@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lht"
-version = "2.1.1"
+version = "2.2.0"
 description = "Bring Your Own Data Warehouse: open-source Salesforce to Snowflake sync and reverse ETL using the Salesforce Bulk API 2.0."
 readme = {file = "README.md", content-type = "text/markdown"}
 license = "Apache-2.0"
