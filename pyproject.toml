@@ -10,7 +10,7 @@ readme = {file = "README.md", content-type = "text/markdown"}
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 authors = [
-  { name = "Dan Kauppi", email = "dan@solomo.io" },
+  { name = "Dan Kauppi", email = "dan@lakehousetools.com" },
 ]
 requires-python = ">=3.9"
 keywords = [
