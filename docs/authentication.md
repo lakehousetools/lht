@@ -82,6 +82,15 @@ lht connects through Snowpark using [key-pair authentication](https://docs.snowf
 
 For reverse ETL with `--log-results`, the role also needs `CREATE SCHEMA` (for `LOGS`) or ownership of an existing `LOGS` schema.
 
+## Databricks
+
+There is no lht-side Databricks credential, in either place lht can run:
+
+- **On Databricks compute** (notebook or Job), the cluster's own identity already holds Unity Catalog access. `lht.warehouse.databricks.connect()` uses the running Spark session, and the Salesforce credentials come from a [secret scope](https://docs.databricks.com/en/security/secrets/index.html) via `salesforce_access_info(scope=...)`.
+- **Off-platform** (laptop, CI), lht uses Databricks Connect, which reads the `~/.databrickscfg` profiles the Databricks CLI writes — set up with `databricks auth login`. Point the profile at compute with `serverless_compute_id = auto` or a `cluster_id`.
+
+Reverse ETL needs write access to the Salesforce objects you're updating, and — for `--log-results` — `CREATE SCHEMA`/`CREATE TABLE` on the catalog holding `LOGS`. See [Databricks](databricks.md).
+
 ## Where credentials live
 
 lht resolves its config directory in this order:
@@ -98,6 +107,8 @@ Call `lht.user.connections.get_lht_home()` to see which directory your install i
 | Connection settings and secrets | `<config dir>/connections.toml` | `0600` |
 | Snowflake private keys | `<config dir>/<key file>` | `0600` |
 | Directory itself | `<config dir>` | `0700` |
+
+Databricks credentials are not among them: those live in `~/.databrickscfg` (off-platform) or in the cluster identity and a secret scope (on Databricks).
 
 To avoid a local file entirely (CI, containers, orchestrators, a secret pulled from your own secrets manager at process start), you have two options:
 

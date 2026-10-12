@@ -6,9 +6,11 @@ credentials and create authenticated Snowflake sessions using JWT authentication
 """
 
 import getpass
-from typing import Dict, Optional, Any, Tuple
-from snowflake.snowpark import Session
+from typing import Dict, Optional, Any, Tuple, TYPE_CHECKING
 import os
+
+if TYPE_CHECKING:  # Annotations only -- see _snowpark_session_class().
+    from snowflake.snowpark import Session
 
 # Import cryptography for private key handling
 try:
@@ -22,6 +24,24 @@ except ImportError:
         "cryptography library is required for private key authentication. "
         "Install it with: pip install cryptography"
     )
+
+
+def _snowpark_session_class():
+    """
+    Snowpark's ``Session``, imported on use rather than on import.
+
+    Snowpark is an optional dependency: it is only needed to open a Snowflake
+    connection, and installing it on Databricks compute would pull its pandas
+    and pyarrow pins over the ones the runtime ships.
+    """
+    try:
+        from snowflake.snowpark import Session
+    except ImportError as e:
+        raise ImportError(
+            "Connecting to Snowflake needs the Snowpark client, which is an optional "
+            'dependency. Install it with: pip install "lht[snowflake]"'
+        ) from e
+    return Session
 
 
 def _load_private_key(private_key_file: str, passphrase: Optional[str] = None) -> bytes:
@@ -260,7 +280,7 @@ def authenticate() -> Dict[str, Any]:
     return credentials
 
 
-def create_session(credentials: Optional[Dict[str, Any]] = None, connection_name: Optional[str] = None) -> Session:
+def create_session(credentials: Optional[Dict[str, Any]] = None, connection_name: Optional[str] = None) -> "Session":
     """
     Create a Snowflake session using provided or prompted credentials.
     
@@ -334,6 +354,10 @@ def create_session(credentials: Optional[Dict[str, Any]] = None, connection_name
         # No connection_name and no credentials - prompt interactively
         credentials = authenticate()
     
+    # Checked before the key is read, so a missing optional dependency is
+    # reported as itself rather than as whatever fails first along the way.
+    Session = _snowpark_session_class()
+
     # Load and convert private key to DER format
     private_key_bytes = _load_private_key(
         credentials['private_key_file'],
@@ -377,7 +401,7 @@ def create_session(credentials: Optional[Dict[str, Any]] = None, connection_name
         raise ConnectionError(error_msg)
 
 
-def create_session_from_prompt() -> Session:
+def create_session_from_prompt() -> "Session":
     """
     Convenience function to create a session with interactive prompting.
     

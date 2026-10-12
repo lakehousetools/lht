@@ -1,21 +1,27 @@
-"""Guards for values interpolated into Snowflake SQL."""
+"""Guards for values interpolated into warehouse SQL."""
 
 import re
 
-# One name part: unquoted (letters, digits, _ and $, not starting with a digit)
-# or double-quoted with no quote characters inside.
-_PART = r'(?:[A-Za-z_][A-Za-z0-9_$]*|"[^"\']+")'
+# One name part: unquoted (letters, digits, _ and $, not starting with a digit),
+# double-quoted (Snowflake) or backtick-quoted (Databricks), with no quote
+# characters inside.
+_PART = r'(?:[A-Za-z_][A-Za-z0-9_$]*|"[^"\']+"|`[^`\']+`)'
 _IDENTIFIER = re.compile(rf'^{_PART}(?:\.{_PART}){{0,2}}$')
 
 
 def identifier(name) -> str:
-    """Returns name unchanged if it is a valid Snowflake object name, else raises.
+    """Returns name unchanged if it is a valid object name, else raises.
 
-    Database, schema and table names reach SQL through string formatting, so a
-    name like ``X; DROP TABLE Y`` must be rejected before it gets there. Names
-    are validated rather than quoted because quoting would make them
-    case-sensitive and change which object an existing command refers to.
-    Accepts ``TABLE``, ``SCHEMA.TABLE`` and ``DB.SCHEMA.TABLE``.
+    Catalog/database, schema and table names reach SQL through string
+    formatting, so a name like ``X; DROP TABLE Y`` must be rejected before it
+    gets there. Names are validated rather than quoted because quoting would
+    make them case-sensitive and change which object an existing command refers
+    to. Accepts ``TABLE``, ``SCHEMA.TABLE`` and ``DATABASE.SCHEMA.TABLE`` (on
+    Databricks, ``CATALOG.SCHEMA.TABLE``).
+
+    An already-quoted part is accepted in either style, but the style has to
+    match the warehouse: Snowflake reads ``"X"`` as an identifier, while Spark
+    SQL reads it as a string literal unless ANSI mode is on, and wants ```X```.
     """
     text = str(name).strip()
     if not _IDENTIFIER.match(text):

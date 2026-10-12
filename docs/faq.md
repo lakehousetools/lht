@@ -2,15 +2,19 @@
 
 ### How do I get Salesforce data into Snowflake with Python?
 
-Install lht (`pip install lht`), save a Snowflake connection and a Salesforce connection with `lht create-connection`, then run `lht sync --sobject Account --table ACCOUNT`. lht creates the table, loads every record through the Bulk API 2.0, and loads only changes on later runs. See [Getting started](getting-started.md).
+Install lht (`pip install "lht[snowflake]"`), save a Snowflake connection and a Salesforce connection with `lht create-connection`, then run `lht sync --sobject Account --table ACCOUNT`. lht creates the table, loads every record through the Bulk API 2.0, and loads only changes on later runs. See [Getting started](getting-started.md).
 
 ### Is lht an alternative to Fivetran, Airbyte or other managed connectors?
 
 For Salesforce ↔ Snowflake, yes. lht covers extraction, incremental loads and reverse ETL, and runs on your own infrastructure under the Apache 2.0 license. It doesn't provide a hosted UI, a scheduler, or connectors for other SaaS sources; pair it with the scheduler you already use.
 
-### Does lht work with Databricks, BigQuery, Redshift or Postgres?
+### Does lht work with Databricks?
 
-Not yet. Snowflake is the only warehouse supported today. The tagline, "Bring Your Own Data Warehouse", is the direction, and other warehouses are on the [roadmap](https://github.com/lakehousetools/lht#roadmap). Contributions are welcome.
+For reverse ETL and record merge, yes — on your own Databricks compute, from a notebook, a Job, or locally via Databricks Connect. That's the direction Databricks has no connector for: Lakeflow Connect ingests Salesforce into Unity Catalog, and lht writes back out. Salesforce → Databricks sync is not implemented, since Lakeflow Connect covers it. See [Databricks](databricks.md).
+
+### Does lht work with BigQuery, Redshift or Postgres?
+
+Not yet. Snowflake and Databricks are the warehouses supported today. The tagline, "Bring Your Own Data Warehouse", is the direction, and more are on the [roadmap](https://github.com/lakehousetools/lht#roadmap). A backend is a type map and a timestamp cast in `lht/warehouse/` — contributions are welcome.
 
 ### How much of my Salesforce API limit does a sync use?
 

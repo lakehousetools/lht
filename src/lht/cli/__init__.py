@@ -20,7 +20,7 @@ def create_parser() -> argparse.ArgumentParser:
     """
     parser = argparse.ArgumentParser(
         prog='lht',
-        description='Lakehouse Tools for Snowflake and Salesforce',
+        description='Lakehouse Tools: Salesforce sync and reverse ETL for Snowflake and Databricks',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -31,7 +31,8 @@ Examples:
   lht edit-connection                  Edit an existing connection
   lht set-primary CONNECTION           Set a connection as primary
   lht sync --sobject Account --table ACCOUNT  Sync Salesforce Account to Snowflake
-  lht retl upsert --sobject Account --match-field External_Id__c --sql "SELECT ..."  Push data from Snowflake into Salesforce
+  lht retl upsert --sobject Account --match-field External_Id__c --sql "SELECT ..."  Push warehouse query results into Salesforce
+  lht retl upsert --databricks --sobject Account --match-field External_Id__c --sql "SELECT ..."  ... from Databricks instead
   lht merge --sobject Account --sql-file pairs.sql --dry-run                       Merge Salesforce records (MasterId, LoserId)
   lht list-jobs                        List Bulk API 2.0 jobs from Salesforce
   lht show-job <JOB_ID>                Show details about a specific Bulk API 2.0 job
@@ -186,8 +187,8 @@ Examples:
     # retl command
     retl_parser = subparsers.add_parser(
         'retl',
-        help='Reverse ETL: push data from Snowflake into Salesforce using Bulk API ingest',
-        description='Push rows from a Snowflake SQL query into a Salesforce SObject using Bulk API 2.0 ingest'
+        help='Reverse ETL: push data from Snowflake or Databricks into Salesforce using Bulk API ingest',
+        description='Push rows from a warehouse SQL query into a Salesforce SObject using Bulk API 2.0 ingest'
     )
 
     retl_parser.add_argument(
@@ -205,11 +206,11 @@ Examples:
     retl_sql_group = retl_parser.add_mutually_exclusive_group(required=True)
     retl_sql_group.add_argument(
         '--sql',
-        help='Snowflake SQL SELECT that outputs Salesforce field columns'
+        help='SQL SELECT that outputs Salesforce field columns'
     )
     retl_sql_group.add_argument(
         '--sql-file',
-        help='Path to a file containing the Snowflake SQL SELECT'
+        help='Path to a file containing the SQL SELECT'
     )
 
     retl_parser.add_argument(
@@ -222,10 +223,22 @@ Examples:
         default=25000,
         help='Upsert batch size (default: 25000)'
     )
-    retl_parser.add_argument(
+    # One warehouse per run: --snowflake names an lht connection, --databricks a
+    # ~/.databrickscfg profile, and passing both is a mistake worth reporting.
+    retl_parser_warehouse = retl_parser.add_mutually_exclusive_group()
+    retl_parser_warehouse.add_argument(
         '--snowflake',
         metavar='NAME',
         help='Snowflake connection name (defaults to primary connection)'
+    )
+    retl_parser_warehouse.add_argument(
+        '--databricks',
+        nargs='?',
+        const='',
+        metavar='PROFILE',
+        help='Read from Databricks instead of Snowflake, via Databricks Connect. '
+             'PROFILE is a ~/.databrickscfg profile; omit it to use DATABRICKS_* '
+             'environment variables or the DEFAULT profile'
     )
     retl_parser.add_argument(
         '--salesforce',
@@ -241,7 +254,7 @@ Examples:
     retl_parser.add_argument(
         '--log-results',
         action='store_true',
-        help='(Best-effort) Log ingest results into Snowflake LOGS schema tables'
+        help='(Best-effort) Log ingest results into LOGS schema tables in the warehouse'
     )
     retl_parser.add_argument(
         '-v', '--verbose',
@@ -252,7 +265,7 @@ Examples:
     # merge command
     merge_parser = subparsers.add_parser(
         'merge',
-        help='Merge Salesforce records in Salesforce, with master/loser pairs from a Snowflake query',
+        help='Merge Salesforce records in Salesforce, with master/loser pairs from a warehouse query',
         description='Merge Salesforce records inside Salesforce using the SOAP API merge() call. The '
                     'query returns one row per record to merge away: MasterId survives, LoserId is '
                     'merged into it. The master keeps its field values; the loser\'s related records '
@@ -268,16 +281,28 @@ Examples:
     merge_sql_group = merge_parser.add_mutually_exclusive_group(required=True)
     merge_sql_group.add_argument(
         '--sql',
-        help='Snowflake SQL SELECT returning MasterId and LoserId columns'
+        help='SQL SELECT returning MasterId and LoserId columns'
     )
     merge_sql_group.add_argument(
         '--sql-file',
-        help='Path to a file containing the Snowflake SQL SELECT'
+        help='Path to a file containing the SQL SELECT'
     )
-    merge_parser.add_argument(
+    # One warehouse per run: --snowflake names an lht connection, --databricks a
+    # ~/.databrickscfg profile, and passing both is a mistake worth reporting.
+    merge_parser_warehouse = merge_parser.add_mutually_exclusive_group()
+    merge_parser_warehouse.add_argument(
         '--snowflake',
         metavar='NAME',
         help='Snowflake connection name (defaults to primary connection)'
+    )
+    merge_parser_warehouse.add_argument(
+        '--databricks',
+        nargs='?',
+        const='',
+        metavar='PROFILE',
+        help='Read from Databricks instead of Snowflake, via Databricks Connect. '
+             'PROFILE is a ~/.databrickscfg profile; omit it to use DATABRICKS_* '
+             'environment variables or the DEFAULT profile'
     )
     merge_parser.add_argument(
         '--salesforce',
@@ -466,6 +491,7 @@ def main(args: Optional[List[str]] = None) -> int:
             batch_size=parsed_args.batch_size,
             snowflake_connection=parsed_args.snowflake,
             salesforce_connection=parsed_args.salesforce,
+            databricks=parsed_args.databricks,
             log_results=parsed_args.log_results,
             clear_nulls=parsed_args.clear_nulls,
             verbose=parsed_args.verbose
@@ -478,6 +504,7 @@ def main(args: Optional[List[str]] = None) -> int:
             sql_file=parsed_args.sql_file,
             snowflake_connection=parsed_args.snowflake,
             salesforce_connection=parsed_args.salesforce,
+            databricks=parsed_args.databricks,
             dry_run=parsed_args.dry_run,
             verbose=parsed_args.verbose
         )

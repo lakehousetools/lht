@@ -2,6 +2,8 @@
 
 Every command reads saved connections from `connections.toml` in lht's config directory (`~/.lakehousetools` by default — see [Authentication](authentication.md#where-credentials-live) for the full resolution order and how to override it). Snowflake and Salesforce commands use the **primary** connection of each type unless you pass `--snowflake NAME` or `--salesforce NAME`.
 
+`retl` and `merge` also take `--databricks [PROFILE]` in place of `--snowflake`, to read from Databricks through Databricks Connect. That profile is a `~/.databrickscfg` section — the same file the Databricks CLI uses — so there is no lht-side Databricks credential. See [Databricks](databricks.md).
+
 Run `lht <command> --help` for the same text shown here, or use `python -m lht` in place of `lht`.
 
 ## Common recipes
@@ -15,6 +17,10 @@ lht sync --sobject Account --table ACCOUNT --force-full-sync
 
 # Push a Snowflake query into Salesforce, matching on an external ID
 lht retl upsert --sobject Account --match-field External_Id__c --sql-file account_scores.sql
+
+# The same, reading from Databricks instead
+lht retl upsert --databricks my-workspace --sobject Account --match-field External_Id__c \
+  --sql-file account_scores.sql
 
 # Clear fields in Salesforce where the query returns NULL
 lht retl update --sobject Contact --sql "SELECT Id, Title FROM STAGE.CONTACT_FIXES" --clear-nulls
@@ -130,11 +136,11 @@ options:
 ```text
 usage: lht retl [-h] --sobject SOBJECT (--sql SQL | --sql-file SQL_FILE)
                 [--match-field MATCH_FIELD] [--batch-size BATCH_SIZE]
-                [--snowflake NAME] [--salesforce NAME] [--clear-nulls]
-                [--log-results] [-v]
+                [--snowflake NAME | --databricks [PROFILE]]
+                [--salesforce NAME] [--clear-nulls] [--log-results] [-v]
                 {upsert,insert,update,delete}
 
-Push rows from a Snowflake SQL query into a Salesforce SObject using Bulk API
+Push rows from a warehouse SQL query into a Salesforce SObject using Bulk API
 2.0 ingest
 
 positional arguments:
@@ -144,9 +150,8 @@ positional arguments:
 options:
   -h, --help            show this help message and exit
   --sobject SOBJECT     Salesforce object name (e.g., Account)
-  --sql SQL             Snowflake SQL SELECT that outputs Salesforce field
-                        columns
-  --sql-file SQL_FILE   Path to a file containing the Snowflake SQL SELECT
+  --sql SQL             SQL SELECT that outputs Salesforce field columns
+  --sql-file SQL_FILE   Path to a file containing the SQL SELECT
   --match-field MATCH_FIELD
                         External ID field for matching records (required for
                         upsert)
@@ -154,13 +159,18 @@ options:
                         Upsert batch size (default: 25000)
   --snowflake NAME      Snowflake connection name (defaults to primary
                         connection)
+  --databricks [PROFILE]
+                        Read from Databricks instead of Snowflake, via
+                        Databricks Connect. PROFILE is a ~/.databrickscfg
+                        profile; omit it to use DATABRICKS_* environment
+                        variables or the DEFAULT profile
   --salesforce NAME     Salesforce connection name (defaults to primary
                         connection)
   --clear-nulls         Send NULL as #N/A so Salesforce clears the field
                         (upsert/update). Without it a NULL is an empty cell,
                         which Salesforce treats as 'leave unchanged'
-  --log-results         (Best-effort) Log ingest results into Snowflake LOGS
-                        schema tables
+  --log-results         (Best-effort) Log ingest results into LOGS schema
+                        tables in the warehouse
   -v, --verbose         Show detailed progress and debug output
 ```
 
@@ -168,29 +178,34 @@ options:
 
 ```text
 usage: lht merge [-h] --sobject SOBJECT (--sql SQL | --sql-file SQL_FILE)
-                 [--snowflake NAME] [--salesforce NAME] [--dry-run] [-v]
+                 [--snowflake NAME | --databricks [PROFILE]]
+                 [--salesforce NAME] [--dry-run] [-v]
 
 Merge Salesforce records inside Salesforce using the SOAP API merge() call.
-The query returns one row per record to merge away: MasterId survives, LoserId
-is merged into it. The master keeps its field values; the loser's related
-records move to it. Exits non-zero if any merge fails. Salesforce refuses to
-merge accounts that both relate to the same contact: remove the loser's
-redundant AccountContactRelation first.
+The query returns one row per record to merge away: MasterId survives,
+LoserId is merged into it. The master keeps its field values; the loser's
+related records move to it. Exits non-zero if any merge fails. Salesforce
+refuses to merge accounts that both relate to the same contact: remove the
+loser's redundant AccountContactRelation first.
 
 options:
-  -h, --help           show this help message and exit
-  --sobject SOBJECT    Salesforce object whose records are merged (Account,
-                       Contact or Lead)
-  --sql SQL            Snowflake SQL SELECT returning MasterId and LoserId
-                       columns
-  --sql-file SQL_FILE  Path to a file containing the Snowflake SQL SELECT
-  --snowflake NAME     Snowflake connection name (defaults to primary
-                       connection)
-  --salesforce NAME    Salesforce connection name (defaults to primary
-                       connection)
-  --dry-run            Validate the pairs and report the merge requests
-                       without sending anything to Salesforce
-  -v, --verbose        Show detailed progress and debug output
+  -h, --help            show this help message and exit
+  --sobject SOBJECT     Salesforce object whose records are merged (Account,
+                        Contact or Lead)
+  --sql SQL             SQL SELECT returning MasterId and LoserId columns
+  --sql-file SQL_FILE   Path to a file containing the SQL SELECT
+  --snowflake NAME      Snowflake connection name (defaults to primary
+                        connection)
+  --databricks [PROFILE]
+                        Read from Databricks instead of Snowflake, via
+                        Databricks Connect. PROFILE is a ~/.databrickscfg
+                        profile; omit it to use DATABRICKS_* environment
+                        variables or the DEFAULT profile
+  --salesforce NAME     Salesforce connection name (defaults to primary
+                        connection)
+  --dry-run             Validate the pairs and report the merge requests
+                        without sending anything to Salesforce
+  -v, --verbose         Show detailed progress and debug output
 ```
 
 ## `lht list-jobs`

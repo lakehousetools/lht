@@ -1,26 +1,12 @@
 import json
 import logging
 import requests
-from snowflake.snowpark import Session
-from snowflake.snowpark.functions import col
 from . import csv
 from lht.util.http import DEFAULT_TIMEOUT
+from lht.warehouse import from_session
+from lht.warehouse.base import RETL_HISTORY_COLUMNS
 
 logger = logging.getLogger(__name__)
-
-
-def _literal(value):
-    """Render a Python value as a SQL literal, escaping embedded single quotes."""
-    if value is None:
-        return 'NULL'
-    return "'{}'".format(str(value).replace("'", "''"))
-
-
-def _created_date(raw):
-    """Convert Salesforce's ISO createdDate into a Snowflake-friendly timestamp string."""
-    if not raw or len(raw) < 19:
-        return None
-    return raw[:10] + ' ' + raw[11:23]
 
 
 def job(session, json_data, schema='LOGS'):
@@ -33,33 +19,30 @@ def job(session, json_data, schema='LOGS'):
     The table is created on first use, as LOGS.JOB_INFO is. Before that the insert
     failed wherever nobody had created it by hand, and because the caller swallows
     logging errors, the job history silently stayed empty.
+
+    Args:
+        session: A Snowpark session, a Spark session, or an
+            :class:`lht.warehouse.Warehouse`. The column types come from
+            whichever backend that is.
+        json_data: The Bulk API's job-creation response.
+        schema: Schema holding the log tables.
     """
     if not isinstance(json_data, dict) or not json_data.get('id'):
         logger.warning(f"Skipping job log; no job id in response: {json_data}")
         return None
 
-    columns = (
-        'id', 'operation', 'object', 'createdById',
-        'createdDate', 'externalIdFieldName', 'contentUrl',
-    )
-    values = (
-        _literal(json_data.get('id')),
-        _literal(json_data.get('operation')),
-        _literal(json_data.get('object')),
-        _literal(json_data.get('createdById')),
-        _literal(_created_date(json_data.get('createdDate'))),
-        _literal(json_data.get('externalIdFieldName')),
-        _literal(json_data.get('contentUrl')),
-    )
-    session.sql(
-        "CREATE TABLE IF NOT EXISTS {}.RETL_HISTORY ("
-        "ID VARCHAR, OPERATION VARCHAR, OBJECT VARCHAR, CREATEDBYID VARCHAR, "
-        "CREATEDDATE TIMESTAMP_NTZ, EXTERNALIDFIELDNAME VARCHAR, CONTENTURL VARCHAR)".format(schema)
-    ).collect()
-    query = "INSERT INTO {}.RETL_HISTORY ({}) SELECT {}".format(
-        schema, ', '.join(columns), ', '.join(values)
-    )
-    session.sql(query).collect()
+    warehouse = from_session(session)
+    table = f"{schema}.RETL_HISTORY"
+    warehouse.create_table(table, RETL_HISTORY_COLUMNS)
+    warehouse.insert_rows(table, [column for column, _ in RETL_HISTORY_COLUMNS], [(
+        warehouse.literal(json_data.get('id')),
+        warehouse.literal(json_data.get('operation')),
+        warehouse.literal(json_data.get('object')),
+        warehouse.literal(json_data.get('createdById')),
+        warehouse.timestamp_literal(json_data.get('createdDate')),
+        warehouse.literal(json_data.get('externalIdFieldName')),
+        warehouse.literal(json_data.get('contentUrl')),
+    )])
     return None
 
 def successful_results(access_info, job_id, match_field=None):
@@ -117,6 +100,11 @@ def log_results(session, access_info, job_id, schema, match_field=None):
 
     Pass `match_field` (the external ID column sent to Salesforce) to populate
     MATCH_FIELD/MATCH_ID, which is what ties a Salesforce ID back to its source record.
+
+    Needs a Snowpark session specifically, for write_pandas. The backend-neutral
+    path to the same per-record outcomes is
+    `lht.salesforce.results_bapi.process_bulk_api_results`, which is what the CLI's
+    `--log-results` calls.
     """
     successes = successful_results(access_info, job_id, match_field=match_field)
     if len(successes) > 0:

@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lht"
-version = "2.2.0"
-description = "Bring Your Own Data Warehouse: open-source Salesforce to Snowflake sync and reverse ETL using the Salesforce Bulk API 2.0."
+version = "3.0.0"
+description = "Bring Your Own Data Warehouse: open-source Salesforce sync and reverse ETL for Snowflake and Databricks, using the Salesforce Bulk API 2.0."
 readme = {file = "README.md", content-type = "text/markdown"}
 license = "Apache-2.0"
 license-files = ["LICENSE"]
@@ -16,8 +16,11 @@ requires-python = ">=3.9"
 keywords = [
   "salesforce",
   "snowflake",
+  "databricks",
   "salesforce-to-snowflake",
+  "salesforce-to-databricks",
   "salesforce snowflake integration",
+  "salesforce databricks integration",
   "bulk-api",
   "bulk api 2.0",
   "reverse-etl",
@@ -27,6 +30,9 @@ keywords = [
   "data-warehouse",
   "lakehouse",
   "snowpark",
+  "pyspark",
+  "unity-catalog",
+  "databricks-notebook",
   "crm",
   "fivetran-alternative",
   "airbyte-alternative",
@@ -47,9 +53,11 @@ classifiers = [
   "Topic :: Software Development :: Libraries :: Python Modules",
   "Topic :: Utilities",
 ]
+# Core stays warehouse-independent. A warehouse client is an extra, because
+# installing Snowpark's pandas/pyarrow pins onto Databricks compute (where it
+# is never used) can displace the versions the runtime ships.
 dependencies = [
   "pandas>=2.2.3",
-  "snowflake-snowpark-python[pandas]>=1.31.1",
   "requests>=2.32.3",
   "cryptography>=3.0.0",
   "tabulate>=0.9.0",
@@ -57,7 +65,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "build", "twine"]
+snowflake = ["snowflake-snowpark-python[pandas]>=1.31.1"]
+# Only needed off-platform: on Databricks compute, `spark` already exists and
+# the runtime provides pyspark itself.
+databricks = ["databricks-connect>=15.1"]
+all = ["lht[snowflake,databricks]"]
+dev = ["lht[snowflake]", "pytest>=8.0", "build", "twine"]
 
 [project.scripts]
 lht = "lht.cli:main"
@@ -76,5 +89,6 @@ where = ["src"]
 testpaths = ["tests"]
 markers = [
     "integration: live test against a real Salesforce org and Snowflake warehouse; requires a configured connection and network access. Excluded by default -- run explicitly with `pytest -m integration`.",
+    "spark: runs lht's Databricks SQL against a local Spark engine to check the dialect. Needs `pip install pyspark` and a JVM, but no workspace or credentials. Excluded by default -- run explicitly with `pytest -m spark`.",
 ]
-addopts = "-m 'not integration'"
+addopts = "-m 'not integration and not spark'"

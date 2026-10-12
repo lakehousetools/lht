@@ -1,5 +1,5 @@
 """
-Merge Salesforce records inside Salesforce, driven by a Snowflake SQL query.
+Merge Salesforce records inside Salesforce, driven by a warehouse SQL query.
 
 The Bulk API cannot merge, so this uses the SOAP API's merge() call. The query returns one row per
 record to merge away: "MasterId" is the record that survives, "LoserId" is merged into it.
@@ -20,6 +20,8 @@ from collections import OrderedDict
 from xml.sax.saxutils import escape
 
 import requests
+
+from lht.warehouse import from_session
 
 logger = logging.getLogger(__name__)
 
@@ -139,12 +141,21 @@ def parse_response(xml_text, merge_requests):
 
 def merge(session, access_info, sobject, query, dry_run=False):
     """
-    Read (MasterId, LoserId) pairs from Snowflake and merge them in Salesforce.
+    Read (MasterId, LoserId) pairs from the warehouse and merge them in Salesforce.
+
+    Args:
+        session: A Snowpark session, a Spark session (Databricks), or an
+            :class:`lht.warehouse.Warehouse`. The merge itself happens in
+            Salesforce, so the warehouse only has to answer the query.
+        access_info: Salesforce access credentials dictionary
+        sobject: Salesforce object whose records are merged
+        query: SQL query returning MasterId and LoserId columns
+        dry_run: Validate and return the plan without sending anything
 
     Returns {'requests', 'records_to_merge', 'merged', 'failed', 'results'}. With dry_run nothing is
     sent to Salesforce; the plan is validated and returned.
     """
-    rows = [row.asDict() for row in session.sql(query).collect()]
+    rows = from_session(session).rows(query)
     plan = plan_requests(rows)
     summary = {
         "requests": len(plan),

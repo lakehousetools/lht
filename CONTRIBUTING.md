@@ -9,7 +9,7 @@ git clone https://github.com/lakehousetools/lht.git
 cd lht
 python -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev]"
+pip install -e ".[dev]"      # includes the Snowflake extra
 pytest
 ```
 
@@ -27,6 +27,22 @@ pytest -m integration
 
 See [tests/integration/README.md](tests/integration/README.md).
 
+### Spark dialect tests
+
+`tests/spark/` runs the SQL lht generates for Databricks against a real local Spark
+engine. No workspace and no credentials — just `pyspark` and a JVM:
+
+```bash
+pip install "pyspark==4.0.1"
+pytest -m spark
+```
+
+Run these after touching `lht/warehouse/databricks.py`. They are not redundant with
+the unit tests, which assert what lht *writes*: these assert what Spark *does with
+it*, and that is where the two once diverged. Spark concatenates adjacent string
+literals, so the SQL standard's `''` escape silently turned `O'Brien` into `OBrien`
+with no error anywhere — only an engine catches that.
+
 ## Pull requests
 
 1. Open an issue first for anything larger than a bug fix, so we can agree on the approach.
@@ -39,7 +55,9 @@ See [tests/integration/README.md](tests/integration/README.md).
 
 - Match the style of the surrounding code.
 - Every HTTP call to Salesforce takes `timeout=DEFAULT_TIMEOUT` (`lht.util.http`).
-- Any database, schema or table name formatted into SQL goes through `lht.util.sql.identifier()`. Any value goes through `literal()`, or better, a bound parameter.
+- Any catalog, database, schema or table name formatted into SQL goes through `lht.util.sql.identifier()`. Any **value** goes through the warehouse's own `warehouse.literal()`, never the module-level `lht.util.sql.literal()` — the backends escape quotes differently, and getting it wrong corrupts data instead of failing.
+- Don't import Snowpark or PySpark at module scope anywhere the reverse-ETL path can reach; both are optional extras. `tests/unit/test_databricks.py` guards this.
+- New warehouse-facing code takes a `session` and calls `lht.warehouse.from_session()` on it, rather than calling `session.sql()` directly or branching on the backend.
 - Never log or print access tokens, client secrets or key passphrases.
 
 ## Adding a warehouse

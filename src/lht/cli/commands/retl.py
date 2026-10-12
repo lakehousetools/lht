@@ -1,16 +1,21 @@
 """
 Reverse ETL (RETL) command implementation.
 
-Push data from Snowflake into Salesforce using Bulk API 2.0 Ingest.
+Push the result of a warehouse query into Salesforce using Bulk API 2.0 Ingest.
+Snowflake and Databricks both work; the SQL and the Salesforce side are the same
+either way.
 """
 
 import sys
 import logging
 from typing import Optional
 
-from lht.user.auth import create_session
+from lht.cli.commands.warehouse import (
+    WarehouseError,
+    open_warehouse,
+    resolve_salesforce_connection,
+)
 from lht.user.salesforce_auth import get_salesforce_access_info
-from lht.user.connections import get_primary_connection, load_connection
 
 
 def _read_sql(sql: Optional[str], sql_file: Optional[str]) -> str:
@@ -36,12 +41,18 @@ def retl(
     batch_size: int = 25000,
     snowflake_connection: Optional[str] = None,
     salesforce_connection: Optional[str] = None,
+    databricks: Optional[str] = None,
     log_results: bool = False,
     clear_nulls: bool = False,
     verbose: bool = False,
 ) -> int:
     """
-    Run a Reverse ETL operation using a Snowflake SQL query as the source.
+    Run a Reverse ETL operation using a warehouse SQL query as the source.
+
+    Args:
+        databricks: Run against Databricks instead of Snowflake. The value is a
+            `~/.databrickscfg` profile name; an empty string means "let
+            Databricks Connect resolve it". None means use Snowflake.
 
     Notes:
       - Salesforce API version remains hardcoded inside the existing RETL implementation.
@@ -58,32 +69,21 @@ def retl(
     try:
         op = operation.lower().strip()
         sql_text = _read_sql(sql, sql_file).strip()
-        # A trailing semicolon is harmless to Snowflake but not to anything that wraps the query
+        # A trailing semicolon is harmless to a warehouse console but not to anything
+        # that wraps the query
         sql_text = sql_text.rstrip(";")
 
-        # Resolve connections (use primary if not provided)
-        if snowflake_connection is None:
-            snowflake_connection = get_primary_connection("snowflake")
-        if salesforce_connection is None:
-            salesforce_connection = get_primary_connection("salesforce")
-
-        if not snowflake_connection:
-            print("Error: No Snowflake connection found. Use --snowflake or set a primary connection.")
+        try:
+            salesforce_connection = resolve_salesforce_connection(salesforce_connection)
+            session, warehouse_label = open_warehouse(
+                snowflake_connection=snowflake_connection,
+                databricks_profile=databricks,
+                use_databricks=databricks is not None,
+            )
+        except WarehouseError as e:
+            print(f"Error: {e}")
             return 1
-        if not salesforce_connection:
-            print("Error: No Salesforce connection found. Use --salesforce or set a primary connection.")
-            return 1
-
-        # Validate Snowflake connection exists
-        snowflake_creds = load_connection(snowflake_connection)
-        if snowflake_creds is None:
-            print(f"Error: Snowflake connection '{snowflake_connection}' not found")
-            return 1
-
-        print(f"✓ Using Snowflake connection: {snowflake_connection}")
-        print("✓ Connecting to Snowflake...")
-        session = create_session(connection_name=snowflake_connection)
-        print("✓ Connected to Snowflake")
+        print(f"✓ Connected to {warehouse_label}")
 
         print(f"✓ Using Salesforce connection: {salesforce_connection}")
         print("✓ Authenticating with Salesforce...")
@@ -96,6 +96,7 @@ def retl(
         print("RETL Configuration")
         print("=" * 60)
         print(f"Operation: {op}")
+        print(f"Warehouse: {warehouse_label}")
         print(f"Salesforce Object: {sobject}")
         if op == "upsert":
             print(f"Match Field: {match_field}")
@@ -151,7 +152,7 @@ def retl(
         if log_results and job_ids:
             from lht.salesforce.results_bapi import process_bulk_api_results
             print("\n" + "=" * 60)
-            print("Logging Results to Snowflake")
+            print(f"Logging Results to {warehouse_label}")
             print("=" * 60)
             for job_id in job_ids:
                 print(f"📋 Processing results for job: {job_id}")
