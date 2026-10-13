@@ -5,6 +5,9 @@ requests.post is replaced with a fake, so nothing here reaches Salesforce and no
 real credential is needed. The fake records exactly what would have been sent,
 which is what these tests are about: where the client secret travels.
 """
+import logging
+from unittest import mock
+
 import pytest
 import requests
 
@@ -85,3 +88,45 @@ def test_failed_login_does_not_put_the_secret_in_the_exception(monkeypatch):
     with pytest.raises(requests.HTTPError) as excinfo:
         salesforce_auth.login_user_flow(CLIENT_ID, SECRET, "example--sandbox.sandbox")
     assert SECRET not in str(excinfo.value)
+
+
+class TestSandboxFlagOnClientCredentials:
+    """
+    `sandbox` only switches the login URL for the jwt_bearer flow. On
+    client_credentials the token endpoint is built from `my_domain`, so the flag
+    does nothing -- and believing otherwise is how production gets written to by
+    a job the author thought was pointed at a sandbox. It warns instead.
+    """
+
+    @staticmethod
+    def _authenticate(credentials):
+        with mock.patch.object(
+            salesforce_auth, 'login_user_flow',
+            return_value={'access_token': 't', 'instance_url': 'https://x'},
+        ) as login:
+            salesforce_auth.get_salesforce_access_info_from_credentials(credentials)
+        return login
+
+    def test_sandbox_with_a_production_domain_warns(self, caplog):
+        with caplog.at_level(logging.WARNING, logger='lht.user.salesforce_auth'):
+            self._authenticate({'client_id': 'a', 'client_key': 'b',
+                                'my_domain': 'acme', 'sandbox': True})
+        assert 'no effect on the client_credentials flow' in caplog.text
+        assert 'acme' in caplog.text
+
+    def test_a_sandbox_domain_is_not_second_guessed(self, caplog):
+        with caplog.at_level(logging.WARNING, logger='lht.user.salesforce_auth'):
+            self._authenticate({'client_id': 'a', 'client_key': 'b',
+                                'my_domain': 'acme--dev.sandbox', 'sandbox': True})
+        assert caplog.text == ''
+
+    def test_no_sandbox_flag_is_silent(self, caplog):
+        with caplog.at_level(logging.WARNING, logger='lht.user.salesforce_auth'):
+            self._authenticate({'client_id': 'a', 'client_key': 'b', 'my_domain': 'acme'})
+        assert caplog.text == ''
+
+    def test_the_flag_never_changes_which_org_is_contacted(self):
+        # The warning is advice, not a redirect: my_domain still decides.
+        login = self._authenticate({'client_id': 'a', 'client_key': 'b',
+                                    'my_domain': 'acme', 'sandbox': True})
+        assert login.call_args[0] == ('a', 'b', 'acme')

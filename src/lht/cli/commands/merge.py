@@ -1,7 +1,7 @@
 """
 Merge command implementation.
 
-Merge Salesforce records inside Salesforce, with the (MasterId, LoserId) pairs read from a Snowflake
+Merge Salesforce records inside Salesforce, with the (MasterId, LoserId) pairs read from a warehouse
 SQL query.
 """
 
@@ -9,9 +9,12 @@ import sys
 import logging
 from typing import Optional
 
-from lht.user.auth import create_session
+from lht.cli.commands.warehouse import (
+    WarehouseError,
+    open_warehouse,
+    resolve_salesforce_connection,
+)
 from lht.user.salesforce_auth import get_salesforce_access_info
-from lht.user.connections import get_primary_connection, load_connection
 from lht.cli.commands.retl import _read_sql
 
 
@@ -21,32 +24,34 @@ def merge(
     sql_file: Optional[str] = None,
     snowflake_connection: Optional[str] = None,
     salesforce_connection: Optional[str] = None,
+    databricks: Optional[str] = None,
     dry_run: bool = False,
     verbose: bool = False,
 ) -> int:
-    """Run a merge. Returns 1 if any merge failed, so a calling script stops."""
+    """
+    Run a merge. Returns 1 if any merge failed, so a calling script stops.
+
+    Args:
+        databricks: Read the pairs from Databricks instead of Snowflake. The
+            value is a `~/.databrickscfg` profile name; an empty string means
+            "let Databricks Connect resolve it". None means use Snowflake.
+    """
     logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO, format="%(message)s",
                         stream=sys.stdout, force=True)
     try:
         sql_text = _read_sql(sql, sql_file).strip().rstrip(";")
 
-        if snowflake_connection is None:
-            snowflake_connection = get_primary_connection("snowflake")
-        if salesforce_connection is None:
-            salesforce_connection = get_primary_connection("salesforce")
-        if not snowflake_connection:
-            print("Error: No Snowflake connection found. Use --snowflake or set a primary connection.")
+        try:
+            salesforce_connection = resolve_salesforce_connection(salesforce_connection)
+            session, warehouse_label = open_warehouse(
+                snowflake_connection=snowflake_connection,
+                databricks_profile=databricks,
+                use_databricks=databricks is not None,
+            )
+        except WarehouseError as e:
+            print(f"Error: {e}")
             return 1
-        if not salesforce_connection:
-            print("Error: No Salesforce connection found. Use --salesforce or set a primary connection.")
-            return 1
-        if load_connection(snowflake_connection) is None:
-            print(f"Error: Snowflake connection '{snowflake_connection}' not found")
-            return 1
-
-        print(f"✓ Using Snowflake connection: {snowflake_connection}")
-        session = create_session(connection_name=snowflake_connection)
-        print("✓ Connected to Snowflake")
+        print(f"✓ Connected to {warehouse_label}")
         print(f"✓ Using Salesforce connection: {salesforce_connection}")
         access_info = get_salesforce_access_info(salesforce_connection)
         print("✓ Authenticated with Salesforce")
@@ -56,6 +61,7 @@ def merge(
         print("\n" + "=" * 60)
         print("Merge Configuration")
         print("=" * 60)
+        print(f"Warehouse: {warehouse_label}")
         print(f"Salesforce Object: {sobject}")
         print(f"Dry run: {'Yes -- nothing is sent to Salesforce' if dry_run else 'No'}")
         print("=" * 60)

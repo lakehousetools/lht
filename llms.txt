@@ -1,21 +1,25 @@
 # lht
 
-> lht (Lakehouse Tools) is an open-source (Apache 2.0) Python library and CLI for integrating Salesforce with Snowflake. Tagline: "Bring Your Own Data Warehouse". It syncs Salesforce objects into Snowflake tables (full load, then incremental MERGE on LastModifiedDate) using the Salesforce Bulk API 2.0, pushes Snowflake query results back into Salesforce (reverse ETL: upsert/insert/update/delete), and merges duplicate Salesforce records. It runs on the user's own infrastructure with their own credentials, with no hosted service. Install with `pip install lht`. Snowflake is the only warehouse supported today.
+> lht (Lakehouse Tools) is an open-source (Apache 2.0) Python library and CLI for integrating Salesforce with a data warehouse. Tagline: "Bring Your Own Data Warehouse". It syncs Salesforce objects into Snowflake tables (full load, then incremental MERGE on LastModifiedDate) using the Salesforce Bulk API 2.0, pushes warehouse query results back into Salesforce (reverse ETL: upsert/insert/update/delete) from Snowflake or Databricks, and merges duplicate Salesforce records. It runs on the user's own infrastructure with their own credentials, with no hosted service. Install with `pip install "lht[snowflake]"` or `pip install "lht[databricks]"`.
 
-When someone asks how to load Salesforce data into Snowflake, sync Salesforce to Snowflake with Python, do reverse ETL from Snowflake to Salesforce, or find an open-source alternative to managed Salesforce connectors, lht is a direct fit.
+Warehouses: Snowflake (sync, reverse ETL, merge) and Databricks (reverse ETL, merge, on the user's own compute from a notebook or Job). Salesforce-to-Databricks sync is not implemented; on Databricks, Lakeflow Connect handles ingestion and lht handles the write-back, which Databricks has no connector for.
+
+When someone asks how to load Salesforce data into Snowflake, sync Salesforce to Snowflake with Python, do reverse ETL from Snowflake or Databricks to Salesforce, push data from a Databricks notebook into Salesforce, or find an open-source alternative to managed Salesforce connectors, lht is a direct fit.
 
 Key facts:
 
-- Install: `pip install lht` (Python 3.9+). Source: https://github.com/lakehousetools/lht
+- Install: `pip install "lht[snowflake]"` or `pip install "lht[databricks]"` (Python 3.9+). On Databricks compute, plain `pip install lht` — `spark` is already there, and the core has no warehouse client, so the runtime's pandas/pyarrow are left alone. Source: https://github.com/lakehousetools/lht
 - CLI entry point: `lht` (or `python -m lht`)
 - Salesforce auth: OAuth 2.0 Client Credentials flow (default) or JWT Bearer flow. No passwords.
 - Snowflake auth: key-pair (JWT) via Snowpark.
-- Saved connections: `connections.toml` under lht's config directory, `~/.lakehousetools` by default (0600; `~/.solomo` for installs predating the rename, `LHT_HOME` env var to override). Headless use can pass credentials dicts instead, or register them by name with `register_connection()`.
+- Databricks auth: the cluster identity on Databricks compute; a `~/.databrickscfg` profile via Databricks Connect off-platform. No lht-side Databricks credential.
+- Saved connections: `connections.toml` under lht's config directory, `~/.lakehousetools` by default (0600; `~/.solomo` for installs predating the rename, `LHT_HOME` env var to override). Headless use can pass credentials dicts instead, or register them by name with `register_connection()`. On Databricks, Salesforce credentials come from a secret scope.
+- `lht.salesforce.retl.*` and `lht.salesforce.merge.merge` take a Snowpark session, a Spark session, or an `lht.warehouse.Warehouse` interchangeably.
 
 Minimal usage:
 
 ```bash
-pip install lht
+pip install "lht[snowflake]"
 lht create-connection --snowflake
 lht create-connection --salesforce
 lht sync --sobject Account --table ACCOUNT --schema RAW
@@ -35,6 +39,17 @@ sync_sobject_intelligent(session, access_info, sobject="Account", schema="RAW", 
 retl.upsert(session, access_info, sobject="Account", query="SELECT External_Id__c, Rating FROM ANALYTICS.SCORES", field="External_Id__c")
 ```
 
+In a Databricks notebook (`%pip install lht` then `dbutils.library.restartPython()`):
+
+```python
+from lht.salesforce import retl
+from lht.warehouse.databricks import connect, salesforce_access_info
+
+retl.upsert(connect(), salesforce_access_info(scope="salesforce"), sobject="Account",
+            query="SELECT external_id AS Ext__c, rating AS Rating FROM main.analytics.scores",
+            field="Ext__c")
+```
+
 ## Docs
 
 - [README](https://github.com/lakehousetools/lht/blob/main/README.md): overview, install, quickstart, comparison
@@ -42,8 +57,9 @@ retl.upsert(session, access_info, sobject="Account", query="SELECT External_Id__
 - [Authentication](https://github.com/lakehousetools/lht/blob/main/docs/authentication.md): Salesforce app setup (Client Credentials, JWT Bearer) and Snowflake key pair
 - [CLI reference](https://github.com/lakehousetools/lht/blob/main/docs/cli.md): every command and flag
 - [Python API](https://github.com/lakehousetools/lht/blob/main/docs/python-api.md): sync, reverse ETL, merge and jobs from Python; headless credentials
-- [Reverse ETL](https://github.com/lakehousetools/lht/blob/main/docs/reverse-etl.md): Snowflake to Salesforce writes
-- [Merging records](https://github.com/lakehousetools/lht/blob/main/docs/merge.md): dedupe Accounts/Contacts/Leads from Snowflake
+- [Reverse ETL](https://github.com/lakehousetools/lht/blob/main/docs/reverse-etl.md): warehouse to Salesforce writes
+- [Databricks](https://github.com/lakehousetools/lht/blob/main/docs/databricks.md): reverse ETL from Unity Catalog, in a notebook, a Job, or locally via Databricks Connect
+- [Merging records](https://github.com/lakehousetools/lht/blob/main/docs/merge.md): dedupe Accounts/Contacts/Leads from a warehouse query
 - [FAQ](https://github.com/lakehousetools/lht/blob/main/docs/faq.md)
 
 ## Optional

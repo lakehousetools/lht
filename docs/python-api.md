@@ -14,6 +14,30 @@ access_info = get_salesforce_access_info("my_salesforce")       # {"access_token
 
 Pass no name to use the primary connection of each type.
 
+### Warehouses
+
+Everywhere below, the first argument named `session` takes any of three things:
+
+| Pass | Where it comes from |
+|---|---|
+| A Snowpark `Session` | `lht.user.auth.create_session()` |
+| A Spark session | A Databricks notebook's `spark`, or `lht.warehouse.databricks.connect()` |
+| An `lht.warehouse.Warehouse` | `lht.warehouse.from_session(...)`, or `connect()` on Databricks |
+
+lht recognises which it has and spells its SQL accordingly, so the reverse-ETL and
+merge calls are identical on both warehouses:
+
+```python
+from lht.warehouse import from_session
+
+warehouse = from_session(spark)        # or from_session(snowpark_session)
+warehouse.name                         # 'databricks' | 'snowflake'
+warehouse.rows("SELECT 1 AS n")        # [{'n': 1}] -- plain dicts, either way
+```
+
+Sync (Salesforce → warehouse) is Snowflake-only and needs a Snowpark session. See
+[Databricks](databricks.md) for what runs there and how to get a session.
+
 ### Headless credentials
 
 In CI or an orchestrator, read secrets from your secret manager and pass them in directly. Nothing touches a local config directory.
@@ -129,7 +153,10 @@ for sobject in ["Account", "Contact", "Opportunity", "Case"]:
     print(f"{sobject}: {r['actual_records']} rows via {r['sync_method']}")
 ```
 
-## Reverse ETL: Snowflake → Salesforce
+## Reverse ETL: warehouse → Salesforce
+
+Works on Snowflake and Databricks. `session` here is whichever warehouse you
+opened above — the call does not change.
 
 ```python
 from lht.salesforce import retl
@@ -146,10 +173,56 @@ retl.insert(session, access_info, sobject="Task",
             query="SELECT WhoId, Subject, ActivityDate FROM STAGE.NEW_TASKS")
 
 retl.delete(session, access_info, sobject="Lead",
-            query="SELECT Id FROM STAGE.LEADS_TO_DELETE", field="Id")
+            query="SELECT Id FROM STAGE.LEADS_TO_DELETE")
 ```
 
 `clear_nulls=True` sends `NULL` as `#N/A`, which clears the field in Salesforce. Without it, a `NULL` is sent as an empty cell, which Salesforce treats as "leave unchanged".
+
+`upsert` returns a summary (`total_records`, `records_processed`, `total_batches`,
+`successful_batches`, `failed_batches`, `batch_results`), or `None` when the query
+returned no rows. The other three return the Bulk API's job-creation response.
+
+### Logging per-record outcomes
+
+```python
+from lht.salesforce.results_bapi import process_bulk_api_results
+
+result = retl.upsert(session, access_info, "Account", query, "External_Id__c")
+for batch in result["batch_results"]:
+    if batch.get("job_id"):
+        process_bulk_api_results(session, access_info, batch["job_id"],
+                                 match_field="External_Id__c",
+                                 schema="LOGS")        # main.lht_logs on Databricks
+```
+
+That writes `JOB_INFO`, `SUCCESS` and `FAILURE` in the given schema, creating
+them on first use with the right column types for the backend. Passing
+`match_field` is what records which source record produced which Salesforce Id.
+It is best-effort: a logging failure never fails the load, and never raises.
+
+Because it never raises, **check what it returns**: `{"job_id", "success_count",
+"failure_count", "job_state", "success"}`, plus `"error"` when `success` is
+`False`. `success` is `True` only if everything was saved. When it isn't,
+`error` names each thing that couldn't be (one short line per problem, without
+Spark's stack trace), so a log that wasn't written can't pass for one that was.
+
+```python
+outcome = process_bulk_api_results(session, access_info, job_id,
+                                   match_field="External_Id__c", schema="LOGS")
+if not outcome["success"]:
+    print(outcome["error"])
+```
+
+Every row in `SUCCESS` is a record Salesforce accepted, so its `SUCCESS` column
+is `TRUE`; `CREATED` says whether it was created or updated.
+
+`schema` defaults to a bare `LOGS`, which resolves against whatever database or
+catalog the session points at. On Unity Catalog, qualify it.
+
+The job history (`RETL_HISTORY`) is written by the `retl.*` call itself, on every
+run, and takes its own `log_schema=` (`retl.upsert(..., log_schema="main.lht_logs")`;
+the same keyword on `update`, `insert` and `delete`). Pass the same value to both
+to keep every log table together.
 
 ## Merge records
 
@@ -160,6 +233,9 @@ summary = merge(session, access_info, sobject="Account",
                 query="SELECT MasterId, LoserId FROM DEDUPE.ACCOUNT_PAIRS",
                 dry_run=True)
 ```
+
+The merge happens inside Salesforce over SOAP, so this works on either warehouse
+— all the warehouse does is answer the query.
 
 See [Merging records](merge.md) for the validation rules.
 

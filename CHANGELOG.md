@@ -2,6 +2,67 @@
 
 All notable changes to lht. Versions follow [semantic versioning](https://semver.org/).
 
+## 3.0.0 — 2026-10-12
+
+Databricks reverse ETL, and a warehouse-independent core.
+
+### ⚠️ Upgrading from 2.x
+
+**`pip install lht` no longer installs the Snowflake client.** The warehouse client
+is now an extra, because installing Snowpark's pandas and pyarrow pins onto
+Databricks compute — where it is never used — can displace the versions the runtime
+ships. Change your install to:
+
+```bash
+pip install "lht[snowflake]"      # Snowflake: sync, reverse ETL, merge
+pip install "lht[databricks]"     # Databricks from a laptop or CI
+pip install "lht[all]"            # both
+pip install lht                   # on Databricks compute, where `spark` already exists
+```
+
+Nothing else changes for Snowflake users: the same CLI, the same Python calls, the
+same connections, and the log tables keep exactly the column types they had. A
+Snowflake code path without Snowpark installed now fails immediately with
+`Connecting to Snowflake needs the Snowpark client [...] pip install "lht[snowflake]"`
+rather than an opaque `ModuleNotFoundError`.
+
+### Added
+
+- **Databricks as a warehouse for reverse ETL and merge.** `lht.salesforce.retl.upsert/insert/update/delete` and `lht.salesforce.merge.merge` now accept a Spark session as readily as a Snowpark one, so a Databricks notebook can hand them `spark` directly. Databricks ingests Salesforce well and has no way to write back; this is that direction. See `docs/databricks.md`.
+- `lht.warehouse`: the warehouse layer. `from_session(session)` returns the backend for a Snowpark session, a Spark session or a `Warehouse` (idempotent), and each backend owns its own column types, timestamp casts and DDL. Anything else that answers `sql()` is still treated as Snowflake, so callers written before this release behave exactly as they did.
+- `lht.warehouse.databricks.connect()`: the running Spark session on Databricks compute, or a Databricks Connect session against a `~/.databrickscfg` profile off-platform — the same profiles the Databricks CLI uses, so there is no lht-side Databricks credential.
+- `lht.warehouse.databricks.salesforce_access_info(scope=..., connection_name=...)`: Salesforce credentials from a Databricks secret scope on-platform, falling back to `connections.toml` where there is no `dbutils` to read a scope with. One call, so the same notebook file runs unchanged on a laptop. A scope that *is* reachable but misconfigured raises rather than silently falling back.
+- `lht retl` and `lht merge` take `--databricks [PROFILE]` in place of `--snowflake`, mutually exclusive with it.
+- **Where the log tables go is now configurable, for all of them.** `process_bulk_api_results(..., schema='LOGS')` places the per-record tables (`JOB_INFO`, `SUCCESS`, `FAILURE`); `retl.upsert/update/insert/delete(..., log_schema='LOGS')` places the job history (`RETL_HISTORY`); and `lht retl --log-schema SCHEMA` sets both. The old behaviour was a hard-coded, unqualified `LOGS`, which on Unity Catalog resolves against whichever catalog the session happens to point at — so there was no way to say `main.lht_logs`. A schema name that is not a usable identifier is reported once as a failed logging result (per-record tables) or as one warning (job history), instead of as four separate warnings from the individual table steps; either way the load itself is unaffected.
+- **`RETL_HISTORY`'s schema is now created on first use**, as the table already was. Without it, a run against a database or catalog with no such schema logged a warning and kept no job history. Creating it is best-effort: a role without `CREATE SCHEMA` carries on to the table, since the schema usually exists already. On Snowflake this adds one `CREATE SCHEMA IF NOT EXISTS` statement per ingest job.
+- Per-record result logging (`--log-results`, `results_bapi.process_bulk_api_results`) works on both warehouses: `LOGS.JOB_INFO`, `LOGS.SUCCESS` and `LOGS.FAILURE` are created as Delta tables on Databricks and as Snowflake tables on Snowflake, from one set of column definitions.
+- `examples/databricks_retl.py`: a notebook/Job/laptop reverse-ETL script that needs no edits between the three.
+- `tests/spark/`, marked `spark` and excluded by default: runs lht's generated Databricks SQL against a local Spark engine. Needs `pyspark` and a JVM, no workspace. `pytest -m spark`.
+
+### Changed
+
+- `lht.util.sql.identifier()` also accepts backtick-quoted name parts, for Databricks.
+- The `client_credentials` Salesforce flow now warns when `sandbox` is set alongside a `my_domain` that doesn't look like a sandbox. Only the `jwt_bearer` flow has a login URL for that flag to switch; on client credentials the org is whatever `my_domain` names, so a `sandbox` flag there did nothing at all — silently, with the login succeeding against the other org. The flag still changes no behaviour (`my_domain` decides); it is the silence that's fixed.
+- `lht.util.__init__` and `lht.salesforce.__init__` resolve their exports on first access instead of at import time, so importing the reverse-ETL path no longer pulls in the Snowflake writers (and with them Snowpark). The names they export are unchanged.
+- `insert_failure_records()` no longer raises when the insert fails. It was the odd one out: `insert_success_records()` and `insert_job_info()` only logged. All three now report through an optional `problems` list, which `process_bulk_api_results` turns into its result; the three `create_*_table()` functions take a matching `notes` list.
+- `lht.util.sql.identifier()` says `Not a valid SQL identifier`, not `Snowflake identifier`, now that it also guards Databricks names.
+- `retl.delete()`'s `field` argument is now optional. Bulk API 2.0 deletes by `Id` only and the argument was already unused; callers passing it still work.
+- `retl.insert()` no longer routes through `lht.sflake.query.get_records()`. Same behaviour — a NULL is an empty cell, since an insert has no existing value to clear.
+
+### Fixed
+
+- **`process_bulk_api_results` no longer reports success when it saved nothing.** Every step in it swallows its own exception, by design, so that a logging problem can never fail a load that already reached Salesforce — but nothing then told the caller, and it returned `success: True` with the tables missing. It now returns `success: False` and an `error` when an insert failed, naming each thing that could not be saved, and logs one `NOT fully saved` error line. The verdict rests on the inserts: a role that cannot `CREATE TABLE` but can write to existing tables is still a success, with the refused `CREATE` as a warning, and with nothing to insert there is nothing to fail. `lht retl --log-results` prints this as `Logging failed`. This predates the Databricks work and applies to Snowflake too.
+- **The `SUCCESS` column in the `SUCCESS` table is now filled.** It was read from an `sf__Success` field that Salesforce's `successfulResults` CSV does not have (it carries `sf__Id` and `sf__Created`, then the submitted fields), so it has always been `NULL`. A row in that CSV is a success by definition, so it is now `TRUE`; an explicit `sf__Success`, if a caller passes one, is still honoured. Rows already logged keep their `NULL`; to backfill them: `UPDATE <schema>.SUCCESS SET SUCCESS = TRUE WHERE SUCCESS IS NULL`.
+- **Errors from the warehouse are now one short line, not a stack trace.** Databricks follows each message with a hundred-frame JVM stack trace, sometimes a dump of the query plan, which in a notebook buried the line that said what went wrong. Log lines and the returned `error` now keep the message up to its `SQLSTATE` and drop the rest (`lht.warehouse.base.brief_error`).
+- **String escaping is now per-warehouse**, and `Warehouse.literal()` owns it. Spark concatenates adjacent string literals, so the SQL standard's doubled quote (`'it''s'`) parses as `'it'` followed by `'s'` and evaluates to `its` — the quote is dropped with no error at all. Any Salesforce value or error message with an apostrophe would have been logged corrupted on Databricks. Backslashes are escaped too, since inside a Spark literal `\b` is a backspace rather than two characters. Snowflake's escaping is unchanged. Found by running the generated SQL against a real Spark engine; `tests/spark/` (`pytest -m spark`) now keeps doing that.
+- `connect()` finds a running Spark session from any thread. `SparkSession.getActiveSession()` is thread-local and answers `None` off the thread that created the session, which a notebook cell can easily be — lht would then have tried to start a Databricks Connect session and failed with "No Spark session is running" on a perfectly good cluster. It now asks `active()` first and falls back.
+- A Bulk API counter of **0** is now logged as `0` in `LOGS.JOB_INFO`, not `NULL`. `job_data.get(...) or 'NULL'` treated a genuine zero as missing, so a job that processed no records was indistinguishable from one lht could not read at all. A non-numeric counter still logs as `NULL`, with a debug line.
+- `LOGS.JOB_INFO`'s `STATE` is escaped on the error path, where it was previously interpolated into the INSERT unescaped.
+
+### Removed
+
+- Unused Snowpark imports: `lht.util.log_retl` (`Session`, `col`), `lht.salesforce.results_bapi` (`Session`, `SnowparkSQLException`) and `lht.util.merge` (`Session`, `functions as F`). The whole unit suite now runs with Snowpark absent.
+
 ## 2.2.0 — 2026-10-06
 
 ### Added

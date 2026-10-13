@@ -4,7 +4,8 @@ import json
 import logging
 from lht.util import csv
 from lht.util import log_retl
-from lht.sflake import query as q
+from lht.warehouse import from_session
+from lht.warehouse.base import brief_error
 from . import ingest_bapi20 as ingest
 import time
 from lht.util.http import DEFAULT_TIMEOUT
@@ -17,7 +18,7 @@ BULK_NULL = '#N/A'
 
 def _to_records(rows, clear_nulls=False, match_field=None):
     """
-    Snowpark rows to dicts for the CSV payload.
+    Result rows to the dicts the CSV payload is built from.
 
     NULL goes out as an empty cell by default, which Salesforce ignores on update -- a field the
     source has emptied keeps its old value. `clear_nulls` sends '#N/A' instead, which clears it.
@@ -36,10 +37,10 @@ def _to_records(rows, clear_nulls=False, match_field=None):
             return value
         return '' if match is not None and key.lower() == match else null
 
-    return [{k: cell(k, v) for k, v in row.asDict().items()} for row in rows]
+    return [{k: cell(k, v) for k, v in row.items()} for row in rows]
 
 
-def _log_job(session, job_info, schema='LOGS'):
+def _log_job(warehouse, job_info, schema='LOGS'):
     """
     Record a Bulk API job in <schema>.RETL_HISTORY, best-effort.
 
@@ -48,35 +49,42 @@ def _log_job(session, job_info, schema='LOGS'):
     which is why every error here is swallowed with a warning.
     """
     try:
-        log_retl.job(session, job_info, schema=schema)
+        log_retl.job(warehouse, job_info, schema=schema)
     except Exception as e:
-        logger.warning(f"⚠️ Could not log job to {schema}.RETL_HISTORY: {e}")
+        logger.warning(f"⚠️ Could not log job to {schema}.RETL_HISTORY: {brief_error(e)}")
 
-def upsert(session, access_info, sobject, query, field, batch_size=25000, clear_nulls=False):
+def upsert(session, access_info, sobject, query, field, batch_size=25000, clear_nulls=False,
+           log_schema='LOGS'):
     """
     Upsert records to Salesforce using data from a SQL query executed against Snowflake.
     Processes records in batches to handle large datasets efficiently.
     
     Args:
-        session: Snowflake session object
+        session: A Snowpark session, a Spark session (Databricks), or an
+            :class:`lht.warehouse.Warehouse`
         access_info: Salesforce access credentials dictionary
         sobject: Salesforce object name (e.g., 'Account', 'Contact')
-        query: SQL query string to execute against Snowflake
+        query: SQL query to execute against the warehouse
         field: External ID field name for upsert operation
         batch_size: Number of records to process per batch (default: 25000)
         clear_nulls: Send NULL as '#N/A' so Salesforce clears the field (default: leave it)
+        log_schema: Schema for the job-history table (RETL_HISTORY), created on
+            first use. Defaults to an unqualified ``LOGS``, which resolves against
+            the session's current database or catalog -- qualify it
+            (``main.lht_logs``) on Unity Catalog.
     """
     logger.info("🚀 STARTING SALESFORCE UPSERT WITH BATCH PROCESSING")
     logger.info(f"📋 Parameters: SObject={sobject}, Field={field}, Batch Size={batch_size:,}")
     
     try:
         access_token = access_info['access_token']
-        
+        warehouse = from_session(session)
+
         # Read the query once and split it here. Paging it with LIMIT/OFFSET re-ran the query per
-        # batch with no ORDER BY around it, and Snowflake does not promise the same order twice,
+        # batch with no ORDER BY around it, and no warehouse promises the same order twice,
         # so above one batch rows could be sent twice or never.
         logger.debug("🔍 STEP 1: Reading source rows...")
-        all_rows = session.sql(query).collect()
+        all_rows = warehouse.rows(query)
         total_records = len(all_rows)
 
         logger.info(f"📊 Total records to process: {total_records:,}")
@@ -142,7 +150,7 @@ def upsert(session, access_info, sobject, query, field, batch_size=25000, clear_
                 logger.info(f"✅ Job created successfully: {job_info}")
                 job_id = job_info['id']
                 logger.debug(f"🆔 Job ID: {job_id}")
-                _log_job(session, job_info)
+                _log_job(warehouse, job_info, schema=log_schema)
 
                 #########################################################
                 ###  SEND BATCH FILE
@@ -231,13 +239,30 @@ def upsert(session, access_info, sobject, query, field, batch_size=25000, clear_
         logger.error(f"Error type: {type(e).__name__}")
         raise
 
-def update(session, access_info, sobject, query, clear_nulls=False):
+def update(session, access_info, sobject, query, clear_nulls=False, log_schema='LOGS'):
+    """
+    Update existing Salesforce records from a warehouse query. The query must
+    select `Id` alongside the fields to set.
+
+    Args:
+        session: A Snowpark session, a Spark session (Databricks), or an
+            :class:`lht.warehouse.Warehouse`
+        access_info: Salesforce access credentials dictionary
+        sobject: Salesforce object name (e.g., 'Account', 'Contact')
+        query: SQL query to execute against the warehouse
+        clear_nulls: Send NULL as '#N/A' so Salesforce clears the field (default: leave it)
+        log_schema: Schema for the job-history table (RETL_HISTORY), created on
+            first use. Defaults to an unqualified ``LOGS``, which resolves against
+            the session's current database or catalog -- qualify it
+            (``main.lht_logs``) on Unity Catalog.
+    """
     access_token = access_info['access_token']
+    warehouse = from_session(session)
 
     logger.info("🚀 STARTING SALESFORCE UPDATE")
     logger.info(f"📋 Parameters: SObject={sobject}")
 
-    records = _to_records(session.sql(query).collect(), clear_nulls)
+    records = _to_records(warehouse.rows(query), clear_nulls)
 
     logger.info(f"📊 Records to update: {len(records):,}")
 
@@ -258,7 +283,7 @@ def update(session, access_info, sobject, query, clear_nulls=False):
     logger.debug("creating job")
     response = requests.post(bulk_api_url, headers=headers, data=json.dumps(job_data), timeout=DEFAULT_TIMEOUT)
     job_info = response.json()
-    _log_job(session, job_info)
+    _log_job(warehouse, job_info, schema=log_schema)
 
     job_id = job_info['id']
     logger.info(f"✅ Job created: {job_id}")
@@ -295,13 +320,30 @@ def update(session, access_info, sobject, query, clear_nulls=False):
 
     return job_info
 
-def insert(session, access_info, sobject, query):
+def insert(session, access_info, sobject, query, log_schema='LOGS'):
+    """
+    Insert new Salesforce records from a warehouse query.
+
+    Args:
+        session: A Snowpark session, a Spark session (Databricks), or an
+            :class:`lht.warehouse.Warehouse`
+        access_info: Salesforce access credentials dictionary
+        sobject: Salesforce object name (e.g., 'Account', 'Contact')
+        query: SQL query to execute against the warehouse
+        log_schema: Schema for the job-history table (RETL_HISTORY), created on
+            first use. Defaults to an unqualified ``LOGS``, which resolves against
+            the session's current database or catalog -- qualify it
+            (``main.lht_logs``) on Unity Catalog.
+    """
     access_token = access_info['access_token']
+    warehouse = from_session(session)
 
     logger.info("🚀 STARTING SALESFORCE INSERT")
     logger.info(f"📋 Parameters: SObject={sobject}")
 
-    records = q.get_records(session, query)
+    # An insert sets every field it sends, so a NULL is an empty cell: there is
+    # no existing value for '#N/A' to clear.
+    records = _to_records(warehouse.rows(query))
     logger.info(f"📊 Records to insert: {len(records):,}")
 
     data = csv.json_to_csv(records)
@@ -322,7 +364,7 @@ def insert(session, access_info, sobject, query):
     logger.debug("creating job")
     response = requests.post(bulk_api_url, headers=headers, data=json.dumps(job_data), timeout=DEFAULT_TIMEOUT)
     job_info = response.json()
-    _log_job(session, job_info)
+    _log_job(warehouse, job_info, schema=log_schema)
 
     job_id = job_info['id']
     logger.info(f"✅ Job created: {job_id}")
@@ -359,24 +401,31 @@ def insert(session, access_info, sobject, query):
 
     return job_info
 
-def delete(session, access_info, sobject, query, field):
+def delete(session, access_info, sobject, query, field=None, log_schema='LOGS'):
+    """
+    Delete Salesforce records from a warehouse query. The query must select `Id`.
+    Deleted records go to the Recycle Bin.
 
+    Args:
+        session: A Snowpark session, a Spark session (Databricks), or an
+            :class:`lht.warehouse.Warehouse`
+        access_info: Salesforce access credentials dictionary
+        sobject: Salesforce object name (e.g., 'Account', 'Contact')
+        query: SQL query to execute against the warehouse
+        field: Unused. Bulk API 2.0 deletes by `Id` only; kept so existing
+            callers that pass it keep working.
+        log_schema: Schema for the job-history table (RETL_HISTORY), created on
+            first use. Defaults to an unqualified ``LOGS``, which resolves against
+            the session's current database or catalog -- qualify it
+            (``main.lht_logs``) on Unity Catalog.
+    """
     access_token = access_info['access_token']
+    warehouse = from_session(session)
 
     logger.info("🚀 STARTING SALESFORCE DELETE")
     logger.info(f"📋 Parameters: SObject={sobject}")
 
-    results = session.sql(query).collect()
-    # Convert results to the expected format
-    records = []
-    for result in results:
-        record = {}
-        for key, value in result.asDict().items():
-            if value is None:
-                record[key] = ''
-            else:
-                record[key] = value
-        records.append(record)
+    records = _to_records(warehouse.rows(query))
 
     logger.info(f"📊 Records to delete: {len(records):,}")
 
@@ -399,7 +448,7 @@ def delete(session, access_info, sobject, query, field):
     response = requests.post(bulk_api_url, headers=headers, data=json.dumps(job_data), timeout=DEFAULT_TIMEOUT)
     job_info = response.json()
     logger.debug(f"JOB: {job_info}")
-    _log_job(session, job_info)
+    _log_job(warehouse, job_info, schema=log_schema)
 
     job_id = job_info['id']
     logger.info(f"✅ Job created: {job_id}")

@@ -1,5 +1,3 @@
-from snowflake.snowpark import Session
-from snowflake.snowpark import functions as F
 import logging
 from lht.util.sql import identifier
 

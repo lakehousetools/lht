@@ -2,7 +2,7 @@
 
 **Bring Your Own Data Warehouse.**
 
-lht is an open-source Python library and CLI that moves Salesforce data into Snowflake and pushes it back. It uses the Salesforce Bulk API 2.0 and runs on your own infrastructure, with your own credentials. There is no hosted service and no per-row pricing, and your data doesn't pass through a third party.
+lht is an open-source Python library and CLI that moves Salesforce data into your warehouse and pushes it back. It uses the Salesforce Bulk API 2.0 and runs on your own infrastructure, with your own credentials. There is no hosted service and no per-row pricing, and your data doesn't pass through a third party.
 
 [![PyPI](https://img.shields.io/pypi/v/lht.svg)](https://pypi.org/project/lht/)
 [![Python](https://img.shields.io/pypi/pyversions/lht.svg)](https://pypi.org/project/lht/)
@@ -10,11 +10,11 @@ lht is an open-source Python library and CLI that moves Salesforce data into Sno
 [![CI](https://github.com/lakehousetools/lht/actions/workflows/ci.yml/badge.svg)](https://github.com/lakehousetools/lht/actions/workflows/ci.yml)
 
 ```bash
-pip install lht
+pip install "lht[snowflake]"
 lht sync --sobject Account --table ACCOUNT
 ```
 
-**Supported today:** Salesforce ↔ Snowflake. The connection layer is built so more warehouses can be added; see [Roadmap](#roadmap).
+**Supported today:** Salesforce ↔ Snowflake, and Salesforce ← Databricks (reverse ETL and merge, in a notebook or a Job — see [Databricks](https://lakehousetools.github.io/lht/databricks/)). The connection layer is built so more warehouses can be added; see [Roadmap](#roadmap).
 
 ---
 
@@ -23,14 +23,16 @@ lht sync --sobject Account --table ACCOUNT
 | | |
 |---|---|
 | **Salesforce → Snowflake sync** | Full load on the first run. After that, incremental loads use `LastModifiedDate` and a `MERGE` on the record Id. Tables are created for you, with Salesforce field types mapped to Snowflake types. |
-| **Reverse ETL (Snowflake → Salesforce)** | `upsert`, `insert`, `update` and `delete` records in Salesforce from any Snowflake `SELECT`. Runs through Bulk API 2.0 ingest jobs, with optional result logging back into Snowflake. |
-| **Record merge** | Deduplicate Accounts, Contacts or Leads inside Salesforce from a Snowflake query that returns `MasterId` / `LoserId` pairs. Uses the SOAP `merge()` call, which the Bulk API can't do. `--dry-run` validates the pairs first. |
+| **Reverse ETL (warehouse → Salesforce)** | `upsert`, `insert`, `update` and `delete` records in Salesforce from any Snowflake or Databricks `SELECT`. Runs through Bulk API 2.0 ingest jobs, with optional result logging back into the warehouse. |
+| **Databricks reverse ETL** | Databricks ingests Salesforce well and has no way to write back. lht runs on your Databricks compute, reads Unity Catalog with Spark SQL, and pushes to Salesforce — from a notebook, a Job, or locally via Databricks Connect. |
+| **Record merge** | Deduplicate Accounts, Contacts or Leads inside Salesforce from a warehouse query that returns `MasterId` / `LoserId` pairs. Uses the SOAP `merge()` call, which the Bulk API can't do. `--dry-run` validates the pairs first. |
 | **Bulk job management** | List, inspect and delete Bulk API 2.0 jobs, and download their success, failure and unprocessed results. |
 | **Headless auth** | Supports the OAuth 2.0 Client Credentials flow and JWT bearer flow for Salesforce, and key-pair (JWT) auth for Snowflake. Credentials can come from a local config file or from your own secret store. |
 
 ## Why lht
 
 - **You own the pipeline.** It's a `pip install`, not a SaaS contract. Run it from a laptop, cron, Airflow, Dagster, GitHub Actions, or a Snowflake/Databricks job.
+- **The warehouse is a choice, not a rewrite.** The same reverse-ETL call takes a Snowpark session or a Spark session; the SQL and the Salesforce side don't change.
 - **Bulk API 2.0 everywhere.** Reads and writes both use Bulk API 2.0, so large objects don't burn through your REST API call limits.
 - **Two directions, one tool.** Sync, reverse ETL and merge share the same saved connections.
 - **Plain Python, Apache 2.0.** Read it, fork it, extend it.
@@ -44,11 +46,20 @@ Requires Python 3.9 or newer.
 ```bash
 python -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install lht
+pip install "lht[snowflake]"       # or "lht[databricks]", or both: "lht[all]"
 lht --help
 ```
 
-To upgrade: `pip install --upgrade lht`. To pin a version: `pip install "lht==2.1.1"`.
+The warehouse client is an extra, so pick the one you use:
+
+| Install | For |
+|---|---|
+| `pip install "lht[snowflake]"` | Snowflake — sync, reverse ETL, merge |
+| `pip install "lht[databricks]"` | Databricks from a laptop or CI, via Databricks Connect |
+| `pip install lht` | On Databricks compute, where `spark` already exists. Nothing is installed over the runtime's pandas/pyarrow |
+| `pip install "lht[all]"` | Both warehouses |
+
+To upgrade: `pip install --upgrade "lht[snowflake]"`. To pin a version: `pip install "lht[snowflake]==3.0.0"`.
 
 ### From source
 
@@ -164,11 +175,11 @@ More in [docs/python-api.md](docs/python-api.md) and [examples/](examples/).
 | `lht create-connection --snowflake \| --salesforce` | Save a connection interactively |
 | `lht list-connections` / `edit-connection` / `set-primary NAME` / `connect NAME` | Manage and test connections |
 | `lht sync --sobject OBJ --table TABLE [--schema --database --where --force-full-sync --use-stage --stage-name]` | Salesforce → Snowflake |
-| `lht retl {upsert,insert,update,delete} --sobject OBJ (--sql SQL \| --sql-file FILE) [--match-field --batch-size --clear-nulls --log-results]` | Snowflake → Salesforce |
+| `lht retl {upsert,insert,update,delete} --sobject OBJ (--sql SQL \| --sql-file FILE) [--match-field --batch-size --clear-nulls --log-results]` | Warehouse → Salesforce |
 | `lht merge --sobject {Account,Contact,Lead} (--sql \| --sql-file) [--dry-run]` | Merge duplicate records in Salesforce |
 | `lht list-jobs` / `show-job ID` / `get-job-results ID` / `delete-job ID` | Bulk API 2.0 job management |
 
-Every command accepts `--snowflake NAME` / `--salesforce NAME` to override the primary connection. Full details are in [docs/cli.md](docs/cli.md), or run `lht <command> --help`.
+Every command accepts `--snowflake NAME` / `--salesforce NAME` to override the primary connection. `retl` and `merge` also accept `--databricks [PROFILE]` in place of `--snowflake`, to read from Databricks instead. Full details are in [docs/cli.md](docs/cli.md), or run `lht <command> --help`.
 
 ## How incremental sync works
 
@@ -200,6 +211,30 @@ lht is a good fit if you already run Snowflake, want Salesforce data there on yo
 
 To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
+## Databricks
+
+Databricks ingests Salesforce well, and has no reverse ETL. In a notebook:
+
+```python
+%pip install lht
+dbutils.library.restartPython()
+```
+
+```python
+from lht.salesforce import retl
+from lht.warehouse.databricks import connect, salesforce_access_info
+
+retl.upsert(
+    connect(),                                  # the cluster's `spark`
+    salesforce_access_info(scope="salesforce"),  # a Databricks secret scope
+    sobject="Account",
+    query="SELECT external_id AS Ext__c, rating AS Rating FROM main.analytics.account_scores",
+    field="Ext__c",
+)
+```
+
+The same file runs on a laptop against a `~/.databrickscfg` profile (`pip install "lht[databricks]"`), or from the CLI with `lht retl upsert --databricks my-workspace ...`. See [Databricks](https://lakehousetools.github.io/lht/databricks/) and [`examples/databricks_retl.py`](examples/databricks_retl.py).
+
 ## Documentation
 
 - [Getting started](docs/getting-started.md)
@@ -207,6 +242,7 @@ To report a vulnerability, see [SECURITY.md](SECURITY.md).
 - [CLI reference](docs/cli.md)
 - [Python API](docs/python-api.md)
 - [Reverse ETL](docs/reverse-etl.md)
+- [Databricks](docs/databricks.md)
 - [Merging records](docs/merge.md)
 - [Intelligent sync internals](docs/intelligent_sync_guide.md)
 - [FAQ](docs/faq.md)
@@ -224,7 +260,8 @@ Please remove credentials, org names and customer data from anything you post.
 
 ## Roadmap
 
-- Additional warehouses (Databricks, BigQuery, Postgres) behind the same CLI
+- Salesforce → Databricks sync (reverse ETL and merge already work there; on Databricks, Lakeflow Connect handles ingestion today)
+- Additional warehouses (BigQuery, Postgres) behind the same CLI
 - Hard-delete detection for incremental sync
 - Scheduling recipes (Airflow, Dagster, Snowflake Tasks)
 

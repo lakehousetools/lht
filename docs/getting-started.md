@@ -2,6 +2,9 @@
 
 This guide takes you from nothing to a Salesforce object synced into Snowflake. It takes about 15 minutes, most of it spent in the Salesforce and Snowflake setup screens.
 
+!!! tip "Using Databricks?"
+    Reverse ETL and merge run on Databricks too, in a notebook or a Job. Go to [Databricks](databricks.md) instead — you need the Salesforce half of this guide, but none of the Snowflake half.
+
 ## 1. Install
 
 lht needs Python 3.9 or newer.
@@ -11,9 +14,14 @@ lht needs Python 3.9 or newer.
     ```bash
     python -m venv .venv
     source .venv/bin/activate        # Windows: .venv\Scripts\activate
-    pip install lht
+    pip install "lht[snowflake]"
     lht --help
     ```
+
+    The warehouse client is an extra: `lht[snowflake]` for Snowflake, `lht[databricks]`
+    for Databricks from a laptop, `lht[all]` for both. On Databricks compute, plain
+    `pip install lht` is right — `spark` is already there, and nothing then gets
+    installed over the runtime's pandas and pyarrow.
 
 === "From source"
 
