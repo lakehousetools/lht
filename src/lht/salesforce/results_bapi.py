@@ -9,6 +9,7 @@ from lht.util.sql import identifier
 from lht.warehouse import Warehouse, from_session
 from lht.warehouse.base import (
     FAILURE_COLUMNS,
+    brief_error,
     JOB_INFO_COLUMNS,
     SUCCESS_COLUMNS,
 )
@@ -18,39 +19,63 @@ logger = logging.getLogger(__name__)
 DEFAULT_LOG_SCHEMA = 'LOGS'
 
 
+# Every step below is best-effort: a failure to write the log must never fail the
+# load that already reached Salesforce. That is why they swallow their exceptions,
+# and why each takes an optional list to report into -- a swallowed error that is
+# only logged leaves the caller believing everything was saved.
+#
+# Two lists, because the two kinds of failure mean different things. A failed
+# INSERT is data not saved: a `problem`. A failed CREATE TABLE is only a `note`:
+# a role that cannot create tables can still write to one that exists, so it is
+# not by itself a failure -- but when an insert does fail it is usually the cause,
+# and is reported alongside it.
+def _fail(report, what, error, level=logging.WARNING):
+    """Log one step's failure on one line, and add it to `report` if given."""
+    reason = brief_error(error)
+    logger.log(level, f"{'❌' if level >= logging.ERROR else '⚠️'} {what}: {reason}")
+    if report is not None:
+        report.append(f"{what}: {reason}")
+
+
 def create_logs_schema_if_not_exists(warehouse: Warehouse, schema: str = DEFAULT_LOG_SCHEMA):
-    """Create the log schema if it doesn't exist."""
+    """
+    Create the log schema if it doesn't exist.
+
+    A failure is only a warning, and is not reported as a problem: the schema
+    usually exists already, and a role without CREATE SCHEMA can still write to it.
+    The table steps that follow are what would actually fail.
+    """
     try:
         warehouse.create_schema(schema)
         logger.info(f"✅ {schema} schema created/verified successfully")
     except Exception as e:
-        logger.warning(f"⚠️ Warning: Could not create {schema} schema: {e}")
+        logger.warning(f"⚠️ Could not create schema {schema} (carrying on in case it exists): {brief_error(e)}")
 
-def create_job_info_table(warehouse: Warehouse, schema: str = DEFAULT_LOG_SCHEMA):
+def create_job_info_table(warehouse: Warehouse, schema: str = DEFAULT_LOG_SCHEMA, notes=None):
     """Create the job_info table based on Salesforce API documentation."""
     try:
         warehouse.create_table(f'{schema}.JOB_INFO', JOB_INFO_COLUMNS)
         logger.info("✅ JOB_INFO table created/verified successfully")
     except Exception as e:
-        logger.warning(f"⚠️ Warning: Could not create JOB_INFO table: {e}")
+        _fail(notes, f"Could not create {schema}.JOB_INFO", e)
 
-def create_success_table(warehouse: Warehouse, schema: str = DEFAULT_LOG_SCHEMA):
+def create_success_table(warehouse: Warehouse, schema: str = DEFAULT_LOG_SCHEMA, notes=None):
     """Create the success table based on Salesforce API documentation."""
     try:
         warehouse.create_table(f'{schema}.SUCCESS', SUCCESS_COLUMNS)
         _add_match_columns(warehouse, f'{schema}.SUCCESS')
         logger.info("✅ SUCCESS table created/verified successfully")
     except Exception as e:
-        logger.warning(f"⚠️ Warning: Could not create SUCCESS table: {e}")
+        _fail(notes, f"Could not create {schema}.SUCCESS", e)
 
-def create_failure_table(warehouse: Warehouse, schema: str = DEFAULT_LOG_SCHEMA):
+def create_failure_table(warehouse: Warehouse, schema: str = DEFAULT_LOG_SCHEMA, notes=None):
     """Create the failure table based on Salesforce API documentation."""
     try:
         warehouse.create_table(f'{schema}.FAILURE', FAILURE_COLUMNS)
         _add_match_columns(warehouse, f'{schema}.FAILURE')
         logger.info("✅ FAILURE table created/verified successfully")
     except Exception as e:
-        logger.warning(f"⚠️ Warning: Could not create FAILURE table: {e}")
+        _fail(notes, f"Could not create {schema}.FAILURE", e)
 
 def _add_match_columns(warehouse: Warehouse, table: str):
     """Backfill MATCH_FIELD/MATCH_ID onto a log table created before they existed."""
@@ -172,7 +197,7 @@ def get_failed_results(access_info: dict, job_id: str) -> list:
         return []
 
 def insert_job_info(warehouse: Warehouse, job_data: dict, job_id: str,
-                    schema: str = DEFAULT_LOG_SCHEMA):
+                    schema: str = DEFAULT_LOG_SCHEMA, problems=None):
     """
     Insert one job's metadata into the JOB_INFO table.
 
@@ -213,7 +238,8 @@ def insert_job_info(warehouse: Warehouse, job_data: dict, job_id: str,
         logger.info(f"✅ Job info inserted for job {job_id}")
 
     except Exception as e:
-        logger.error(f"❌ Error inserting job info for job {job_id}: {e}")
+        _fail(problems, f"Could not save job info for {job_id} to {schema}.JOB_INFO", e,
+              level=logging.ERROR)
 
 # JOB_INFO column <- (Bulk API job field, how to render it). ID and CREATED_AT
 # are set by insert_job_info itself and so are absent here.
@@ -292,8 +318,22 @@ def _lookup(record: dict, field):
     return None
 
 
+def _success_flag(record: dict):
+    """
+    The SUCCESS column's value for one row of Salesforce's successfulResults.
+
+    That CSV has no `sf__Success` column -- it carries `sf__Id` and `sf__Created`
+    and then the submitted fields -- so reading one always gave NULL. A row in it
+    is a success by definition. An explicit `sf__Success` is still honoured, for
+    a caller passing records from some other source.
+    """
+    explicit = record.get('sf__Success')
+    return 'TRUE' if explicit in (None, '') else _sql_boolean(explicit)
+
+
 def insert_success_records(warehouse: Warehouse, job_id: str, success_data: list,
-                           match_field: str = None, schema: str = DEFAULT_LOG_SCHEMA):
+                           match_field: str = None, schema: str = DEFAULT_LOG_SCHEMA,
+                           problems=None):
     """
     Insert successful records into the SUCCESS table.
 
@@ -314,7 +354,7 @@ def insert_success_records(warehouse: Warehouse, job_id: str, success_data: list
             _sql_literal(warehouse, job_id),
             _sql_literal(warehouse, record.get('sf__Id')),
             _sql_boolean(record.get('sf__Created')),
-            _sql_boolean(record.get('sf__Success')),
+            _success_flag(record),
             _sql_literal(warehouse, json.dumps(errors)) if errors else 'NULL',
             _sql_literal(warehouse, match_field) if match_value is not None else 'NULL',
             _sql_literal(warehouse, match_value),
@@ -326,10 +366,12 @@ def insert_success_records(warehouse: Warehouse, job_id: str, success_data: list
         logger.info(f"✅ Inserted {len(rows)} successful records for job {job_id}")
 
     except Exception as e:
-        logger.error(f"❌ Error inserting success records: {e}")
+        _fail(problems, f"Could not save {len(rows)} success record(s) to {schema}.SUCCESS", e,
+              level=logging.ERROR)
 
 def insert_failure_records(warehouse: Warehouse, job_id: str, failure_data: list,
-                           match_field: str = None, schema: str = DEFAULT_LOG_SCHEMA):
+                           match_field: str = None, schema: str = DEFAULT_LOG_SCHEMA,
+                           problems=None):
     """
     Insert failed records into the FAILURE table.
 
@@ -361,8 +403,10 @@ def insert_failure_records(warehouse: Warehouse, job_id: str, failure_data: list
         logger.info(f"✅ Inserted {len(rows)} failed records for job {job_id}")
 
     except Exception as e:
-        logger.error(f"❌ Error inserting failure records: {e}")
-        raise
+        # Used to raise, unlike insert_success_records, which only logged. Both
+        # now report through `problems`, so process_bulk_api_results can say so.
+        _fail(problems, f"Could not save {len(rows)} failure record(s) to {schema}.FAILURE", e,
+              level=logging.ERROR)
 
 def process_bulk_api_results(session, access_info: dict, job_id: str, match_field: str = None,
                              schema: str = DEFAULT_LOG_SCHEMA):
@@ -385,6 +429,8 @@ def process_bulk_api_results(session, access_info: dict, job_id: str, match_fiel
             `lht.util.log_retl.job` takes for RETL_HISTORY.
     """
     logger.info(f"🚀 Processing Bulk API 2.0 results for job: {job_id}")
+    notes = []      # tables that could not be created: a likely cause, not a verdict
+    problems = []   # inserts that failed: data not saved. Empty means all of it was
 
     try:
         warehouse = from_session(session)
@@ -396,9 +442,9 @@ def process_bulk_api_results(session, access_info: dict, job_id: str, match_fiel
         # Step 1: Create schema and tables if they don't exist
         logger.info(f"📋 Setting up {schema} schema and tables...")
         create_logs_schema_if_not_exists(warehouse, schema)
-        create_job_info_table(warehouse, schema)
-        create_success_table(warehouse, schema)
-        create_failure_table(warehouse, schema)
+        create_job_info_table(warehouse, schema, notes)
+        create_success_table(warehouse, schema, notes)
+        create_failure_table(warehouse, schema, notes)
         
         # Step 2: Retrieve job information
         logger.info(f"📊 Retrieving job information for job {job_id}...")
@@ -406,13 +452,13 @@ def process_bulk_api_results(session, access_info: dict, job_id: str, match_fiel
         
         # Step 3: Insert job information
         logger.info("💾 Storing job information...")
-        insert_job_info(warehouse, job_info, job_id, schema=schema)
+        insert_job_info(warehouse, job_info, job_id, schema=schema, problems=problems)
         
         # Step 4: Retrieve and store successful results
         logger.info("📈 Retrieving successful results...")
         success_results = get_successful_results(access_info, job_id)
         insert_success_records(warehouse, job_id, success_results, match_field=match_field,
-                               schema=schema)
+                               schema=schema, problems=problems)
 
         # Step 5: Retrieve and store failed results
         logger.info("📉 Retrieving failed results...")
@@ -420,32 +466,44 @@ def process_bulk_api_results(session, access_info: dict, job_id: str, match_fiel
         logger.debug(f"📋 Failure results: {len(failure_results) if failure_results else 0} records")
 
         insert_failure_records(warehouse, job_id, failure_results, match_field=match_field,
-                               schema=schema)
+                               schema=schema, problems=problems)
         
         # Step 6: Summary
+        summary = {
+            'job_id': job_id,
+            'success_count': len(success_results),
+            'failure_count': len(failure_results),
+            'job_state': job_info.get('state', 'Unknown'),
+            # True only if everything was saved. Each step above swallows its own
+            # exception so that logging can never fail a load, which used to mean
+            # this said True after nothing had been written.
+            'success': not problems,
+        }
+        if problems:
+            reasons = notes + problems      # the table that could not be created, then the insert
+            summary['error'] = '; '.join(reasons)
+            logger.error(
+                f"❌ Results for job {job_id} were NOT fully saved to {schema}. "
+                f"{reasons[0]}"
+            )
+            return summary
+
         logger.info("✅ BULK API 2.0 RESULTS PROCESSING COMPLETED")
         logger.info(f"📊 Job ID: {job_id}")
         logger.info(f"📈 Successful Records: {len(success_results)}")
         logger.info(f"📉 Failed Records: {len(failure_results)}")
         logger.info(f"🗄️ Data stored in {schema} tables on {warehouse.name}")
-        
-        return {
-            'job_id': job_id,
-            'success_count': len(success_results),
-            'failure_count': len(failure_results),
-            'job_state': job_info.get('state', 'Unknown'),
-            'success': True
-        }
+        return summary
         
     except Exception as e:
-        logger.error(f"❌ ERROR processing Bulk API 2.0 results: {e}")
+        logger.error(f"❌ ERROR processing Bulk API 2.0 results: {brief_error(e)}")
         return {
             'job_id': job_id,
             'success_count': 0,
             'failure_count': 0,
             'job_state': 'Error',
             'success': False,
-            'error': str(e)
+            'error': brief_error(e)
         }
 
 # Legacy function for backward compatibility

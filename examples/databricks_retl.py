@@ -49,9 +49,10 @@ MATCH_FIELD = "Ext__c"
 # On the client-credentials flow, my_domain alone decides which Salesforce org
 # this reaches -- for a sandbox, give it the sandbox's own My Domain.
 SECRET_SCOPE = "salesforce"
-# Where the log tables go -- the job history and the per-record results. Qualify
-# it: a bare "LOGS" resolves against whichever catalog the session points at.
-LOG_SCHEMA = os.environ.get("LHT_LOG_SCHEMA", "main.lht_logs")
+# Where the log tables go -- the job history and the per-record results. Set it to
+# a qualified name ("my_catalog.lht_logs"); left unset, it is built from the
+# catalog this session already uses, rather than from a catalog name guessed here.
+LOG_SCHEMA = os.environ.get("LHT_LOG_SCHEMA")
 # Only used off Databricks, where there is no scope to read. None = primary.
 LOCAL_CONNECTION = os.environ.get("LHT_SALESFORCE_CONNECTION")
 # Only used off Databricks: the ~/.databrickscfg profile to connect with.
@@ -64,6 +65,11 @@ def main() -> int:
         scope=SECRET_SCOPE, connection_name=LOCAL_CONNECTION
     )
 
+    # Backticks, so a catalog name with a hyphen is still a valid identifier.
+    catalog = warehouse.rows("SELECT current_catalog() AS c")[0]["c"]
+    log_schema = LOG_SCHEMA or f"`{catalog}`.lht_logs"
+    print(f"Log tables: {log_schema}")
+
     result = retl.upsert(
         warehouse,
         access_info,
@@ -73,7 +79,7 @@ def main() -> int:
         # A NULL is an empty cell, which Salesforce reads as "leave unchanged".
         # clear_nulls=True sends '#N/A' instead, which clears the field.
         clear_nulls=False,
-        log_schema=LOG_SCHEMA,
+        log_schema=log_schema,
     )
 
     if result is None:
@@ -85,14 +91,17 @@ def main() -> int:
         f"{result['successful_batches']}/{result['total_batches']} batch(es)"
     )
 
-    # Per-record outcomes into LOGS.SUCCESS / LOGS.FAILURE, so a failure can be
-    # traced back to the source row that caused it. Best-effort by design.
+    # Per-record outcomes into SUCCESS / FAILURE, so a failure can be traced back to
+    # the source row that caused it. Best-effort by design: it never raises, so
+    # read what it returns -- success is False if anything could not be saved.
     for batch in result["batch_results"]:
         if batch.get("job_id"):
-            process_bulk_api_results(
+            outcome = process_bulk_api_results(
                 warehouse, access_info, batch["job_id"], match_field=MATCH_FIELD,
-                schema=LOG_SCHEMA,
+                schema=log_schema,
             )
+            if not outcome["success"]:
+                print(f"Results for job {batch['job_id']} were not saved: {outcome['error']}")
 
     # Non-zero if any batch failed, so a Job task surfaces it as a failure.
     return 1 if result["failed_batches"] else 0

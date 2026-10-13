@@ -127,7 +127,7 @@ def test_per_record_results_round_trip_through_spark(spark):
         )
 
     results_bapi.insert_success_records(recorded, '750XX1', [
-        {'sf__Id': '001XX1', 'sf__Created': 'true', 'sf__Success': 'true', 'Ext__c': "O'Brien"},
+        {'sf__Id': '001XX1', 'sf__Created': 'true', 'Ext__c': "O'Brien"},
     ], match_field='Ext__c')
     results_bapi.insert_failure_records(recorded, '750XX1', [
         {'sf__Id': '', 'sf__Error': "REQUIRED_FIELD_MISSING: can't be blank", 'Ext__c': 'K3'},
@@ -142,6 +142,9 @@ def test_per_record_results_round_trip_through_spark(spark):
     # The apostrophe survives. With `''` escaping Spark returns "OBrien".
     assert success['MATCH_ID'] == "O'Brien"
     assert success['CREATED'] is True
+    # Salesforce's successfulResults has no sf__Success column; a row in it is a
+    # success, and used to land as NULL.
+    assert success['SUCCESS'] is True
     assert success['CREATED_AT'] is not None
 
     failure = spark.sql('SELECT * FROM lht_test.R_FAILURE').collect()[0].asDict()
@@ -250,3 +253,28 @@ def test_job_history_lands_in_a_schema_that_did_not_exist(spark):
 
     rows = spark.sql(f'SELECT ID, OPERATION FROM {schema}.RETL_HISTORY').collect()
     assert [(r['ID'], r['OPERATION']) for r in rows] == [('750XX0000000099', 'upsert')]
+
+
+def test_logging_into_a_catalog_that_does_not_exist_reports_failure(spark):
+    """
+    The real engine's refusal, end to end: nothing can be saved, and the result
+    must say so in one short message. It used to say success=True, because every
+    step swallows its exception so that logging can never fail a load.
+    """
+    from unittest import mock
+
+    from lht.salesforce import results_bapi
+
+    with mock.patch.object(results_bapi, 'get_job_info', return_value={'state': 'JobComplete'}), \
+         mock.patch.object(results_bapi, 'get_successful_results',
+                           return_value=[{'sf__Id': '001XX1', 'sf__Created': 'true', 'Ext__c': 'K1'}]), \
+         mock.patch.object(results_bapi, 'get_failed_results', return_value=[]):
+        result = results_bapi.process_bulk_api_results(
+            spark, {'access_token': 't', 'instance_url': 'https://example.my.salesforce.com'},
+            '750XX0000000099', match_field='Ext__c', schema='no_such_catalog.lht_logs',
+        )
+
+    assert result['success'] is False
+    assert 'no_such_catalog' in result['error']
+    assert 'JVM stacktrace' not in result['error']
+    assert len(result['error']) < 1500, 'one readable message, not a stack trace'

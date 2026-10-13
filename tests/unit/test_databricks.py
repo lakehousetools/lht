@@ -7,6 +7,7 @@ The point of these is the equivalence. A notebook is meant to be able to hand
 and get the same bytes sent to Salesforce.
 """
 
+import logging
 from unittest import mock
 
 import pytest
@@ -566,3 +567,136 @@ def test_an_unusable_log_schema_never_fails_the_load():
     assert result['successful_batches'] == 1
     assert sent
     assert not any('DROP TABLE' in s for s in session.statements)
+
+
+# --- the SUCCESS column --------------------------------------------------
+
+def _success_insert(session):
+    return next(st for st in session.statements if st.startswith('INSERT INTO LOGS.SUCCESS'))
+
+
+def test_a_row_from_successful_results_is_marked_a_success():
+    # Salesforce's successfulResults CSV has no sf__Success column, so reading one
+    # always gave NULL. These are the columns it really has.
+    session = _SparkSession()
+    _process_results(session, failures=[], successes=[
+        {'sf__Id': '001XX1', 'sf__Created': 'true', 'Ext__c': 'K1'},
+        {'sf__Id': '001XX2', 'sf__Created': 'false', 'Ext__c': 'K2'},
+    ])
+    insert = _success_insert(session)
+    assert "'001XX1', TRUE, TRUE, NULL" in insert       # created
+    assert "'001XX2', FALSE, TRUE, NULL" in insert      # updated: still a success
+
+
+def test_an_explicit_sf_success_is_still_honoured():
+    session = _SparkSession()
+    _process_results(session, failures=[], successes=[
+        {'sf__Id': '001XX1', 'sf__Created': 'true', 'sf__Success': 'false', 'Ext__c': 'K1'},
+    ])
+    assert "'001XX1', TRUE, FALSE, NULL" in _success_insert(session)
+
+
+# --- saying so when the log could not be saved ---------------------------
+
+# The message Databricks gives for a catalog that does not exist: useful lines,
+# then a JVM stack trace.
+_NO_CATALOG = (
+    "[NO_SUCH_CATALOG_EXCEPTION] Catalog 'my_catalog' was not found. Please verify "
+    "the catalog name and then retry the query or command again. SQLSTATE: 42704\n\n"
+    "JVM stacktrace:\norg.apache.spark.sql.catalyst.analysis.NoSuchCatalogException\n"
+    "\tat com.databricks.sql.managedcatalog.client.ManagedCatalogClientImpl.getCatalogProto(X.scala:741)"
+)
+
+_REAL_SUCCESSES = [{'sf__Id': '001XX1', 'sf__Created': 'true', 'Ext__c': 'K1'}]
+_REAL_FAILURES = [{'sf__Id': '', 'sf__Error': 'REQUIRED_FIELD_MISSING', 'Ext__c': 'K2'}]
+
+
+class _Refusing(_SparkSession):
+    """Refuses the writes `refuses` picks out, the way Databricks words a refusal."""
+
+    def __init__(self, refuses):
+        super().__init__()
+        self.refuses = refuses
+
+    def sql(self, statement):
+        if self.refuses(statement):
+            raise RuntimeError(_NO_CATALOG)
+        return super().sql(statement)
+
+
+def _any_write(statement):
+    return not statement.lstrip().upper().startswith(('SELECT', 'WITH'))
+
+
+def test_logging_that_saved_nothing_no_longer_reports_success(caplog):
+    # process_bulk_api_results used to return success=True here: every step swallows
+    # its own exception so that logging can never fail a load, and nothing then
+    # told the caller that nothing had been written.
+    with caplog.at_level(logging.WARNING, logger='lht.salesforce.results_bapi'):
+        result = _process_results(_Refusing(_any_write), _REAL_SUCCESSES, _REAL_FAILURES)
+
+    assert result['success'] is False
+    assert "Catalog 'my_catalog' was not found" in result['error']
+    # The counts are still what Salesforce reported -- those were fetched fine.
+    assert (result['success_count'], result['failure_count']) == (1, 1)
+
+
+def test_the_error_names_each_thing_that_went_wrong_without_the_stack_trace(caplog):
+    with caplog.at_level(logging.WARNING, logger='lht.salesforce.results_bapi'):
+        result = _process_results(_Refusing(_any_write), _REAL_SUCCESSES, _REAL_FAILURES)
+
+    for table in ('JOB_INFO', 'SUCCESS', 'FAILURE'):
+        assert f'LOGS.{table}' in result['error'], table
+    assert 'JVM stacktrace' not in result['error']
+    assert 'com.databricks' not in result['error']
+    # ...and not in the log either, where it buried the one useful line.
+    assert 'JVM stacktrace' not in caplog.text
+    assert 'com.databricks' not in caplog.text
+
+
+def test_one_clear_error_line_summarises_a_failed_save(caplog):
+    with caplog.at_level(logging.WARNING, logger='lht.salesforce.results_bapi'):
+        _process_results(_Refusing(_any_write), _REAL_SUCCESSES, _REAL_FAILURES)
+
+    summaries = [r for r in caplog.records if 'NOT fully saved' in r.getMessage()]
+    assert len(summaries) == 1
+    assert summaries[0].levelno == logging.ERROR
+    assert "Catalog 'my_catalog' was not found" in summaries[0].getMessage()
+
+
+def test_one_failing_insert_does_not_stop_the_others():
+    session = _Refusing(lambda st: st.startswith('INSERT INTO LOGS.SUCCESS'))
+    result = _process_results(session, _REAL_SUCCESSES, _REAL_FAILURES)
+
+    assert result['success'] is False
+    assert 'LOGS.SUCCESS' in result['error'] and 'LOGS.FAILURE' not in result['error']
+    inserted = [st.split(' (')[0] for st in session.statements if st.startswith('INSERT')]
+    assert 'INSERT INTO LOGS.JOB_INFO' in inserted
+    assert 'INSERT INTO LOGS.FAILURE' in inserted
+
+
+def test_a_role_that_cannot_create_tables_but_can_write_to_them_is_not_a_failure(caplog):
+    # CREATE TABLE needs a privilege that inserting does not. If the tables already
+    # exist and the writes land, the log was saved: that is not a failure, though
+    # the refused CREATE is still worth a warning.
+    session = _Refusing(lambda st: st.startswith(('CREATE TABLE', 'CREATE SCHEMA')))
+    with caplog.at_level(logging.WARNING, logger='lht.salesforce.results_bapi'):
+        result = _process_results(session, _REAL_SUCCESSES, _REAL_FAILURES)
+
+    assert result['success'] is True
+    assert 'error' not in result
+    assert 'Could not create' in caplog.text
+
+
+def test_logging_that_saved_everything_still_reports_success():
+    result = _process_results(_SparkSession(), _REAL_SUCCESSES, _REAL_FAILURES)
+    assert result['success'] is True
+    assert 'error' not in result
+
+
+def test_a_save_with_nothing_to_insert_is_not_a_failure():
+    # No failures to record means no FAILURE insert, so a FAILURE table that cannot
+    # be created has cost nothing.
+    session = _Refusing(lambda st: 'FAILURE' in st)
+    result = _process_results(session, _REAL_SUCCESSES, failures=[])
+    assert result['success'] is True

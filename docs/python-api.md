@@ -198,7 +198,23 @@ for batch in result["batch_results"]:
 That writes `JOB_INFO`, `SUCCESS` and `FAILURE` in the given schema, creating
 them on first use with the right column types for the backend. Passing
 `match_field` is what records which source record produced which Salesforce Id.
-It is best-effort: a logging failure is a warning, never a failed load.
+It is best-effort: a logging failure never fails the load, and never raises.
+
+Because it never raises, **check what it returns**: `{"job_id", "success_count",
+"failure_count", "job_state", "success"}`, plus `"error"` when `success` is
+`False`. `success` is `True` only if everything was saved. When it isn't,
+`error` names each thing that couldn't be (one short line per problem, without
+Spark's stack trace), so a log that wasn't written can't pass for one that was.
+
+```python
+outcome = process_bulk_api_results(session, access_info, job_id,
+                                   match_field="External_Id__c", schema="LOGS")
+if not outcome["success"]:
+    print(outcome["error"])
+```
+
+Every row in `SUCCESS` is a record Salesforce accepted, so its `SUCCESS` column
+is `TRUE`; `CREATED` says whether it was created or updated.
 
 `schema` defaults to a bare `LOGS`, which resolves against whatever database or
 catalog the session points at. On Unity Catalog, qualify it.

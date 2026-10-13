@@ -12,6 +12,7 @@ import pytest
 from lht.warehouse import DatabricksWarehouse, SnowflakeWarehouse, Warehouse, from_session
 from lht.warehouse.base import (
     FAILURE_COLUMNS,
+    brief_error,
     JOB_INFO_COLUMNS,
     RETL_HISTORY_COLUMNS,
     SUCCESS_COLUMNS,
@@ -294,3 +295,57 @@ def test_a_missing_timestamp_is_null_not_a_broken_cast(warehouse_class, session_
 def test_warehouse_is_abstract_so_a_backend_must_define_its_dialect():
     with pytest.raises(TypeError):
         Warehouse(_FakeSession())
+
+
+# --- error messages -----------------------------------------------------
+
+# What Databricks actually sends: a few useful sentences, a SQLSTATE, then a JVM
+# stack trace (and, for some errors, a dump of the query plan after the state).
+_DATABRICKS_ERROR = (
+    "[SCHEMA_NOT_FOUND] The schema `my_catalog.lht_logs` cannot be found. Verify the\n"
+    "spelling and correctness of the schema and catalog.\n"
+    "To tolerate the error on drop use DROP SCHEMA IF EXISTS. SQLSTATE: 42704\n\n"
+    "JVM stacktrace:\n"
+    "org.apache.spark.sql.catalyst.analysis.NoSuchDatabaseException\n"
+    "\tat com.databricks.sql.managedcatalog.client.ManagedCatalogClientImpl.createStagingTable(X.scala:1731)\n"
+    "\tat com.databricks.spark.util.FrameProfiler$.record(FrameProfiler.scala:105)"
+)
+
+
+def test_brief_error_keeps_the_cause_and_drops_the_stack_trace():
+    brief = brief_error(RuntimeError(_DATABRICKS_ERROR))
+
+    assert brief.startswith("[SCHEMA_NOT_FOUND] The schema `my_catalog.lht_logs` cannot be found.")
+    assert brief.endswith("SQLSTATE: 42704")
+    assert 'JVM stacktrace' not in brief
+    assert 'com.databricks' not in brief
+    assert '\n' not in brief
+
+
+def test_brief_error_stops_at_the_sqlstate_so_a_plan_dump_does_not_follow_it():
+    plan = ("[TABLE_OR_VIEW_NOT_FOUND] The table or view `c`.`s`.`t` cannot be found. "
+            "SQLSTATE: 42P01; line 1 pos 12;\n'InsertIntoStatement 'UnresolvedRelation [c, s, t]\n"
+            "+- ResolvedInlineTable [[a, b, c]]")
+    brief = brief_error(RuntimeError(plan))
+    assert brief.endswith("SQLSTATE: 42P01")
+    assert 'InsertIntoStatement' not in brief
+
+
+def test_brief_error_drops_a_stack_trace_even_when_there_is_no_sqlstate():
+    # Not every error carries a SQLSTATE to cut at; the trace has to go regardless.
+    message = ("Could not reach the metastore\n\nJVM stacktrace:\n"
+               "java.net.ConnectException\n\tat com.databricks.X.y(Z.scala:1)")
+    assert brief_error(RuntimeError(message)) == "Could not reach the metastore"
+
+
+def test_brief_error_leaves_an_ordinary_message_alone():
+    assert brief_error(ValueError("not a valid name")) == "not a valid name"
+
+
+def test_brief_error_caps_a_message_with_no_sqlstate():
+    brief = brief_error(RuntimeError("x" * 1000), limit=50)
+    assert len(brief) == 50 and brief.endswith("…")
+
+
+def test_brief_error_names_the_exception_when_it_has_no_message():
+    assert brief_error(RuntimeError()) == "RuntimeError"

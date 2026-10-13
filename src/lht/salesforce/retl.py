@@ -5,6 +5,7 @@ import logging
 from lht.util import csv
 from lht.util import log_retl
 from lht.warehouse import from_session
+from lht.warehouse.base import brief_error
 from . import ingest_bapi20 as ingest
 import time
 from lht.util.http import DEFAULT_TIMEOUT
@@ -50,7 +51,7 @@ def _log_job(warehouse, job_info, schema='LOGS'):
     try:
         log_retl.job(warehouse, job_info, schema=schema)
     except Exception as e:
-        logger.warning(f"⚠️ Could not log job to {schema}.RETL_HISTORY: {e}")
+        logger.warning(f"⚠️ Could not log job to {schema}.RETL_HISTORY: {brief_error(e)}")
 
 def upsert(session, access_info, sobject, query, field, batch_size=25000, clear_nulls=False,
            log_schema='LOGS'):

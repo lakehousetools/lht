@@ -25,7 +25,7 @@ def identifier(name) -> str:
     """
     text = str(name).strip()
     if not _IDENTIFIER.match(text):
-        raise ValueError(f"Not a valid Snowflake identifier: {name!r}")
+        raise ValueError(f"Not a valid SQL identifier: {name!r}")
     return text
 
 

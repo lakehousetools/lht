@@ -43,6 +43,27 @@ def iso_timestamp(value: Optional[str]) -> Optional[str]:
     return text[:19] + (fraction.group(1)[:4] if fraction else '')
 
 
+def brief_error(error: BaseException, limit: int = 400) -> str:
+    """
+    An exception's message as one short line, for log lines and result dicts.
+
+    Spark and Databricks errors arrive as a few useful sentences followed by a
+    JVM stack trace of a hundred frames, and sometimes a dump of the query plan.
+    Pasted into a notebook cell's output that buries the one line that says what
+    went wrong. The message is cut after its ``SQLSTATE`` code when it has one,
+    since everything after that is plan or stack detail, then flattened to a
+    single line and capped at `limit` characters.
+    """
+    text = str(error).split('JVM stacktrace:')[0]
+    state = re.search(r'SQLSTATE: \w+', text)
+    if state:
+        text = text[:state.end()]
+    text = ' '.join(text.split())
+    if len(text) > limit:
+        text = text[:limit - 1].rstrip() + '…'
+    return text or type(error).__name__
+
+
 def row_to_dict(row: Any) -> Dict[str, Any]:
     """
     One result row as a plain dict.
