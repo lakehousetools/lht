@@ -3,6 +3,7 @@ import logging
 import requests
 from . import csv
 from lht.util.http import DEFAULT_TIMEOUT
+from lht.util.sql import identifier
 from lht.warehouse import from_session
 from lht.warehouse.base import RETL_HISTORY_COLUMNS
 
@@ -144,7 +145,7 @@ def check_log(session, id, schema='LOGS'):
 
 def history_query(id, database=None, schema='LOGS'):
     """Build the dedupe lookup joining RETL_HISTORY to RETL_RESULTS for one job id."""
-    prefix = "{}.{}".format(database, schema) if database else schema
+    prefix = identifier("{}.{}".format(database, schema) if database else schema)
     query = """with history as (
                 select
                 ID,

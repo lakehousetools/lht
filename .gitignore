@@ -16,7 +16,12 @@ __pycache__/
 .snowflake/
 
 *.p8
+*.pem
+*.key
 *.pub
+# lht's saved connections hold client secrets; the default home is outside any clone,
+# but LHT_HOME can point inside one
+connections.toml
 # C extensions
 *.so
 

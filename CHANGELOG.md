@@ -2,6 +2,20 @@
 
 All notable changes to lht. Versions follow [semantic versioning](https://semver.org/).
 
+## Unreleased
+
+Hardening, from a scan of the repository and its history for leaked secrets (none found).
+
+### Changed
+
+- `lht merge` refuses a Salesforce SOAP reply that declares a DTD or entity, instead of handing it to the XML parser. A SOAP reply never has one; the standard-library parser expands internal entities, so a crafted reply could balloon in memory.
+- `lht.util.log_retl.history_query()` (and so `check_log()`) validates the database and schema it formats into SQL with `identifier()`, as the rest of the package does. A bad name now raises `ValueError`.
+- `.gitignore` also covers `connections.toml`, `*.pem` and `*.key`, so a config directory pointed inside a clone with `LHT_HOME` can't be committed by accident.
+
+### Removed
+
+- `lht.salesforce.sobject_sync`, which was not imported anywhere and could not have worked: its one function, `new_changed_records()`, called `merge.format_filter_condition()`, which doesn't exist.
+
 ## 3.0.0 — 2026-10-13
 
 Databricks reverse ETL, and a warehouse-independent core.

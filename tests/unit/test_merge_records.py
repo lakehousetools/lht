@@ -88,6 +88,16 @@ def test_a_soap_fault_is_raised():
         m.parse_response(fault, [(A, [B])])
 
 
+def test_a_response_that_declares_a_dtd_is_refused():
+    # A SOAP reply never has one. An internal entity would be expanded by the parser,
+    # so a crafted reply could balloon in memory; refuse it before parsing.
+    bomb = ('<?xml version="1.0"?><!DOCTYPE r [<!ENTITY a "aaaaaaaaaa"><!ENTITY b "&a;&a;&a;&a;">]>'
+            '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">'
+            "<soapenv:Body>&b;</soapenv:Body></soapenv:Envelope>")
+    with pytest.raises(RuntimeError, match="DTD"):
+        m.parse_response(bomb, [(A, [B])])
+
+
 class _Row(dict):
     def asDict(self):
         return dict(self)

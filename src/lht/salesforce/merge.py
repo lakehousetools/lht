@@ -108,6 +108,11 @@ def soap_envelope(session_id, sobject, merge_requests):
 
 def parse_response(xml_text, merge_requests):
     """One result per request, in request order, as dicts."""
+    # A SOAP reply never carries a DTD. The standard-library parser doesn't resolve
+    # external entities, but it does expand internal ones, so refuse a document that
+    # declares any rather than parse it.
+    if re.search(r'<!\s*(?:DOCTYPE|ENTITY)', xml_text, re.IGNORECASE):
+        raise RuntimeError("Salesforce merge response contains a DTD, which a SOAP reply never does; refusing to parse it")
     root = ET.fromstring(xml_text)
     fault = root.find(".//{http://schemas.xmlsoap.org/soap/envelope/}Fault")
     if fault is not None:

@@ -37,3 +37,13 @@ def test_literal_escapes_single_quotes():
 
 def test_literal_renders_none_as_null():
     assert literal(None) == "NULL"
+
+
+def test_the_history_lookup_refuses_a_schema_that_could_inject_sql():
+    from lht.util.log_retl import history_query
+
+    assert "MY_DB.LOGS.RETL_HISTORY" in history_query("750x", database="MY_DB", schema="LOGS")
+    with pytest.raises(ValueError):
+        history_query("750x", schema="LOGS; DROP TABLE X")
+    with pytest.raises(ValueError):
+        history_query("750x", database="DB --", schema="LOGS")
