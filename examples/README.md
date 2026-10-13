@@ -5,5 +5,6 @@
 | [`sync_core_objects.py`](sync_core_objects.py) | Sync several objects using saved connections |
 | [`headless_sync.py`](headless_sync.py) | Sync with credentials from environment variables (CI / orchestrators) |
 | [`databricks_retl.py`](databricks_retl.py) | Reverse ETL from Unity Catalog into Salesforce; runs in a notebook, a Job, or locally via Databricks Connect |
+| [`databricks_placekey.py`](databricks_placekey.py) | Databricks notebook: Placekeys for any address table, written to a lineage crosswalk keyed by source table + id (standalone; doesn't use lht) |
 | [`reverse_etl_account_scores.sql`](reverse_etl_account_scores.sql) | Query for `lht retl upsert`: push model output to Salesforce |
 | [`merge_duplicate_accounts.sql`](merge_duplicate_accounts.sql) | Query for `lht merge`: dedupe accounts by website |
