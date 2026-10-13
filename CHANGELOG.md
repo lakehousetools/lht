@@ -2,6 +2,12 @@
 
 All notable changes to lht. Versions follow [semantic versioning](https://semver.org/).
 
+## Unreleased
+
+### Added
+
+- **A Databricks secret scope backed by Azure Key Vault now works with `salesforce_access_info(scope=...)`.** Key Vault secret names cannot contain an underscore, so `client_id`, `client_secret`, `my_domain`, `private_key_pem` and the rest could not be created there, and lht found nothing in the scope. Each key is now also read under its hyphenated spelling (`client-id`, `client-secret`, `my-domain`, `private-key-pem`). If a scope holds both spellings, the underscore one is used. Nothing changes for an ordinary scope.
+
 ## 3.0.0 — 2026-10-13
 
 Databricks reverse ETL, and a warehouse-independent core.

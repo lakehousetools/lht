@@ -74,6 +74,16 @@ databricks secrets put-secret salesforce my_domain
 
 `salesforce_access_info(scope="salesforce")` reads those, so the secret never appears in the notebook, in its output, or in a revision. For the JWT bearer flow — which needs no secret and suits a scheduled job — add `auth_flow=jwt_bearer`, `username` and `private_key_pem` to the scope instead. Both flows are described under [Authentication](authentication.md).
 
+### Azure Key Vault
+
+A secret scope [backed by Azure Key Vault](https://learn.microsoft.com/azure/databricks/security/secrets/) works the same way, with one difference: Key Vault secret names allow only letters, digits and hyphens, so write the keys with hyphens — `client-id`, `client-secret`, `my-domain` (and `auth-flow`, `username`, `private-key-pem` for the JWT bearer flow). lht reads either spelling, and prefers the underscore one if a scope somehow has both.
+
+```python
+access_info = salesforce_access_info(scope="kv-salesforce")
+```
+
+Add and change the secrets in Azure; a Key Vault-backed scope is read-only from Databricks, so `databricks secrets put-secret` does not apply to it.
+
 !!! warning "Pointing at a sandbox"
     On the default client-credentials flow, **`my_domain` alone decides which org you reach** — put the sandbox's own My Domain there (`acme--dev.sandbox`, not `acme`). A `sandbox` key in the scope only affects the JWT bearer flow's login URL; on client credentials it changes nothing, and lht logs a warning if you set it alongside a production-looking domain. Print `access_info["instance_url"]` once to confirm which org you actually authenticated against.
 

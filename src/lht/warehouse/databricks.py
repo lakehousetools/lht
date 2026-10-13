@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from lht.warehouse.base import Warehouse, iso_timestamp
 
@@ -228,7 +228,9 @@ def connect(
 # Secret-scope key -> the credentials key it maps to. The names match a
 # connections.toml Salesforce entry, so the same credentials work either way;
 # `client_secret` is accepted too, since that is what Salesforce's own UI calls
-# the value people put in the scope.
+# the value people put in the scope. Each key is also read under its hyphenated
+# spelling (`client-id`), because an Azure Key Vault secret name cannot contain an
+# underscore, and a Key Vault-backed scope serves the vault's names unchanged.
 _SALESFORCE_SECRET_KEYS = {
     'auth_flow': 'auth_flow',
     'client_id': 'client_id',
@@ -265,7 +267,9 @@ def salesforce_access_info(
             ones a connections.toml Salesforce entry uses --
             ``client_id``/``client_key`` (or ``client_secret``)/``my_domain`` for
             the default client-credentials flow, or ``auth_flow='jwt_bearer'``
-            with ``client_id``/``username``/``private_key_pem``.
+            with ``client_id``/``username``/``private_key_pem``. Hyphens work in
+            place of underscores (``client-id``), for a scope backed by Azure
+            Key Vault, whose secret names cannot contain underscores.
         connection_name: Salesforce connection to use off Databricks. The
             primary one if None. ``lht.user.connections.register_connection()``
             registers one in memory, with no file on disk.
@@ -291,6 +295,12 @@ def salesforce_access_info(
     return get_salesforce_access_info(connection_name)
 
 
+def _spellings(key: str) -> Tuple[str, ...]:
+    """A scope key as written, then hyphenated: Key Vault names cannot hold an underscore."""
+    hyphenated = key.replace('_', '-')
+    return (key, hyphenated) if hyphenated != key else (key,)
+
+
 def _credentials_from_scope(scope: str) -> Dict[str, Any]:
     """Build a Salesforce credentials dict from the keys present in a scope."""
     dbutils = _dbutils()
@@ -300,19 +310,21 @@ def _credentials_from_scope(scope: str) -> Dict[str, Any]:
         # list() needs the same READ grant as get(), but don't let a surprise
         # here hide a scope that is perfectly readable key by key.
         logger.debug(f"Could not list secret scope '{scope}' ({e}); trying each key.")
-        available = set(_SALESFORCE_SECRET_KEYS)
+        available = {name for key in _SALESFORCE_SECRET_KEYS for name in _spellings(key)}
 
     credentials: Dict[str, Any] = {}
     for key in _SALESFORCE_SECRET_KEYS:
-        if key not in available:
-            continue
-        try:
-            value = dbutils.secrets.get(scope=scope, key=key)
-        except Exception:
-            continue
-        if value == '':
-            continue
-        credentials[_SALESFORCE_SECRET_KEYS[key]] = value
+        for name in _spellings(key):
+            if name not in available:
+                continue
+            try:
+                value = dbutils.secrets.get(scope=scope, key=name)
+            except Exception:
+                continue
+            if value == '':
+                continue
+            credentials[_SALESFORCE_SECRET_KEYS[key]] = value
+            break  # the underscore spelling, if there is one, wins over the hyphenated
 
     if 'sandbox' in credentials:
         credentials['sandbox'] = str(credentials['sandbox']).strip().lower() in ('true', '1', 'yes')
@@ -320,7 +332,8 @@ def _credentials_from_scope(scope: str) -> Dict[str, Any]:
     if not credentials:
         raise ValueError(
             f"Secret scope '{scope}' holds none of the keys lht looks for "
-            f"({', '.join(sorted(_SALESFORCE_SECRET_KEYS))}). Create them with "
+            f"({', '.join(sorted(_SALESFORCE_SECRET_KEYS))}; hyphens work too, "
+            f"as in client-id). Create them with "
             f"`databricks secrets put-secret {scope} client_id` and so on."
         )
     return credentials

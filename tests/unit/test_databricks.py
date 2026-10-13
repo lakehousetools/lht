@@ -425,6 +425,55 @@ def test_a_scope_without_list_permission_is_still_read_key_by_key():
     assert authenticate.call_args[0][0]['client_id'] == 'cid'
 
 
+def test_hyphenated_keys_work_for_a_key_vault_backed_scope():
+    # Azure Key Vault secret names cannot contain an underscore, and a Key Vault-backed
+    # scope serves the vault's names as they are.
+    from lht.warehouse import databricks as dbx
+
+    values = {'client-id': 'cid', 'client-secret': 'shhh', 'my-domain': 'example'}
+    with _with_dbutils(values), \
+         mock.patch('lht.user.salesforce_auth.get_salesforce_access_info_from_credentials',
+                    return_value=ACCESS_INFO) as authenticate:
+        dbx.salesforce_access_info(scope='kv')
+
+    assert authenticate.call_args[0][0] == {
+        'client_id': 'cid', 'client_key': 'shhh', 'my_domain': 'example',
+    }
+
+
+def test_hyphenated_jwt_keys_and_a_scope_that_cannot_be_listed():
+    from lht.warehouse import databricks as dbx
+
+    class _OnlyGet(_Secrets):
+        def get(self, scope, key):
+            if key not in self.values:
+                raise KeyError(key)
+            return self.values[key]
+
+    secrets = _OnlyGet({'auth-flow': 'jwt_bearer', 'client-id': 'cid', 'username': 'u@example.com',
+                        'private-key-pem': 'PEM'}, can_list=False)
+    with mock.patch.object(dbx, '_dbutils', return_value=mock.Mock(secrets=secrets)), \
+         mock.patch('lht.user.salesforce_auth.get_salesforce_access_info_from_credentials',
+                    return_value=ACCESS_INFO) as authenticate:
+        dbx.salesforce_access_info(scope='kv')
+
+    assert authenticate.call_args[0][0] == {
+        'auth_flow': 'jwt_bearer', 'client_id': 'cid', 'username': 'u@example.com',
+        'private_key_pem': 'PEM',
+    }
+
+
+def test_the_underscore_spelling_wins_when_both_exist():
+    from lht.warehouse import databricks as dbx
+
+    values = {'client_id': 'underscore', 'client-id': 'hyphen', 'client_key': 'k', 'my_domain': 'd'}
+    with _with_dbutils(values), \
+         mock.patch('lht.user.salesforce_auth.get_salesforce_access_info_from_credentials',
+                    return_value=ACCESS_INFO) as authenticate:
+        dbx.salesforce_access_info(scope='salesforce')
+    assert authenticate.call_args[0][0]['client_id'] == 'underscore'
+
+
 def test_sandbox_arrives_from_a_scope_as_a_boolean():
     from lht.warehouse import databricks as dbx
 
