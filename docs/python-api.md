@@ -191,13 +191,17 @@ result = retl.upsert(session, access_info, "Account", query, "External_Id__c")
 for batch in result["batch_results"]:
     if batch.get("job_id"):
         process_bulk_api_results(session, access_info, batch["job_id"],
-                                 match_field="External_Id__c")
+                                 match_field="External_Id__c",
+                                 schema="LOGS")        # main.lht_logs on Databricks
 ```
 
-That writes `LOGS.JOB_INFO`, `LOGS.SUCCESS` and `LOGS.FAILURE` in the warehouse,
-creating them on first use with the right column types for the backend. Passing
+That writes `JOB_INFO`, `SUCCESS` and `FAILURE` in the given schema, creating
+them on first use with the right column types for the backend. Passing
 `match_field` is what records which source record produced which Salesforce Id.
 It is best-effort: a logging failure is a warning, never a failed load.
+
+`schema` defaults to a bare `LOGS`, which resolves against whatever database or
+catalog the session points at. On Unity Catalog, qualify it.
 
 ## Merge records
 

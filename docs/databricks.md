@@ -56,6 +56,9 @@ databricks secrets put-secret salesforce my_domain
 
 `salesforce_access_info(scope="salesforce")` reads those, so the secret never appears in the notebook, in its output, or in a revision. For the JWT bearer flow — which needs no secret and suits a scheduled job — add `auth_flow=jwt_bearer`, `username` and `private_key_pem` to the scope instead. Both flows are described under [Authentication](authentication.md).
 
+!!! warning "Pointing at a sandbox"
+    On the default client-credentials flow, **`my_domain` alone decides which org you reach** — put the sandbox's own My Domain there (`acme--dev.sandbox`, not `acme`). A `sandbox` key in the scope only affects the JWT bearer flow's login URL; on client credentials it changes nothing, and lht logs a warning if you set it alongside a production-looking domain. Print `access_info["instance_url"]` once to confirm which org you actually authenticated against.
+
 ## Developing locally, running in a notebook
 
 The same file can run both places, which is the point of `connect()` and `salesforce_access_info()` taking no arguments that only make sense in one of them.
@@ -121,7 +124,9 @@ WHERE a.score IS NOT NULL
 
 ## Result logging
 
-`--log-results`, or `lht.salesforce.results_bapi.process_bulk_api_results()`, writes per-record outcomes to a `LOGS` schema in Unity Catalog: `LOGS.JOB_INFO`, `LOGS.SUCCESS` and `LOGS.FAILURE`, created as Delta tables on first use. Pass the match field and each row records which source record produced which Salesforce Id — or which error.
+`--log-results`, or `lht.salesforce.results_bapi.process_bulk_api_results()`, writes per-record outcomes to `JOB_INFO`, `SUCCESS` and `FAILURE`, created as Delta tables on first use. Pass the match field and each row records which source record produced which Salesforce Id — or which error.
+
+**Qualify the schema.** The default is a bare `LOGS`, which resolves against whatever catalog the session happens to point at — rarely what you want on Unity Catalog. Name it outright:
 
 ```python
 from lht.salesforce.results_bapi import process_bulk_api_results
@@ -129,16 +134,19 @@ from lht.salesforce.results_bapi import process_bulk_api_results
 result = retl.upsert(warehouse, access_info, "Account", query, "Ext__c")
 for batch in result["batch_results"]:
     if batch.get("job_id"):
-        process_bulk_api_results(warehouse, access_info, batch["job_id"], match_field="Ext__c")
+        process_bulk_api_results(warehouse, access_info, batch["job_id"],
+                                 match_field="Ext__c", schema="main.lht_logs")
 ```
+
+From the CLI, that's `--log-schema main.lht_logs`. Then:
 
 ```sql
 SELECT match_id AS external_id, sf_error
-FROM logs.failure
+FROM main.lht_logs.failure
 WHERE job_id = '750...'
 ```
 
-Logging is best-effort: if the `LOGS` schema isn't writable, the load still completes and the failure is a warning. Create the schema where your catalog wants it, or use a catalog your cluster can write to.
+Logging is best-effort: if the schema isn't writable, the load still completes and the failure is a warning. A schema name that can't be used at all — a typo, or something that isn't a valid identifier — is reported once as a failed logging result rather than as four warnings.
 
 ## Scheduling
 
@@ -158,4 +166,5 @@ For a Python task rather than a notebook, `connect()` still finds the job's Spar
 | `Could not start a Databricks Connect session` | The profile has no host/token, or no compute. Add `serverless_compute_id = auto` or a `cluster_id` to the profile. |
 | `Cannot read secret <scope>/<key>: dbutils is not available` | `salesforce_access_info(scope=...)` off-platform. Pass `connection_name=` as well, or set up a local connection. |
 | `Connecting to Snowflake needs the Snowpark client` | A Snowflake path was reached. On Databricks you want `--databricks` / `connect()`, not a Snowflake connection. |
-| `Table or view not found` on a `LOGS` table | The catalog or schema isn't writable by the cluster. Logging is best-effort and the load still ran. |
+| `Table or view not found` on a log table | The catalog or schema isn't writable by the cluster, or `schema` wasn't qualified and resolved somewhere unexpected. Logging is best-effort and the load still ran. |
+| Logged in to the wrong Salesforce org | `my_domain` decides, not `sandbox`. See the warning under [Credentials](#credentials). |

@@ -31,7 +31,8 @@ By default a `NULL` becomes an empty CSV cell, which Salesforce treats as "don't
 ## Results and logging
 
 - `lht get-job-results JOB_ID` downloads the successful, failed and unprocessed CSVs for any ingest job.
-- `--log-results` records job metadata and per-record outcomes in a `LOGS` schema in the warehouse (`LOGS.RETL_HISTORY`, `LOGS.JOB_INFO`, `LOGS.SUCCESS`, `LOGS.FAILURE`), created on first use — as Snowflake tables or Delta tables, depending on the warehouse. Pass `--match-field` and each row records which source record produced which Salesforce Id. Logging is best-effort: a logging failure never aborts the load.
+- `--log-results` records job metadata and per-record outcomes in a `LOGS` schema in the warehouse (`RETL_HISTORY`, `JOB_INFO`, `SUCCESS`, `FAILURE`), created on first use — as Snowflake tables or Delta tables, depending on the warehouse. Pass `--match-field` and each row records which source record produced which Salesforce Id. Logging is best-effort: a logging failure never aborts the load.
+- `--log-schema` puts those tables somewhere other than a bare `LOGS`. Worth setting on Databricks, where an unqualified name resolves against whichever catalog the session points at: `--log-schema main.lht_logs`.
 
 ## Tips
 

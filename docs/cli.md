@@ -137,7 +137,8 @@ options:
 usage: lht retl [-h] --sobject SOBJECT (--sql SQL | --sql-file SQL_FILE)
                 [--match-field MATCH_FIELD] [--batch-size BATCH_SIZE]
                 [--snowflake NAME | --databricks [PROFILE]]
-                [--salesforce NAME] [--clear-nulls] [--log-results] [-v]
+                [--salesforce NAME] [--clear-nulls] [--log-results]
+                [--log-schema SCHEMA] [-v]
                 {upsert,insert,update,delete}
 
 Push rows from a warehouse SQL query into a Salesforce SObject using Bulk API
@@ -171,6 +172,9 @@ options:
                         which Salesforce treats as 'leave unchanged'
   --log-results         (Best-effort) Log ingest results into LOGS schema
                         tables in the warehouse
+  --log-schema SCHEMA   Schema for the --log-results tables (default: LOGS).
+                        Qualify it (e.g. main.lht_logs) rather than relying
+                        on the session's current database or catalog
   -v, --verbose         Show detailed progress and debug output
 ```
 

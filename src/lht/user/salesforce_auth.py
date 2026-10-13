@@ -8,10 +8,13 @@ credentials and save connection configurations.
 import base64
 import getpass
 import json
+import logging
 import os
 import time
 from typing import Dict, Optional, Any
 import requests
+
+logger = logging.getLogger(__name__)
 
 try:
     from cryptography.hazmat.primitives import hashes, serialization
@@ -234,7 +237,11 @@ def get_salesforce_access_info_from_credentials(credentials: Dict[str, Any]) -> 
         username, private_key_pem (bytes or str), login_url (optional --
         defaults from `sandbox`), private_key_passphrase (optional).
       - 'client_credentials' (default, matches the interactive flow):
-        needs client_id, client_key, my_domain.
+        needs client_id, client_key, my_domain. `sandbox` has no effect here:
+        the token endpoint is built from `my_domain`, so a sandbox is reached
+        by giving the sandbox's own My Domain (e.g. 'acme--dev.sandbox'). A
+        `sandbox` flag set on this flow is warned about rather than silently
+        ignored -- believing it redirects you is how production gets written to.
 
     Args:
         credentials: Dict as described above.
@@ -276,6 +283,17 @@ def get_salesforce_access_info_from_credentials(credentials: Dict[str, Any]) -> 
         if not client_id or not client_key or not my_domain:
             raise ValueError(
                 "client_credentials auth needs: client_id, client_key, my_domain"
+            )
+        if credentials.get('sandbox') and '.sandbox' not in my_domain.lower():
+            # Only the jwt_bearer flow has a login_url for `sandbox` to switch.
+            # Here the org is whatever my_domain names, so a `sandbox` flag with
+            # a production-looking domain is almost certainly a mistake -- and a
+            # silent one, since the login succeeds against the wrong org.
+            logger.warning(
+                "⚠️ sandbox=true has no effect on the client_credentials flow, and "
+                f"my_domain '{my_domain}' does not look like a sandbox domain. This "
+                "will authenticate against whichever org that domain belongs to. For "
+                "a sandbox, set my_domain to its own My Domain (e.g. 'acme--dev.sandbox')."
             )
         auth_result = login_user_flow(client_id, client_key, my_domain)
         return _access_info_from_auth_result(auth_result, f"client_credentials flow (domain '{my_domain}')")

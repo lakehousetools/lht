@@ -257,6 +257,14 @@ Examples:
         help='(Best-effort) Log ingest results into LOGS schema tables in the warehouse'
     )
     retl_parser.add_argument(
+        '--log-schema',
+        metavar='SCHEMA',
+        default='LOGS',
+        help="Schema for the --log-results tables (default: LOGS). Qualify it "
+             "(e.g. main.lht_logs) rather than relying on the session's current "
+             "database or catalog"
+    )
+    retl_parser.add_argument(
         '-v', '--verbose',
         action='store_true',
         help='Show detailed progress and debug output'
@@ -493,6 +501,7 @@ def main(args: Optional[List[str]] = None) -> int:
             salesforce_connection=parsed_args.salesforce,
             databricks=parsed_args.databricks,
             log_results=parsed_args.log_results,
+            log_schema=parsed_args.log_schema,
             clear_nulls=parsed_args.clear_nulls,
             verbose=parsed_args.verbose
         )

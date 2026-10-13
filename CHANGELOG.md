@@ -33,6 +33,7 @@ rather than an opaque `ModuleNotFoundError`.
 - `lht.warehouse.databricks.connect()`: the running Spark session on Databricks compute, or a Databricks Connect session against a `~/.databrickscfg` profile off-platform — the same profiles the Databricks CLI uses, so there is no lht-side Databricks credential.
 - `lht.warehouse.databricks.salesforce_access_info(scope=..., connection_name=...)`: Salesforce credentials from a Databricks secret scope on-platform, falling back to `connections.toml` where there is no `dbutils` to read a scope with. One call, so the same notebook file runs unchanged on a laptop. A scope that *is* reachable but misconfigured raises rather than silently falling back.
 - `lht retl` and `lht merge` take `--databricks [PROFILE]` in place of `--snowflake`, mutually exclusive with it.
+- `process_bulk_api_results(..., schema='LOGS')` and `lht retl --log-schema SCHEMA` choose where the per-record log tables go. The old behaviour was a hard-coded, unqualified `LOGS`, which on Unity Catalog resolves against whichever catalog the session happens to point at — so there was no way to say `main.lht_logs`. Brings it in line with the `schema` argument `log_retl.job` already took for RETL_HISTORY. A schema name that is not a usable identifier is now reported once as a failed logging result, instead of as four separate warnings from the individual table steps.
 - Per-record result logging (`--log-results`, `results_bapi.process_bulk_api_results`) works on both warehouses: `LOGS.JOB_INFO`, `LOGS.SUCCESS` and `LOGS.FAILURE` are created as Delta tables on Databricks and as Snowflake tables on Snowflake, from one set of column definitions.
 - `examples/databricks_retl.py`: a notebook/Job/laptop reverse-ETL script that needs no edits between the three.
 - `tests/spark/`, marked `spark` and excluded by default: runs lht's generated Databricks SQL against a local Spark engine. Needs `pyspark` and a JVM, no workspace. `pytest -m spark`.
@@ -40,6 +41,7 @@ rather than an opaque `ModuleNotFoundError`.
 ### Changed
 
 - `lht.util.sql.identifier()` also accepts backtick-quoted name parts, for Databricks.
+- The `client_credentials` Salesforce flow now warns when `sandbox` is set alongside a `my_domain` that doesn't look like a sandbox. Only the `jwt_bearer` flow has a login URL for that flag to switch; on client credentials the org is whatever `my_domain` names, so a `sandbox` flag there did nothing at all — silently, with the login succeeding against the other org. The flag still changes no behaviour (`my_domain` decides); it is the silence that's fixed.
 - `lht.util.__init__` and `lht.salesforce.__init__` resolve their exports on first access instead of at import time, so importing the reverse-ETL path no longer pulls in the Snowflake writers (and with them Snowpark). The names they export are unchanged.
 - `retl.delete()`'s `field` argument is now optional. Bulk API 2.0 deletes by `Id` only and the argument was already unused; callers passing it still work.
 - `retl.insert()` no longer routes through `lht.sflake.query.get_records()`. Same behaviour — a NULL is an empty cell, since an insert has no existing value to clear.

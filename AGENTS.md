@@ -63,7 +63,7 @@ Only these public entry points exist; don't invent others:
 - `lht.warehouse.databricks.connect(session=None, profile=None, **builder_options)` — a `DatabricksWarehouse`: the running Spark session on Databricks, else Databricks Connect against a `~/.databrickscfg` profile.
 - `lht.warehouse.databricks.salesforce_access_info(scope=None, connection_name=None)` — Salesforce credentials from a Databricks secret scope on-platform, from `connections.toml` off it. The one call that makes a notebook file run unchanged on a laptop.
 - `lht.warehouse.databricks.get_spark_session(profile=None, **builder_options)`, `secret(scope, key)`, `on_databricks()`.
-- `lht.salesforce.results_bapi.process_bulk_api_results(session, access_info, job_id, match_field=None)` — per-record outcomes into `LOGS.JOB_INFO` / `SUCCESS` / `FAILURE`, on either warehouse.
+- `lht.salesforce.results_bapi.process_bulk_api_results(session, access_info, job_id, match_field=None, schema='LOGS')` — per-record outcomes into `<schema>.JOB_INFO` / `SUCCESS` / `FAILURE`, on either warehouse. Qualify `schema` on Unity Catalog (`main.lht_logs`); the bare default resolves against the session's current catalog. CLI: `--log-schema`.
 
 Warehouses: **Snowflake** (sync, reverse ETL, merge) and **Databricks** (reverse ETL, merge). Sync is Snowflake-only.
 

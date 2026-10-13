@@ -5,6 +5,7 @@ import io
 import logging
 from lht.util.csv import bulk_csv_text
 from lht.util.http import DEFAULT_TIMEOUT
+from lht.util.sql import identifier
 from lht.warehouse import Warehouse, from_session
 from lht.warehouse.base import (
     FAILURE_COLUMNS,
@@ -14,36 +15,39 @@ from lht.warehouse.base import (
 
 logger = logging.getLogger(__name__)
 
-def create_logs_schema_if_not_exists(warehouse: Warehouse):
-    """Create the logs schema if it doesn't exist."""
-    try:
-        warehouse.create_schema('LOGS')
-        logger.info("✅ LOGS schema created/verified successfully")
-    except Exception as e:
-        logger.warning(f"⚠️ Warning: Could not create LOGS schema: {e}")
+DEFAULT_LOG_SCHEMA = 'LOGS'
 
-def create_job_info_table(warehouse: Warehouse):
+
+def create_logs_schema_if_not_exists(warehouse: Warehouse, schema: str = DEFAULT_LOG_SCHEMA):
+    """Create the log schema if it doesn't exist."""
+    try:
+        warehouse.create_schema(schema)
+        logger.info(f"✅ {schema} schema created/verified successfully")
+    except Exception as e:
+        logger.warning(f"⚠️ Warning: Could not create {schema} schema: {e}")
+
+def create_job_info_table(warehouse: Warehouse, schema: str = DEFAULT_LOG_SCHEMA):
     """Create the job_info table based on Salesforce API documentation."""
     try:
-        warehouse.create_table('LOGS.JOB_INFO', JOB_INFO_COLUMNS)
+        warehouse.create_table(f'{schema}.JOB_INFO', JOB_INFO_COLUMNS)
         logger.info("✅ JOB_INFO table created/verified successfully")
     except Exception as e:
         logger.warning(f"⚠️ Warning: Could not create JOB_INFO table: {e}")
 
-def create_success_table(warehouse: Warehouse):
+def create_success_table(warehouse: Warehouse, schema: str = DEFAULT_LOG_SCHEMA):
     """Create the success table based on Salesforce API documentation."""
     try:
-        warehouse.create_table('LOGS.SUCCESS', SUCCESS_COLUMNS)
-        _add_match_columns(warehouse, 'LOGS.SUCCESS')
+        warehouse.create_table(f'{schema}.SUCCESS', SUCCESS_COLUMNS)
+        _add_match_columns(warehouse, f'{schema}.SUCCESS')
         logger.info("✅ SUCCESS table created/verified successfully")
     except Exception as e:
         logger.warning(f"⚠️ Warning: Could not create SUCCESS table: {e}")
 
-def create_failure_table(warehouse: Warehouse):
+def create_failure_table(warehouse: Warehouse, schema: str = DEFAULT_LOG_SCHEMA):
     """Create the failure table based on Salesforce API documentation."""
     try:
-        warehouse.create_table('LOGS.FAILURE', FAILURE_COLUMNS)
-        _add_match_columns(warehouse, 'LOGS.FAILURE')
+        warehouse.create_table(f'{schema}.FAILURE', FAILURE_COLUMNS)
+        _add_match_columns(warehouse, f'{schema}.FAILURE')
         logger.info("✅ FAILURE table created/verified successfully")
     except Exception as e:
         logger.warning(f"⚠️ Warning: Could not create FAILURE table: {e}")
@@ -167,7 +171,8 @@ def get_failed_results(access_info: dict, job_id: str) -> list:
         logger.error(f"❌ Error parsing failed results CSV: {e}")
         return []
 
-def insert_job_info(warehouse: Warehouse, job_data: dict, job_id: str):
+def insert_job_info(warehouse: Warehouse, job_data: dict, job_id: str,
+                    schema: str = DEFAULT_LOG_SCHEMA):
     """
     Insert one job's metadata into the JOB_INFO table.
 
@@ -201,7 +206,7 @@ def insert_job_info(warehouse: Warehouse, job_data: dict, job_id: str):
     columns = tuple(column for column, _ in JOB_INFO_COLUMNS)
     try:
         warehouse.insert_rows(
-            'LOGS.JOB_INFO',
+            f'{schema}.JOB_INFO',
             columns,
             [tuple(fields.get(column, 'NULL') for column in columns)],
         )
@@ -287,7 +292,8 @@ def _lookup(record: dict, field):
     return None
 
 
-def insert_success_records(warehouse: Warehouse, job_id: str, success_data: list, match_field: str = None):
+def insert_success_records(warehouse: Warehouse, job_id: str, success_data: list,
+                           match_field: str = None, schema: str = DEFAULT_LOG_SCHEMA):
     """
     Insert successful records into the SUCCESS table.
 
@@ -316,13 +322,14 @@ def insert_success_records(warehouse: Warehouse, job_id: str, success_data: list
         ))
 
     try:
-        warehouse.insert_rows('LOGS.SUCCESS', columns, rows)
+        warehouse.insert_rows(f'{schema}.SUCCESS', columns, rows)
         logger.info(f"✅ Inserted {len(rows)} successful records for job {job_id}")
 
     except Exception as e:
         logger.error(f"❌ Error inserting success records: {e}")
 
-def insert_failure_records(warehouse: Warehouse, job_id: str, failure_data: list, match_field: str = None):
+def insert_failure_records(warehouse: Warehouse, job_id: str, failure_data: list,
+                           match_field: str = None, schema: str = DEFAULT_LOG_SCHEMA):
     """
     Insert failed records into the FAILURE table.
 
@@ -350,37 +357,48 @@ def insert_failure_records(warehouse: Warehouse, job_id: str, failure_data: list
         ))
 
     try:
-        warehouse.insert_rows('LOGS.FAILURE', columns, rows)
+        warehouse.insert_rows(f'{schema}.FAILURE', columns, rows)
         logger.info(f"✅ Inserted {len(rows)} failed records for job {job_id}")
 
     except Exception as e:
         logger.error(f"❌ Error inserting failure records: {e}")
         raise
 
-def process_bulk_api_results(session, access_info: dict, job_id: str, match_field: str = None):
+def process_bulk_api_results(session, access_info: dict, job_id: str, match_field: str = None,
+                             schema: str = DEFAULT_LOG_SCHEMA):
     """
     Main function to process Bulk API 2.0 job results and store them in the database.
 
     Args:
         session: A Snowpark session, a Spark session, or an
-            :class:`lht.warehouse.Warehouse`. The LOGS tables are created with
+            :class:`lht.warehouse.Warehouse`. The log tables are created with
             whichever backend's column types that implies.
         access_info: Salesforce access credentials dictionary
         job_id: The Bulk API 2.0 job ID to process
         match_field: External ID column submitted with the job. Salesforce echoes it back
             in the results, so recording it links each outcome to its source record.
+        schema: Schema holding JOB_INFO, SUCCESS and FAILURE, created on first use.
+            Defaults to an unqualified ``LOGS``, which resolves against whatever
+            database or catalog the session is pointed at. On Unity Catalog that
+            is rarely what you want, so qualify it -- ``main.lht_logs`` -- rather
+            than relying on the current catalog. Matches the `schema` argument
+            `lht.util.log_retl.job` takes for RETL_HISTORY.
     """
     logger.info(f"🚀 Processing Bulk API 2.0 results for job: {job_id}")
 
     try:
         warehouse = from_session(session)
+        # Checked once, before the per-table steps below, each of which only
+        # warns: a name that cannot be used at all is a caller's mistake, and
+        # should be reported as one failure rather than four warnings.
+        identifier(schema)
 
         # Step 1: Create schema and tables if they don't exist
-        logger.info("📋 Setting up database schema and tables...")
-        create_logs_schema_if_not_exists(warehouse)
-        create_job_info_table(warehouse)
-        create_success_table(warehouse)
-        create_failure_table(warehouse)
+        logger.info(f"📋 Setting up {schema} schema and tables...")
+        create_logs_schema_if_not_exists(warehouse, schema)
+        create_job_info_table(warehouse, schema)
+        create_success_table(warehouse, schema)
+        create_failure_table(warehouse, schema)
         
         # Step 2: Retrieve job information
         logger.info(f"📊 Retrieving job information for job {job_id}...")
@@ -388,26 +406,28 @@ def process_bulk_api_results(session, access_info: dict, job_id: str, match_fiel
         
         # Step 3: Insert job information
         logger.info("💾 Storing job information...")
-        insert_job_info(warehouse, job_info, job_id)
+        insert_job_info(warehouse, job_info, job_id, schema=schema)
         
         # Step 4: Retrieve and store successful results
         logger.info("📈 Retrieving successful results...")
         success_results = get_successful_results(access_info, job_id)
-        insert_success_records(warehouse, job_id, success_results, match_field=match_field)
+        insert_success_records(warehouse, job_id, success_results, match_field=match_field,
+                               schema=schema)
 
         # Step 5: Retrieve and store failed results
         logger.info("📉 Retrieving failed results...")
         failure_results = get_failed_results(access_info, job_id)
         logger.debug(f"📋 Failure results: {len(failure_results) if failure_results else 0} records")
 
-        insert_failure_records(warehouse, job_id, failure_results, match_field=match_field)
+        insert_failure_records(warehouse, job_id, failure_results, match_field=match_field,
+                               schema=schema)
         
         # Step 6: Summary
         logger.info("✅ BULK API 2.0 RESULTS PROCESSING COMPLETED")
         logger.info(f"📊 Job ID: {job_id}")
         logger.info(f"📈 Successful Records: {len(success_results)}")
         logger.info(f"📉 Failed Records: {len(failure_results)}")
-        logger.info(f"🗄️ Data stored in LOGS schema tables on {warehouse.name}")
+        logger.info(f"🗄️ Data stored in {schema} tables on {warehouse.name}")
         
         return {
             'job_id': job_id,

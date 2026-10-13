@@ -43,6 +43,7 @@ def retl(
     salesforce_connection: Optional[str] = None,
     databricks: Optional[str] = None,
     log_results: bool = False,
+    log_schema: str = 'LOGS',
     clear_nulls: bool = False,
     verbose: bool = False,
 ) -> int:
@@ -53,6 +54,8 @@ def retl(
         databricks: Run against Databricks instead of Snowflake. The value is a
             `~/.databrickscfg` profile name; an empty string means "let
             Databricks Connect resolve it". None means use Snowflake.
+        log_schema: Schema for the --log-results tables. Qualify it on Unity
+            Catalog rather than relying on the session's current catalog.
 
     Notes:
       - Salesforce API version remains hardcoded inside the existing RETL implementation.
@@ -101,7 +104,7 @@ def retl(
         if op == "upsert":
             print(f"Match Field: {match_field}")
             print(f"Batch Size: {batch_size:,}")
-        print(f"Log Results: {'Yes' if log_results else 'No'}")
+        print(f"Log Results: {f'Yes -> {log_schema}' if log_results else 'No'}")
         print(f"Clear NULLs: {'Yes (#N/A)' if clear_nulls else 'No (empty cell)'}")
         print("=" * 60)
         if verbose:
@@ -152,12 +155,14 @@ def retl(
         if log_results and job_ids:
             from lht.salesforce.results_bapi import process_bulk_api_results
             print("\n" + "=" * 60)
-            print(f"Logging Results to {warehouse_label}")
+            print(f"Logging Results to {log_schema} on {warehouse_label}")
             print("=" * 60)
             for job_id in job_ids:
                 print(f"📋 Processing results for job: {job_id}")
                 try:
-                    log_result = process_bulk_api_results(session, access_info, job_id, match_field=match_field)
+                    log_result = process_bulk_api_results(session, access_info, job_id,
+                                                          match_field=match_field,
+                                                          schema=log_schema)
                     if log_result.get('success'):
                         print(f"   ✅ Logged: {log_result.get('success_count', 0)} success, {log_result.get('failure_count', 0)} failures")
                     else:

@@ -46,7 +46,12 @@ SOBJECT = "Account"
 MATCH_FIELD = "Ext__c"
 
 # Databricks secret scope holding client_id / client_secret / my_domain.
+# On the client-credentials flow, my_domain alone decides which Salesforce org
+# this reaches -- for a sandbox, give it the sandbox's own My Domain.
 SECRET_SCOPE = "salesforce"
+# Where the per-record log tables go. Qualify it: a bare "LOGS" resolves against
+# whichever catalog the session points at.
+LOG_SCHEMA = os.environ.get("LHT_LOG_SCHEMA", "main.lht_logs")
 # Only used off Databricks, where there is no scope to read. None = primary.
 LOCAL_CONNECTION = os.environ.get("LHT_SALESFORCE_CONNECTION")
 # Only used off Databricks: the ~/.databrickscfg profile to connect with.
@@ -84,7 +89,8 @@ def main() -> int:
     for batch in result["batch_results"]:
         if batch.get("job_id"):
             process_bulk_api_results(
-                warehouse, access_info, batch["job_id"], match_field=MATCH_FIELD
+                warehouse, access_info, batch["job_id"], match_field=MATCH_FIELD,
+                schema=LOG_SCHEMA,
             )
 
     # Non-zero if any batch failed, so a Job task surfaces it as a failure.

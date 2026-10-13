@@ -447,3 +447,52 @@ def test_off_databricks_the_same_call_falls_back_to_a_saved_connection():
                     return_value=ACCESS_INFO) as from_file:
         assert dbx.salesforce_access_info(scope='salesforce', connection_name='dev') == ACCESS_INFO
     from_file.assert_called_once_with('dev')
+
+
+# --- where the log tables go -------------------------------------------
+
+def test_result_logging_honours_a_qualified_schema():
+    # The default is a bare 'LOGS', which on Unity Catalog resolves against
+    # whatever catalog the session happens to point at -- so a caller has to be
+    # able to name the catalog outright.
+    session = _SparkSession()
+    _process_results_in(session, 'main.lht_logs', successes=[
+        {'sf__Id': '001XX1', 'sf__Created': 'true', 'sf__Success': 'true', 'Ext__c': 'K1'},
+    ], failures=[{'sf__Id': '', 'sf__Error': 'BAD', 'Ext__c': 'K2'}])
+
+    sql = '\n'.join(session.statements)
+    assert 'CREATE SCHEMA IF NOT EXISTS main.lht_logs' in sql
+    for table in ('JOB_INFO', 'SUCCESS', 'FAILURE'):
+        assert f'CREATE TABLE IF NOT EXISTS main.lht_logs.{table}' in sql
+        assert f'INSERT INTO main.lht_logs.{table}' in sql
+    # Nothing should still be pointing at the unqualified default.
+    assert 'LOGS.' not in sql.replace('lht_logs.', '')
+
+
+def test_result_logging_still_defaults_to_the_unqualified_logs_schema():
+    session = _SparkSession()
+    _process_results(session, successes=[], failures=[])
+    sql = '\n'.join(session.statements)
+    assert 'CREATE SCHEMA IF NOT EXISTS LOGS' in sql
+    assert 'CREATE TABLE IF NOT EXISTS LOGS.JOB_INFO' in sql
+
+
+def _process_results_in(session, schema, successes, failures):
+    with mock.patch.object(results_bapi, 'get_job_info',
+                           return_value=dict(JOB_RESPONSE, state='JobComplete')), \
+         mock.patch.object(results_bapi, 'get_successful_results', return_value=successes), \
+         mock.patch.object(results_bapi, 'get_failed_results', return_value=failures):
+        return results_bapi.process_bulk_api_results(session, ACCESS_INFO, JOB_RESPONSE['id'],
+                                                     match_field='Ext__c', schema=schema)
+
+
+def test_a_log_schema_that_could_inject_sql_is_reported_once_and_writes_nothing():
+    # Each table step only warns, so without an up-front check a bad name would
+    # produce four confusing warnings and no clear failure.
+    session = _SparkSession()
+    result = _process_results_in(session, 'main.logs; DROP TABLE x',
+                                 successes=[], failures=[])
+
+    assert result['success'] is False
+    assert 'main.logs; DROP TABLE x' in result['error']
+    assert session.statements == []

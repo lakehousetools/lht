@@ -80,7 +80,7 @@ lht connects through Snowpark using [key-pair authentication](https://docs.snowf
    ```
    lht copies the private key into its config directory (see below) with `0600` permissions. It stores the passphrase, if you entered one, in `connections.toml`, which is also `0600`.
 
-For reverse ETL with `--log-results`, the role also needs `CREATE SCHEMA` (for `LOGS`) or ownership of an existing `LOGS` schema.
+For reverse ETL with `--log-results`, the role also needs `CREATE SCHEMA` (for `LOGS`) or ownership of an existing `LOGS` schema. Pass `--log-schema` (or `schema=`) to put those tables somewhere else.
 
 ## Databricks
 
