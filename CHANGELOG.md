@@ -2,7 +2,7 @@
 
 All notable changes to lht. Versions follow [semantic versioning](https://semver.org/).
 
-## 3.0.0 — 2026-10-12
+## 3.0.0 — 2026-10-13
 
 Databricks reverse ETL, and a warehouse-independent core.
 
@@ -15,7 +15,7 @@ ships. Change your install to:
 
 ```bash
 pip install "lht[snowflake]"      # Snowflake: sync, reverse ETL, merge
-pip install "lht[databricks]"     # Databricks from a laptop or CI
+pip install "lht[databricks]"     # Databricks from a laptop or CI (Python 3.10+)
 pip install "lht[all]"            # both
 pip install lht                   # on Databricks compute, where `spark` already exists
 ```
@@ -51,6 +51,7 @@ rather than an opaque `ModuleNotFoundError`.
 
 ### Fixed
 
+- **The `lht` command no longer crashes when Snowpark isn't installed.** The entry point imports every command's module on startup, and `lht sync`'s imported the Snowflake writers at the top of the file, so on a core-only install — which is what a Databricks cluster, or a `lht[databricks]`-only laptop, has — every command failed with `No module named 'snowflake'` before parsing an argument, `lht retl --databricks` included. That import now happens inside `lht sync`, which, being Snowflake-only, says `pip install "lht[snowflake]"` if it is missing. Every other command works without Snowpark. Found by installing the built wheel in a clean environment; the earlier import guard covered the library but not the CLI, and now a test runs every subcommand with Snowpark made unimportable.
 - **`process_bulk_api_results` no longer reports success when it saved nothing.** Every step in it swallows its own exception, by design, so that a logging problem can never fail a load that already reached Salesforce — but nothing then told the caller, and it returned `success: True` with the tables missing. It now returns `success: False` and an `error` when an insert failed, naming each thing that could not be saved, and logs one `NOT fully saved` error line. The verdict rests on the inserts: a role that cannot `CREATE TABLE` but can write to existing tables is still a success, with the refused `CREATE` as a warning, and with nothing to insert there is nothing to fail. `lht retl --log-results` prints this as `Logging failed`. This predates the Databricks work and applies to Snowflake too.
 - **The `SUCCESS` column in the `SUCCESS` table is now filled.** It was read from an `sf__Success` field that Salesforce's `successfulResults` CSV does not have (it carries `sf__Id` and `sf__Created`, then the submitted fields), so it has always been `NULL`. A row in that CSV is a success by definition, so it is now `TRUE`; an explicit `sf__Success`, if a caller passes one, is still honoured. Rows already logged keep their `NULL`; to backfill them: `UPDATE <schema>.SUCCESS SET SUCCESS = TRUE WHERE SUCCESS IS NULL`.
 - **Errors from the warehouse are now one short line, not a stack trace.** Databricks follows each message with a hundred-frame JVM stack trace, sometimes a dump of the query plan, which in a notebook buried the line that said what went wrong. Log lines and the returned `error` now keep the message up to its `SQLSTATE` and drop the rest (`lht.warehouse.base.brief_error`).

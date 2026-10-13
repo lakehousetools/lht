@@ -8,7 +8,6 @@ from typing import Optional
 from lht.user.auth import create_session
 from lht.user.salesforce_auth import get_salesforce_access_info
 from lht.user.connections import get_primary_connection, load_connection
-from lht.salesforce import sync_sobject_intelligent
 
 
 def sync_sobject(
@@ -56,7 +55,21 @@ def sync_sobject(
         stream=sys.stdout,
         force=True  # Override any existing configuration
     )
-    
+
+    # Imported here, not at the top of the module: sync pulls in the Snowflake writers,
+    # and so Snowpark, which is an optional extra. The `lht` entry point imports every
+    # command's module on startup, so a top-level import made a missing Snowpark crash
+    # the whole CLI -- `lht retl --databricks` included -- before it parsed an argument.
+    try:
+        from lht.salesforce import sync_sobject_intelligent
+    except ImportError as e:
+        if (e.name or '').split('.')[0] != 'snowflake':
+            raise
+        print("Error: `lht sync` loads Salesforce data into Snowflake, which needs the "
+              "Snowpark client -- an optional dependency.")
+        print('Install it with: pip install "lht[snowflake]"')
+        return 1
+
     try:
         # Get Snowflake connection
         if snowflake_connection is None:

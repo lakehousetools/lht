@@ -88,6 +88,8 @@ pip install "lht[databricks]"
 databricks auth login --host https://my-workspace.cloud.databricks.com
 ```
 
+This needs **Python 3.10 or newer** — Databricks Connect 15.1 and later, which is what the extra installs, doesn't support 3.9, so on 3.9 pip reports that it can't find a matching version. (lht itself still runs on 3.9, and a Databricks cluster needs no extra at all.) Databricks Connect also has to be compatible with the runtime of the cluster you point it at; if you connect to a classic cluster rather than serverless, install the Databricks Connect release that matches that cluster's Databricks Runtime, per Databricks' compatibility table, instead of the newest.
+
 Point the profile at compute by adding `serverless_compute_id = auto` (or a `cluster_id`) to its section in `~/.databrickscfg`, then:
 
 ```python
