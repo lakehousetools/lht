@@ -49,8 +49,8 @@ MATCH_FIELD = "Ext__c"
 # On the client-credentials flow, my_domain alone decides which Salesforce org
 # this reaches -- for a sandbox, give it the sandbox's own My Domain.
 SECRET_SCOPE = "salesforce"
-# Where the per-record log tables go. Qualify it: a bare "LOGS" resolves against
-# whichever catalog the session points at.
+# Where the log tables go -- the job history and the per-record results. Qualify
+# it: a bare "LOGS" resolves against whichever catalog the session points at.
 LOG_SCHEMA = os.environ.get("LHT_LOG_SCHEMA", "main.lht_logs")
 # Only used off Databricks, where there is no scope to read. None = primary.
 LOCAL_CONNECTION = os.environ.get("LHT_SALESFORCE_CONNECTION")
@@ -73,6 +73,7 @@ def main() -> int:
         # A NULL is an empty cell, which Salesforce reads as "leave unchanged".
         # clear_nulls=True sends '#N/A' instead, which clears the field.
         clear_nulls=False,
+        log_schema=LOG_SCHEMA,
     )
 
     if result is None:

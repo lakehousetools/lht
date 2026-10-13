@@ -260,7 +260,8 @@ Examples:
         '--log-schema',
         metavar='SCHEMA',
         default='LOGS',
-        help="Schema for the --log-results tables (default: LOGS). Qualify it "
+        help="Schema for the log tables (default: LOGS): the job history written on "
+             "every run, and the per-record results from --log-results. Qualify it "
              "(e.g. main.lht_logs) rather than relying on the session's current "
              "database or catalog"
     )

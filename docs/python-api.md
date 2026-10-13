@@ -203,6 +203,11 @@ It is best-effort: a logging failure is a warning, never a failed load.
 `schema` defaults to a bare `LOGS`, which resolves against whatever database or
 catalog the session points at. On Unity Catalog, qualify it.
 
+The job history (`RETL_HISTORY`) is written by the `retl.*` call itself, on every
+run, and takes its own `log_schema=` (`retl.upsert(..., log_schema="main.lht_logs")`;
+the same keyword on `update`, `insert` and `delete`). Pass the same value to both
+to keep every log table together.
+
 ## Merge records
 
 ```python

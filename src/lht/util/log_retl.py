@@ -18,14 +18,18 @@ def job(session, json_data, schema='LOGS'):
 
     The table is created on first use, as LOGS.JOB_INFO is. Before that the insert
     failed wherever nobody had created it by hand, and because the caller swallows
-    logging errors, the job history silently stayed empty.
+    logging errors, the job history silently stayed empty. The schema is created
+    on first use too: without that, a run against a catalog or database that has
+    no such schema logged only a warning and kept no history.
 
     Args:
         session: A Snowpark session, a Spark session, or an
             :class:`lht.warehouse.Warehouse`. The column types come from
             whichever backend that is.
         json_data: The Bulk API's job-creation response.
-        schema: Schema holding the log tables.
+        schema: Schema holding the log tables. An unqualified name resolves
+            against the session's current database or catalog, so qualify it on
+            Unity Catalog (``main.lht_logs``).
     """
     if not isinstance(json_data, dict) or not json_data.get('id'):
         logger.warning(f"Skipping job log; no job id in response: {json_data}")
@@ -33,6 +37,15 @@ def job(session, json_data, schema='LOGS'):
 
     warehouse = from_session(session)
     table = f"{schema}.RETL_HISTORY"
+    try:
+        warehouse.create_schema(schema)
+    except ValueError:
+        raise  # an unusable name; creating the table would fail the same way
+    except Exception as e:
+        # A role that can write the schema's tables may still lack CREATE SCHEMA,
+        # and the schema usually exists already. Carry on to the table, which is
+        # the step that has to succeed.
+        logger.debug(f"Could not create schema {schema} ({e}); assuming it exists.")
     warehouse.create_table(table, RETL_HISTORY_COLUMNS)
     warehouse.insert_rows(table, [column for column, _ in RETL_HISTORY_COLUMNS], [(
         warehouse.literal(json_data.get('id')),

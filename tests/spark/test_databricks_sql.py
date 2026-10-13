@@ -224,3 +224,29 @@ def test_a_running_session_is_found_from_another_thread(spark):
     assert found['lht'] is not None, 'lht must still find the running session'
     assert found['warehouse'].name == 'databricks'
     assert found['warehouse'].rows('SELECT 1 AS n') == [{'n': 1}]
+
+
+def test_job_history_lands_in_a_schema_that_did_not_exist(spark):
+    """
+    The bug: RETL_HISTORY went to a schema nobody had created, so the table
+    could not be made, the failure was swallowed as a warning, and the job
+    history stayed empty. With the schema created first, the same call works
+    against a fresh database -- which is what a first run on a new catalog is.
+    """
+    from lht.util import log_retl
+
+    schema = 'lht_never_created_before'
+    spark.sql(f'DROP SCHEMA IF EXISTS {schema} CASCADE')
+    assert not spark.catalog.databaseExists(schema), 'precondition: the schema is absent'
+
+    recorded = DatabricksWarehouse(_Recording())
+    log_retl.job(recorded, {
+        'id': '750XX0000000099',
+        'operation': 'upsert',
+        'object': 'Account',
+        'createdDate': '2026-01-01T12:00:00.000+0000',
+    }, schema=schema)
+    _run(spark, recorded.session.statements)
+
+    rows = spark.sql(f'SELECT ID, OPERATION FROM {schema}.RETL_HISTORY').collect()
+    assert [(r['ID'], r['OPERATION']) for r in rows] == [('750XX0000000099', 'upsert')]

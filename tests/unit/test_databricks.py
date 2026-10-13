@@ -142,7 +142,10 @@ def test_job_history_is_written_in_delta_sql_on_databricks():
     session = _SparkSession()
     log_retl.job(DatabricksWarehouse(session), JOB_RESPONSE, schema='main.lht_logs')
 
-    create, insert = session.writes
+    schema, create, insert = session.writes
+    # The schema first: without it, a catalog that has no such schema logged only
+    # a warning and the job history silently stayed empty.
+    assert schema == 'CREATE SCHEMA IF NOT EXISTS main.lht_logs'
     assert create.startswith('CREATE TABLE IF NOT EXISTS main.lht_logs.RETL_HISTORY')
     assert 'VARCHAR' not in create
     assert 'ID STRING' in create
@@ -155,7 +158,8 @@ def test_job_history_still_uses_snowflake_sql_on_snowflake():
     session = _SnowparkSession()
     log_retl.job(SnowflakeWarehouse(session), JOB_RESPONSE)
 
-    create, insert = session.writes
+    schema, create, insert = session.writes
+    assert schema == 'CREATE SCHEMA IF NOT EXISTS LOGS'
     assert 'ID VARCHAR,' in create
     assert 'CREATEDDATE TIMESTAMP_NTZ' in create
     assert "TO_TIMESTAMP_NTZ(TO_TIMESTAMP_TZ('2026-01-01 12:00:00.000'))" in insert
@@ -496,3 +500,69 @@ def test_a_log_schema_that_could_inject_sql_is_reported_once_and_writes_nothing(
     assert result['success'] is False
     assert 'main.logs; DROP TABLE x' in result['error']
     assert session.statements == []
+
+
+# --- where the job history goes -----------------------------------------
+
+@pytest.mark.parametrize('operation,kw', [
+    (retl.upsert, {'field': 'Ext__c'}),
+    (retl.update, {}),
+    (retl.insert, {}),
+    (retl.delete, {}),
+])
+def test_every_operation_writes_job_history_to_the_given_schema(operation, kw):
+    # RETL_HISTORY used to land in a bare LOGS whatever the caller wanted: the
+    # four operations had no way to say where, and on Unity Catalog a bare name
+    # resolves against whichever catalog the session happens to point at.
+    session = _SparkSession()
+    _run(operation, session, [_Row(Ext__c='K1', Id='001XX', Name='A')],
+         log_schema='main.lht_logs', **kw)
+
+    sql = '\n'.join(session.writes)
+    assert 'CREATE SCHEMA IF NOT EXISTS main.lht_logs' in sql
+    assert 'CREATE TABLE IF NOT EXISTS main.lht_logs.RETL_HISTORY' in sql
+    assert 'INSERT INTO main.lht_logs.RETL_HISTORY' in sql
+    assert 'LOGS' not in sql.replace('lht_logs', '')
+
+
+@pytest.mark.parametrize('operation,kw', [
+    (retl.upsert, {'field': 'Ext__c'}),
+    (retl.update, {}),
+    (retl.insert, {}),
+    (retl.delete, {}),
+])
+def test_job_history_still_defaults_to_the_bare_logs_schema(operation, kw):
+    session = _SparkSession()
+    _run(operation, session, [_Row(Ext__c='K1', Id='001XX', Name='A')], **kw)
+    assert 'INSERT INTO LOGS.RETL_HISTORY' in '\n'.join(session.writes)
+
+
+def test_a_role_that_cannot_create_the_schema_still_gets_job_history():
+    # CREATE SCHEMA needs a privilege that writing to the schema's tables does
+    # not, and the schema usually exists already. Failing to create it must not
+    # cost the history row.
+    class _NoCreateSchema(_SparkSession):
+        def sql(self, statement):
+            if statement.startswith('CREATE SCHEMA'):
+                raise PermissionError('no CREATE SCHEMA on this catalog')
+            return super().sql(statement)
+
+    session = _NoCreateSchema()
+    log_retl.job(DatabricksWarehouse(session), JOB_RESPONSE, schema='main.lht_logs')
+
+    assert any(s.startswith('CREATE TABLE IF NOT EXISTS main.lht_logs.RETL_HISTORY')
+               for s in session.statements)
+    assert any(s.startswith('INSERT INTO main.lht_logs.RETL_HISTORY')
+               for s in session.statements)
+
+
+def test_an_unusable_log_schema_never_fails_the_load():
+    # Logging is best-effort: a typo in the schema must cost the history row,
+    # not a load that already reached Salesforce.
+    session = _SparkSession()
+    sent, result = _run(retl.upsert, session, [_Row(Ext__c='K1')], field='Ext__c',
+                        log_schema='main.logs; DROP TABLE x')
+
+    assert result['successful_batches'] == 1
+    assert sent
+    assert not any('DROP TABLE' in s for s in session.statements)

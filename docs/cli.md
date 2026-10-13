@@ -172,9 +172,11 @@ options:
                         which Salesforce treats as 'leave unchanged'
   --log-results         (Best-effort) Log ingest results into LOGS schema
                         tables in the warehouse
-  --log-schema SCHEMA   Schema for the --log-results tables (default: LOGS).
-                        Qualify it (e.g. main.lht_logs) rather than relying
-                        on the session's current database or catalog
+  --log-schema SCHEMA   Schema for the log tables (default: LOGS): the job
+                        history written on every run, and the per-record
+                        results from --log-results. Qualify it (e.g.
+                        main.lht_logs) rather than relying on the session's
+                        current database or catalog
   -v, --verbose         Show detailed progress and debug output
 ```
 

@@ -126,19 +126,20 @@ WHERE a.score IS NOT NULL
 
 `--log-results`, or `lht.salesforce.results_bapi.process_bulk_api_results()`, writes per-record outcomes to `JOB_INFO`, `SUCCESS` and `FAILURE`, created as Delta tables on first use. Pass the match field and each row records which source record produced which Salesforce Id — or which error.
 
-**Qualify the schema.** The default is a bare `LOGS`, which resolves against whatever catalog the session happens to point at — rarely what you want on Unity Catalog. Name it outright:
+**Qualify the schema.** The default is a bare `LOGS`, which resolves against whatever catalog the session happens to point at — rarely what you want on Unity Catalog. Name it outright. There are two places to say so, because lht keeps two kinds of log: the job history (`RETL_HISTORY`, written on *every* ingest, whether or not you log results) takes `log_schema=` on the `retl` call, and the per-record tables take `schema=` on `process_bulk_api_results`:
 
 ```python
 from lht.salesforce.results_bapi import process_bulk_api_results
 
-result = retl.upsert(warehouse, access_info, "Account", query, "Ext__c")
+result = retl.upsert(warehouse, access_info, "Account", query, "Ext__c",
+                     log_schema="main.lht_logs")                      # RETL_HISTORY
 for batch in result["batch_results"]:
     if batch.get("job_id"):
         process_bulk_api_results(warehouse, access_info, batch["job_id"],
                                  match_field="Ext__c", schema="main.lht_logs")
 ```
 
-From the CLI, that's `--log-schema main.lht_logs`. Then:
+From the CLI, one flag sets both: `--log-schema main.lht_logs`. The schema is created on first use if it doesn't exist. Then:
 
 ```sql
 SELECT match_id AS external_id, sf_error

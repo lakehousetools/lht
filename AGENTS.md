@@ -52,7 +52,7 @@ Only these public entry points exist; don't invent others:
 
 - `lht.salesforce.intelligent_sync.sync_sobject_intelligent(session, access_info, sobject, schema, table, match_field='ID', use_stage=False, stage_name=None, force_full_sync=False, force_bulk_api=False, existing_job_id=None, delete_job=True, where_clause=None)`
 - `lht.salesforce.intelligent_sync.IntelligentSync(session, access_info).sync_sobject(...)`
-- `lht.salesforce.retl.upsert(session, access_info, sobject, query, field, batch_size=25000, clear_nulls=False)`, plus `update(..., query, clear_nulls=False)`, `insert(..., query)` and `delete(..., query, field=None)` (`field` unused; Bulk API 2.0 deletes by `Id`)
+- `lht.salesforce.retl.upsert(session, access_info, sobject, query, field, batch_size=25000, clear_nulls=False, log_schema='LOGS')`, plus `update(..., query, clear_nulls=False, log_schema='LOGS')`, `insert(..., query, log_schema='LOGS')` and `delete(..., query, field=None, log_schema='LOGS')` (`field` unused; Bulk API 2.0 deletes by `Id`). `log_schema` places `RETL_HISTORY`, the job history written on every run; qualify it on Unity Catalog.
 - `lht.salesforce.merge.merge(session, access_info, sobject, query, dry_run=False)`
 - `lht.salesforce.jobs.list_bulk_api_jobs / get_bulk_api_job / delete_bulk_api_job / get_ingest_job_results`
 - `lht.user.auth.create_session(credentials=None, connection_name=None)`
@@ -63,7 +63,7 @@ Only these public entry points exist; don't invent others:
 - `lht.warehouse.databricks.connect(session=None, profile=None, **builder_options)` — a `DatabricksWarehouse`: the running Spark session on Databricks, else Databricks Connect against a `~/.databrickscfg` profile.
 - `lht.warehouse.databricks.salesforce_access_info(scope=None, connection_name=None)` — Salesforce credentials from a Databricks secret scope on-platform, from `connections.toml` off it. The one call that makes a notebook file run unchanged on a laptop.
 - `lht.warehouse.databricks.get_spark_session(profile=None, **builder_options)`, `secret(scope, key)`, `on_databricks()`.
-- `lht.salesforce.results_bapi.process_bulk_api_results(session, access_info, job_id, match_field=None, schema='LOGS')` — per-record outcomes into `<schema>.JOB_INFO` / `SUCCESS` / `FAILURE`, on either warehouse. Qualify `schema` on Unity Catalog (`main.lht_logs`); the bare default resolves against the session's current catalog. CLI: `--log-schema`.
+- `lht.salesforce.results_bapi.process_bulk_api_results(session, access_info, job_id, match_field=None, schema='LOGS')` — per-record outcomes into `<schema>.JOB_INFO` / `SUCCESS` / `FAILURE`, on either warehouse. Qualify `schema` on Unity Catalog (`main.lht_logs`); the bare default resolves against the session's current catalog. Pass the same schema as `log_schema` to the `retl.*` call to keep every log table together. CLI: `--log-schema` sets both.
 
 Warehouses: **Snowflake** (sync, reverse ETL, merge) and **Databricks** (reverse ETL, merge). Sync is Snowflake-only.
 

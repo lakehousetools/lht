@@ -52,7 +52,8 @@ def _log_job(warehouse, job_info, schema='LOGS'):
     except Exception as e:
         logger.warning(f"⚠️ Could not log job to {schema}.RETL_HISTORY: {e}")
 
-def upsert(session, access_info, sobject, query, field, batch_size=25000, clear_nulls=False):
+def upsert(session, access_info, sobject, query, field, batch_size=25000, clear_nulls=False,
+           log_schema='LOGS'):
     """
     Upsert records to Salesforce using data from a SQL query executed against Snowflake.
     Processes records in batches to handle large datasets efficiently.
@@ -66,6 +67,10 @@ def upsert(session, access_info, sobject, query, field, batch_size=25000, clear_
         field: External ID field name for upsert operation
         batch_size: Number of records to process per batch (default: 25000)
         clear_nulls: Send NULL as '#N/A' so Salesforce clears the field (default: leave it)
+        log_schema: Schema for the job-history table (RETL_HISTORY), created on
+            first use. Defaults to an unqualified ``LOGS``, which resolves against
+            the session's current database or catalog -- qualify it
+            (``main.lht_logs``) on Unity Catalog.
     """
     logger.info("🚀 STARTING SALESFORCE UPSERT WITH BATCH PROCESSING")
     logger.info(f"📋 Parameters: SObject={sobject}, Field={field}, Batch Size={batch_size:,}")
@@ -144,7 +149,7 @@ def upsert(session, access_info, sobject, query, field, batch_size=25000, clear_
                 logger.info(f"✅ Job created successfully: {job_info}")
                 job_id = job_info['id']
                 logger.debug(f"🆔 Job ID: {job_id}")
-                _log_job(warehouse, job_info)
+                _log_job(warehouse, job_info, schema=log_schema)
 
                 #########################################################
                 ###  SEND BATCH FILE
@@ -233,7 +238,7 @@ def upsert(session, access_info, sobject, query, field, batch_size=25000, clear_
         logger.error(f"Error type: {type(e).__name__}")
         raise
 
-def update(session, access_info, sobject, query, clear_nulls=False):
+def update(session, access_info, sobject, query, clear_nulls=False, log_schema='LOGS'):
     """
     Update existing Salesforce records from a warehouse query. The query must
     select `Id` alongside the fields to set.
@@ -245,6 +250,10 @@ def update(session, access_info, sobject, query, clear_nulls=False):
         sobject: Salesforce object name (e.g., 'Account', 'Contact')
         query: SQL query to execute against the warehouse
         clear_nulls: Send NULL as '#N/A' so Salesforce clears the field (default: leave it)
+        log_schema: Schema for the job-history table (RETL_HISTORY), created on
+            first use. Defaults to an unqualified ``LOGS``, which resolves against
+            the session's current database or catalog -- qualify it
+            (``main.lht_logs``) on Unity Catalog.
     """
     access_token = access_info['access_token']
     warehouse = from_session(session)
@@ -273,7 +282,7 @@ def update(session, access_info, sobject, query, clear_nulls=False):
     logger.debug("creating job")
     response = requests.post(bulk_api_url, headers=headers, data=json.dumps(job_data), timeout=DEFAULT_TIMEOUT)
     job_info = response.json()
-    _log_job(warehouse, job_info)
+    _log_job(warehouse, job_info, schema=log_schema)
 
     job_id = job_info['id']
     logger.info(f"✅ Job created: {job_id}")
@@ -310,7 +319,7 @@ def update(session, access_info, sobject, query, clear_nulls=False):
 
     return job_info
 
-def insert(session, access_info, sobject, query):
+def insert(session, access_info, sobject, query, log_schema='LOGS'):
     """
     Insert new Salesforce records from a warehouse query.
 
@@ -320,6 +329,10 @@ def insert(session, access_info, sobject, query):
         access_info: Salesforce access credentials dictionary
         sobject: Salesforce object name (e.g., 'Account', 'Contact')
         query: SQL query to execute against the warehouse
+        log_schema: Schema for the job-history table (RETL_HISTORY), created on
+            first use. Defaults to an unqualified ``LOGS``, which resolves against
+            the session's current database or catalog -- qualify it
+            (``main.lht_logs``) on Unity Catalog.
     """
     access_token = access_info['access_token']
     warehouse = from_session(session)
@@ -350,7 +363,7 @@ def insert(session, access_info, sobject, query):
     logger.debug("creating job")
     response = requests.post(bulk_api_url, headers=headers, data=json.dumps(job_data), timeout=DEFAULT_TIMEOUT)
     job_info = response.json()
-    _log_job(warehouse, job_info)
+    _log_job(warehouse, job_info, schema=log_schema)
 
     job_id = job_info['id']
     logger.info(f"✅ Job created: {job_id}")
@@ -387,7 +400,7 @@ def insert(session, access_info, sobject, query):
 
     return job_info
 
-def delete(session, access_info, sobject, query, field=None):
+def delete(session, access_info, sobject, query, field=None, log_schema='LOGS'):
     """
     Delete Salesforce records from a warehouse query. The query must select `Id`.
     Deleted records go to the Recycle Bin.
@@ -400,6 +413,10 @@ def delete(session, access_info, sobject, query, field=None):
         query: SQL query to execute against the warehouse
         field: Unused. Bulk API 2.0 deletes by `Id` only; kept so existing
             callers that pass it keep working.
+        log_schema: Schema for the job-history table (RETL_HISTORY), created on
+            first use. Defaults to an unqualified ``LOGS``, which resolves against
+            the session's current database or catalog -- qualify it
+            (``main.lht_logs``) on Unity Catalog.
     """
     access_token = access_info['access_token']
     warehouse = from_session(session)
@@ -430,7 +447,7 @@ def delete(session, access_info, sobject, query, field=None):
     response = requests.post(bulk_api_url, headers=headers, data=json.dumps(job_data), timeout=DEFAULT_TIMEOUT)
     job_info = response.json()
     logger.debug(f"JOB: {job_info}")
-    _log_job(warehouse, job_info)
+    _log_job(warehouse, job_info, schema=log_schema)
 
     job_id = job_info['id']
     logger.info(f"✅ Job created: {job_id}")
