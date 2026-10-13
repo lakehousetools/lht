@@ -55,7 +55,7 @@ The warehouse client is an extra, so pick the one you use:
 | Install | For |
 |---|---|
 | `pip install "lht[snowflake]"` | Snowflake — sync, reverse ETL, merge |
-| `pip install "lht[databricks]"` | Databricks from a laptop or CI, via Databricks Connect |
+| `pip install "lht[databricks]"` | Databricks from a laptop or CI, via Databricks Connect. Needs Python 3.10 or newer: the Databricks Connect releases it installs don't support 3.9 |
 | `pip install lht` | On Databricks compute, where `spark` already exists. Nothing is installed over the runtime's pandas/pyarrow |
 | `pip install "lht[all]"` | Both warehouses |
 

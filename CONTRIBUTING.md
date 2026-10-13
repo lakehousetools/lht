@@ -62,13 +62,15 @@ with no error anywhere — only an engine catches that.
 
 ## Adding a warehouse
 
-lht's sync and reverse-ETL paths currently call Snowpark directly. If you want to add another warehouse (Databricks, BigQuery, Postgres, …), open an issue to discuss the interface first.
+Snowflake and Databricks are supported for reverse ETL and merge, through `lht.warehouse`. Salesforce → warehouse **sync** is still Snowflake-only: it calls Snowpark directly. If you want to add another warehouse (BigQuery, Postgres, …), open an issue to discuss it first.
+
+For reverse ETL a backend is small. Subclass `lht.warehouse.Warehouse`, give it a `TYPES` map for the log-table columns, a `timestamp_literal()`, and a `literal()` if its string escaping differs from the SQL standard's doubled quote (Spark's does, and getting this wrong corrupts data silently rather than failing). Then register it in `_BACKENDS` in `lht/warehouse/__init__.py` so `from_session()` recognises its sessions. Copy `tests/spark/` to run the generated SQL against a real engine: the unit tests only assert what lht writes, and the two worst Databricks bugs were invisible to them.
 
 ## Releasing (maintainers)
 
 1. Update `CHANGELOG.md` and the `version` in `pyproject.toml`.
 2. Run `./publish.sh`. It checks the version against PyPI, cleans and builds the sdist and wheel, runs `twine check`, and uploads to TestPyPI or PyPI. It reads the token from `LHT_PYPI_TOKEN_TEST` / `LHT_PYPI_TOKEN_PROD`, or prompts for it.
-3. Check the install in a clean environment: `pip install lht==<version>` and `lht --help`.
+3. Check the install in a clean environment, **once per way people install it**: `pip install lht==<version>` with no extras and then `lht --help`, since that is what a Databricks cluster gets and the CLI once crashed there for want of Snowpark; and again with `"lht[snowflake]==<version>"`.
 4. Tag the release (`git tag v<version> && git push --tags`) and create a GitHub Release with the changelog entry.
 
 The manual equivalent of step 2:

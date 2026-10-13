@@ -68,6 +68,15 @@ except Exception:
 fi
 [ -n "$remote_latest" ] && echo "Latest version on PyPI:       $remote_latest"
 
+# pyproject.toml can already be ahead of PyPI: the version is usually bumped in the
+# change that makes the release. Then that version IS the release, and proposing
+# patch+1 would skip it -- and PyPI never lets a version number be used again.
+if [ -n "$remote_latest" ] && [ "$current_version" != "$remote_latest" ] \
+   && [ "$(printf '%s\n%s\n' "$current_version" "$remote_latest" | sort -V | tail -n1)" = "$current_version" ]; then
+    default_next="$current_version"
+    echo "(pyproject.toml is already ahead of PyPI, so that is the proposed version.)"
+fi
+
 # --- 2. propose + confirm ---
 read -rp "New version [$default_next]: " new_version
 new_version="${new_version:-$default_next}"
