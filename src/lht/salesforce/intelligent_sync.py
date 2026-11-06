@@ -411,7 +411,7 @@ class IntelligentSync:
             if last_modified_date:
                 # Incremental sync - count records modified since last sync
                 lmd_sf = str(last_modified_date)[:10] + 'T' + str(last_modified_date)[11:19] + '.000Z'
-                query = f"SELECT COUNT(Id) FROM {sobject} WHERE LastModifiedDate > {lmd_sf}"
+                query = f"SELECT COUNT(Id) FROM {sobject} WHERE LastModifiedDate >= {lmd_sf}"
             else:
                 # Full sync - count all records
                 query = f"SELECT COUNT(Id) FROM {sobject}"
@@ -623,7 +623,7 @@ class IntelligentSync:
                 where_conditions = []
                 if last_modified_date:
                     lmd_sf = str(last_modified_date)[:10] + 'T' + str(last_modified_date)[11:19] + '.000Z'
-                    where_conditions.append(f"LastModifiedDate > {lmd_sf}")
+                    where_conditions.append(f"LastModifiedDate >= {lmd_sf}")
                 
                 if self.where_clause:
                     where_conditions.append(self.where_clause)
@@ -865,7 +865,7 @@ class IntelligentSync:
         where_conditions = []
         if last_modified_date:
             lmd_sf = str(last_modified_date)[:10] + 'T' + str(last_modified_date)[11:19] + '.000Z'
-            where_conditions.append(f"LastModifiedDate > {lmd_sf}")
+            where_conditions.append(f"LastModifiedDate >= {lmd_sf}")
         
         if self.where_clause:
             where_conditions.append(self.where_clause)

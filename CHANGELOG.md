@@ -2,6 +2,13 @@
 
 All notable changes to lht. Versions follow [semantic versioning](https://semver.org/).
 
+## 3.0.1 — 2026-11-06
+
+### Fixed
+
+- **Incremental sync no longer skips records that share the newest `LastModifiedDate` second.** The sync asked Salesforce for records modified strictly *after* the newest `LastModifiedDate` in the target table. A bulk write stamps every record of a batch with the same second, so a sync that had loaded only some of them set the watermark to that second and never fetched the rest. The filter is now `>=`; the merge on Id updates the re-read records in place, so nothing is duplicated.
+  - Records that an earlier version already missed are not recovered by this fix alone.
+
 ## 3.0.0 — 2026-10-13
 
 Databricks reverse ETL, and a warehouse-independent core.
