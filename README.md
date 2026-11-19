@@ -263,6 +263,7 @@ Please remove credentials, org names and customer data from anything you post.
 - Salesforce → Databricks sync (reverse ETL and merge already work there; on Databricks, Lakeflow Connect handles ingestion today)
 - Additional warehouses (BigQuery, Postgres) behind the same CLI
 - Hard-delete detection for incremental sync
+- Pick up archive changes in incremental sync. Archiving a Task or Event updates `SystemModstamp` but not `LastModifiedDate`, so a sync that filters only on `LastModifiedDate` leaves `IsArchived` stale in the warehouse. Planned: also read rows whose `SystemModstamp` is past the watermark, plus a one-time backfill for rows already stale
 - Scheduling recipes (Airflow, Dagster, Snowflake Tasks)
 
 Ideas are welcome in [Discussions](https://github.com/lakehousetools/lht/discussions/categories/ideas); pull requests are welcome too.
